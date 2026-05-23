@@ -7,6 +7,7 @@ import pandas as pd
 from paper_analysis.diagnostics.pipeline import run_diagnostics
 from paper_analysis.eeg.pipeline import run_eeg_pipeline
 from paper_analysis.eye_tracking.pipeline import run_eye_pipeline
+from paper_analysis.figures import run_figure_pipeline
 from paper_analysis.fusion.pipeline import run_fusion_pipeline
 from paper_analysis.intake.pipeline import build_manifests
 from paper_analysis.questionnaire.pipeline import run_questionnaire_pipeline
@@ -65,6 +66,11 @@ def test_full_pipeline_builds_paper_outputs(tmp_path: Path) -> None:
         reviewer_map=Path("configs/reviewer_response_map.json"),
         outdir=tmp_path / "outputs" / "07_paper_tables",
     )
+    figures = run_figure_pipeline(
+        outputs_root=tmp_path / "outputs",
+        figure_contracts_config=Path("configs/figure_contracts.json"),
+        outdir=tmp_path / "outputs" / "10_figures",
+    )
 
     master = pd.read_csv(fusion["analysis_master_long"])
     assert {"participant_id", "scene_id", "q_S1", "eeg_O_theta", "FCR", "attention_share"}.issubset(master.columns)
@@ -82,6 +88,17 @@ def test_full_pipeline_builds_paper_outputs(tmp_path: Path) -> None:
     assert {"issue_id", "response_readiness"}.issubset(pd.read_csv(reporting["reviewer_issue_matrix"]).columns)
     assert {"dataset_id", "access_route", "identifier"}.issubset(pd.read_csv(reporting["data_availability_index"]).columns)
     assert reporting["data_availability_statement"].exists()
+    figure_manifest = pd.read_csv(figures["figure_manifest"])
+    figure_qa = pd.read_csv(figures["figure_qa"])
+    assert {"figure_id", "svg", "pdf", "tiff", "png", "source_csv", "qa_status"}.issubset(figure_manifest.columns)
+    assert figure_manifest.shape[0] == 5
+    assert figure_qa["qa_status"].isin(["pass"]).all()
+    for _, row in figure_manifest.iterrows():
+        assert Path(row["svg"]).exists()
+        assert Path(row["pdf"]).exists()
+        assert Path(row["tiff"]).exists()
+        assert Path(row["png"]).exists()
+        assert Path(row["source_csv"]).exists()
 
 
 def test_questionnaire_wide_to_long_keeps_design_columns(tmp_path: Path) -> None:

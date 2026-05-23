@@ -55,12 +55,12 @@
       "label": "Figure and table source data",
       "stage": "source_data",
       "source_config_key": "figure_contracts",
-      "derived_outputs": ["outputs/07_paper_tables/*.csv", "outputs/08_reviewer_response/*.csv", "outputs/09_data_package/*.csv"],
+      "derived_outputs": ["outputs/07_paper_tables/*.csv", "outputs/08_reviewer_response/*.csv", "outputs/09_data_package/*.csv", "outputs/10_figures/source_data/*_source.csv", "outputs/10_figures/figure_manifest.csv", "outputs/10_figures/figure_qa.csv"],
       "access_route": "public_repository",
       "contains_personal_data": false,
       "repository_target": "AUTHOR_INPUT_NEEDED",
       "identifier": "AUTHOR_INPUT_NEEDED",
-      "manuscript_use": "Source data underlying manuscript figures, paper tables, and response-to-reviewers material."
+      "manuscript_use": "Source data underlying manuscript figures, figure QA, paper tables, and response-to-reviewers material."
     }
   ]
 }

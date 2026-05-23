@@ -1,14 +1,32 @@
 {
-  "figure_contract_status": "analysis_ready_contracts_no_final_artwork",
+  "figure_contract_status": "analysis_ready_contracts_with_python_export",
   "backend_policy": "Python-only for repository-generated quantitative figures unless the manuscript team explicitly elects R before figure production.",
+  "journal_export_contract": {
+    "backend": "python_matplotlib",
+    "width_mm": 183,
+    "height_mm": 120,
+    "dpi": 600,
+    "editable_text": true,
+    "formats": ["svg", "pdf", "tiff", "png", "source_csv"],
+    "font_policy": "Arial/Helvetica preferred with DejaVu Sans fallback; SVG text remains editable and PDF uses TrueType fonts.",
+    "error_bar_policy": "Show mean with SEM when replicate-level data are available; otherwise mark error bars as not estimable in source data and QA.",
+    "image_integrity_policy": "No image manipulation beyond deterministic plotting from source CSV files."
+  },
   "figures": [
     {
       "figure_id": "Fig1_design_and_sample",
       "manuscript_role": "Methods and sample validity",
       "core_conclusion": "The final analysis sample and scene design are traceable by participant group, recruitment batch, WWR, complexity, and presentation order.",
       "archetype": "quantitative grid",
+      "panel_map": [
+        {"panel_id": "A", "claim_role": "Participant flow", "source_data": "outputs/01_sample_qc/participant_flow.csv"},
+        {"panel_id": "B", "claim_role": "Group balance", "source_data": "outputs/01_sample_qc/group_balance_before_after.csv"},
+        {"panel_id": "C", "claim_role": "Scene design balance", "source_data": "outputs/01_sample_qc/scene_design_balance.csv"}
+      ],
       "source_data": ["outputs/01_sample_qc/participant_flow.csv", "outputs/01_sample_qc/group_balance_before_after.csv", "outputs/01_sample_qc/scene_design_balance.csv"],
       "review_risk": "Must not hide low-experience supplementation or imbalance; report before/after counts explicitly.",
+      "statistics_note": "Counts and percentages; no inferential test is implied.",
+      "image_integrity_note": "All bars are direct counts from sample/design QC CSV files.",
       "export_targets": ["svg", "pdf", "tiff", "source_csv"]
     },
     {
@@ -16,8 +34,14 @@
       "manuscript_role": "Subjective spatial-perception outcomes",
       "core_conclusion": "WWR and visual complexity effects on S1-S5 are evaluated as item-level outcomes rather than an unvalidated composite scale.",
       "archetype": "quantitative grid",
+      "panel_map": [
+        {"panel_id": "A", "claim_role": "S-item mean by WWR", "source_data": "outputs/02_questionnaire/s_items_descriptives.csv"},
+        {"panel_id": "B", "claim_role": "WWR planned contrast", "source_data": "outputs/06_models/emmeans_contrasts.csv"}
+      ],
       "source_data": ["outputs/02_questionnaire/s_items_descriptives.csv", "outputs/06_models/model_results.csv", "outputs/06_models/emmeans_contrasts.csv"],
       "review_risk": "Avoid claiming a definitive WWR optimum from three levels; use planned-contrast language.",
+      "statistics_note": "Mean with SEM when group-level variability is available; planned contrast is exploratory trend evidence.",
+      "image_integrity_note": "No smoothing or interpolation beyond connecting observed WWR levels.",
       "export_targets": ["svg", "pdf", "tiff", "source_csv"]
     },
     {
@@ -25,8 +49,15 @@
       "manuscript_role": "Eye-tracking measurement validity",
       "core_conclusion": "AOI-based eye metrics are interpretable only when AOI area, visit rate, and sample coverage are reported.",
       "archetype": "quantitative grid",
+      "panel_map": [
+        {"panel_id": "A", "claim_role": "AOI visited rate", "source_data": "outputs/03_eye_tracking/aoi_validation_summary.csv"},
+        {"panel_id": "B", "claim_role": "AOI geometry", "source_data": "outputs/03_eye_tracking/aoi_validation_summary.csv"},
+        {"panel_id": "C", "claim_role": "Eye-tracking file QC", "source_data": "outputs/03_eye_tracking/eye_qc.csv"}
+      ],
       "source_data": ["outputs/03_eye_tracking/aoi_validation_summary.csv", "outputs/03_eye_tracking/eye_qc.csv", "outputs/03_eye_tracking/eye_aoi_trial_long.csv"],
       "review_risk": "AOI validity must be shown before interpreting gaze allocation differences.",
+      "statistics_note": "AOI means, sample coverage, and missing-file counts.",
+      "image_integrity_note": "AOI geometry values are plotted directly from validation output.",
       "export_targets": ["svg", "pdf", "tiff", "source_csv"]
     },
     {
@@ -34,8 +65,15 @@
       "manuscript_role": "Multimodal EEG-eye convergence",
       "core_conclusion": "EEG interpretations are bounded by synchronization QC and convergence with eye-tracking and questionnaire evidence.",
       "archetype": "asymmetric mixed-modality figure",
+      "panel_map": [
+        {"panel_id": "A", "claim_role": "EEG-eye scene projection", "source_data": "outputs/05_multimodal_fusion/aligned_scene_table.csv"},
+        {"panel_id": "B", "claim_role": "Synchronization QC", "source_data": "outputs/05_multimodal_fusion/sync_qc.csv"},
+        {"panel_id": "C", "claim_role": "Claim support", "source_data": "outputs/05_multimodal_fusion/claim_support_matrix.csv"}
+      ],
       "source_data": ["outputs/05_multimodal_fusion/aligned_scene_table.csv", "outputs/05_multimodal_fusion/aligned_timebin_table.csv", "outputs/05_multimodal_fusion/sync_qc.csv", "outputs/05_multimodal_fusion/time_sync_map.csv", "outputs/05_multimodal_fusion/claim_support_matrix.csv"],
       "review_risk": "Do not present EEG-only cognitive-load claims unless multimodal convergence and alignment QC support them.",
+      "statistics_note": "Scene-level EEG-eye scatter, duration-delta summary, and categorical claim-support score.",
+      "image_integrity_note": "No temporal interpolation is plotted; time-bin and alignment tables are retained as source data.",
       "export_targets": ["svg", "pdf", "tiff", "source_csv"]
     },
     {
@@ -43,8 +81,15 @@
       "manuscript_role": "Reviewer-facing robustness and bounded claims",
       "core_conclusion": "Gender, order/fatigue, recruitment batch, and nonlinear WWR sensitivity analyses determine how strongly each manuscript claim can be stated.",
       "archetype": "quantitative grid",
+      "panel_map": [
+        {"panel_id": "A", "claim_role": "Order/fatigue diagnostics", "source_data": "outputs/06_robustness/order_fatigue_effects.csv"},
+        {"panel_id": "B", "claim_role": "WWR nonlinearity sensitivity", "source_data": "outputs/06_robustness/nonlinear_wwr_sensitivity.csv"},
+        {"panel_id": "C", "claim_role": "Claim strength", "source_data": "outputs/07_paper_tables/claim_strength_table.csv"}
+      ],
       "source_data": ["outputs/06_robustness/gender_sensitivity.csv", "outputs/06_robustness/order_fatigue_effects.csv", "outputs/06_robustness/nonlinear_wwr_sensitivity.csv", "outputs/07_paper_tables/claim_strength_table.csv"],
       "review_risk": "Claim strength must be downgraded when sensitivity checks or modality convergence are incomplete.",
+      "statistics_note": "Diagnostic correlations, WWR45 peak index, and categorical claim-strength scores.",
+      "image_integrity_note": "Claim scores are categorical encodings for visual audit only; manuscript wording uses the original labels.",
       "export_targets": ["svg", "pdf", "tiff", "source_csv"]
     }
   ]

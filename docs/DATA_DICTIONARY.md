@@ -71,3 +71,8 @@ EEG columns follow ROI + band naming such as `O_theta`, `F_theta`, `O_alpha`. In
 | `identifier` | DOI/accession/record identifier or `AUTHOR_INPUT_NEEDED` placeholder. |
 | `figure_id` | Figure contract identifier in `configs/figure_contracts.json`. |
 | `source_file` | CSV or table that should be deposited as source data for a manuscript figure. |
+| `panel_id` | Figure panel identifier used in panel-level source data. |
+| `error_bar_definition` | Explicit definition for plotted uncertainty or a note that no error bar is applicable. |
+| `qa_status` | Figure QA status, expected to be `pass` for submission-ready generated figures. |
+| `editable_text_policy` | SVG/PDF text-editability policy used by the plotting backend. |
+| `image_integrity_note` | Deterministic plotting and image-integrity note linked to each figure contract. |

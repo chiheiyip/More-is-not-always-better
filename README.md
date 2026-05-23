@@ -24,6 +24,7 @@ For real data, copy `configs/paths.example.json` to `configs/paths.local.json` a
 - `outputs/07_paper_tables/`: paper-facing tables, claim strength table, result summary.
 - `outputs/08_reviewer_response/`: reviewer issue to evidence index and reviewer issue matrix.
 - `outputs/09_data_package/`: Data Availability draft and dataset/source-data availability index.
+- `outputs/10_figures/`: Nature-style SVG/PDF/TIFF/PNG figure exports, panel source CSV files, figure manifest, legends, and QA.
 
 ## Reviewer-Driven Principles
 
@@ -55,4 +56,4 @@ These are logic sources, not runtime dependencies.
 - `nature-response`: reviewer concerns are mapped through `configs/reviewer_response_map.json`, `docs/REVIEWER_ISSUE_MATRIX.md`, and `outputs/08_reviewer_response/`.
 - `nature-writing`: claim strength is explicitly constrained by `outputs/07_paper_tables/claim_strength_table.csv`.
 - `nature-data`: dataset access routes and unresolved repository identifiers are tracked by `configs/data_availability.json` and `outputs/09_data_package/`.
-- `nature-figure`: each paper figure has a claim/evidence/source-data/export contract in `configs/figure_contracts.json` and `outputs/07_paper_tables/source_data_index.csv`.
+- `nature-figure`: each paper figure has a claim/evidence/source-data/export contract in `configs/figure_contracts.json`, plus Python/matplotlib SVG/PDF/TIFF/PNG exports, panel source CSV files, legends, and QA under `outputs/10_figures/`.

@@ -102,8 +102,12 @@ def figure_contract_index(figure_contracts_config: str | Path) -> pd.DataFrame:
         out = row.copy()
         out["source_data"] = _join_list(out.get("source_data"))
         out["export_targets"] = _join_list(out.get("export_targets"))
+        out["panel_map"] = _join_panel_map(out.get("panel_map"))
+        out["statistics_note"] = out.get("statistics_note", "")
+        out["image_integrity_note"] = out.get("image_integrity_note", "")
         out["contract_status"] = data.get("figure_contract_status", "")
         out["backend_policy"] = data.get("backend_policy", "")
+        out["journal_export_contract"] = json.dumps(data.get("journal_export_contract", {}), ensure_ascii=False)
         rows.append(out)
     return pd.DataFrame(rows)
 
@@ -213,3 +217,15 @@ def _join_list(value: object) -> str:
     if value is None:
         return ""
     return str(value)
+
+
+def _join_panel_map(value: object) -> str:
+    if not isinstance(value, list):
+        return "" if value is None else str(value)
+    rows = []
+    for panel in value:
+        if isinstance(panel, dict):
+            rows.append(f"{panel.get('panel_id', '')}:{panel.get('claim_role', '')}:{panel.get('source_data', '')}")
+        else:
+            rows.append(str(panel))
+    return ";".join(rows)

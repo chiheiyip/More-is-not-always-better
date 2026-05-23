@@ -10,3 +10,4 @@
 8. Every reviewer concern must map to an evidence output or an explicit `AUTHOR_INPUT_NEEDED` placeholder.
 9. Figure claims must have source-data contracts before final artwork is produced.
 10. Data Availability separates raw, processed, source-data, and restricted-access materials.
+11. Repository-generated scientific figures use Python/matplotlib only, with editable SVG, vector PDF, high-resolution TIFF, QA PNG, panel source CSV, and a figure QA table.

@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from paper_analysis.diagnostics.pipeline import run_diagnostics
 from paper_analysis.eeg.pipeline import run_eeg_pipeline
 from paper_analysis.eye_tracking.pipeline import run_eye_pipeline
+from paper_analysis.figures import run_figure_pipeline
 from paper_analysis.fusion.pipeline import run_fusion_pipeline
 from paper_analysis.intake.pipeline import build_manifests
 from paper_analysis.questionnaire.pipeline import run_questionnaire_pipeline
@@ -74,8 +75,13 @@ def main() -> None:
         reviewer_map="configs/reviewer_response_map.json",
         outdir=outputs / "07_paper_tables",
     )
+    figures = run_figure_pipeline(
+        outputs_root=outputs,
+        figure_contracts_config="configs/figure_contracts.json",
+        outdir=outputs / "10_figures",
+    )
 
-    for group in [intake, questionnaire, eye, eeg, fusion, stats, diagnostics, reporting]:
+    for group in [intake, questionnaire, eye, eeg, fusion, stats, diagnostics, reporting, figures]:
         for name, path in group.items():
             print(f"{name}: {path}")
 

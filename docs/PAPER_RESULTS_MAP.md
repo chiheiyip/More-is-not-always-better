@@ -13,5 +13,6 @@
 | 3 Results | `07_build_paper_outputs.py` | `outputs/07_paper_tables/table_model_results.csv` |
 | Discussion and limitations | `06_diagnostics_and_sensitivity.py` | `outputs/06_robustness/*.csv`, `outputs/07_paper_tables/claim_strength_table.csv` |
 | Figure source data | `07_build_paper_outputs.py` | `outputs/07_paper_tables/figure_contracts_index.csv`, `outputs/07_paper_tables/source_data_index.csv` |
+| Nature-style figures | `08_build_figures.py` | `outputs/10_figures/figures/*.svg`, `outputs/10_figures/figures/*.pdf`, `outputs/10_figures/figures/*.tiff`, `outputs/10_figures/source_data/*_source.csv`, `outputs/10_figures/figure_qa.csv` |
 | Response to reviewers | `07_build_paper_outputs.py` | `outputs/08_reviewer_response/response_evidence_index.csv`, `outputs/08_reviewer_response/reviewer_issue_matrix.csv` |
 | Data Availability | `07_build_paper_outputs.py` | `outputs/09_data_package/data_availability_index.csv`, `outputs/09_data_package/data_availability_statement.md` |

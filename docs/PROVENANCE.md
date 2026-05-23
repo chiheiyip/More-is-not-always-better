@@ -48,5 +48,6 @@ All later tables must preserve these keys.
 | Robustness and reviewer concerns | `outputs/06_robustness/*.csv` |
 | Bounded discussion claims | `outputs/07_paper_tables/claim_strength_table.csv` |
 | Figure source data | `outputs/07_paper_tables/source_data_index.csv` |
+| Nature-style figure exports and QA | `outputs/10_figures/figure_manifest.csv`, `outputs/10_figures/figure_qa.csv`, `outputs/10_figures/source_data/*_source.csv` |
 | Reviewer response evidence | `outputs/08_reviewer_response/*.csv` |
 | Data availability package | `outputs/09_data_package/*.csv`, `outputs/09_data_package/*.md` |

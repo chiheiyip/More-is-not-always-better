@@ -1,6 +1,6 @@
 # Figure Contracts
 
-Figures are treated as claim-evidence objects, not only visual styling tasks. The machine-readable source is `configs/figure_contracts.json`; `scripts/run_all.py` exports `outputs/07_paper_tables/figure_contracts_index.csv` and `outputs/07_paper_tables/source_data_index.csv`.
+Figures are treated as claim-evidence objects, not only visual styling tasks. The machine-readable source is `configs/figure_contracts.json`; `scripts/run_all.py` exports `outputs/07_paper_tables/figure_contracts_index.csv`, `outputs/07_paper_tables/source_data_index.csv`, and complete figure artifacts under `outputs/10_figures/`.
 
 | Figure | Core conclusion | Primary source data | Review risk |
 |---|---|---|---|
@@ -12,4 +12,11 @@ Figures are treated as claim-evidence objects, not only visual styling tasks. Th
 
 ## Export Contract
 
-Final figure scripts should export editable `svg`, vector `pdf`, high-resolution `tiff`, and the exact `source_csv` used by every panel.
+`scripts/08_build_figures.py` uses the Python/matplotlib backend only. It exports editable `svg`, vector `pdf`, high-resolution `tiff`, QA `png`, and the exact source CSV used by every figure.
+
+## QA Outputs
+
+- `outputs/10_figures/figure_manifest.csv`: one row per figure with export paths and source CSV.
+- `outputs/10_figures/figure_qa.csv`: backend, export, source-data, `n`, error-bar, and image-integrity checks.
+- `outputs/10_figures/figure_legends.md`: figure conclusions, panel roles, statistics notes, source data, and review risks.
+- `outputs/10_figures/source_data/*_source.csv`: panel-level source data with `n` and `error_bar_definition`.

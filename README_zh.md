@@ -24,6 +24,7 @@ python scripts/run_all.py --config configs/paths.example.json
 - `outputs/07_paper_tables/`：论文表格、claim strength、figure contracts、source data index。
 - `outputs/08_reviewer_response/`：审稿意见到证据文件的回应索引和 reviewer issue matrix。
 - `outputs/09_data_package/`：Nature-style 数据可用性索引和 Data Availability 草稿。
+- `outputs/10_figures/`：Nature-style SVG/PDF/TIFF/PNG 成图、panel source CSV、figure manifest、图注说明和 QA。
 
 ## 面向拒稿意见的设计
 
@@ -49,4 +50,4 @@ python scripts/run_all.py --config configs/paths.example.json
 - `nature-response`：`configs/reviewer_response_map.json`、`docs/REVIEWER_ISSUE_MATRIX.md` 和 `outputs/08_reviewer_response/` 保证每条审稿质疑都有行动和证据文件。
 - `nature-writing`：`claim_strength_table.csv` 把论文主张限制在当前证据强度内，避免过度结论。
 - `nature-data`：`configs/data_availability.json`、`docs/DATA_AVAILABILITY_DRAFT.md` 和 `outputs/09_data_package/` 明确 raw/processed/source data 的开放或受限路径。
-- `nature-figure`：`configs/figure_contracts.json`、`docs/FIGURE_CONTRACTS.md` 和 `source_data_index.csv` 为每个论文图建立结论、证据链、源数据和导出格式契约。
+- `nature-figure`：`configs/figure_contracts.json`、`docs/FIGURE_CONTRACTS.md`、`outputs/10_figures/` 为每个论文图建立结论、证据链、panel 源数据、SVG/PDF/TIFF/PNG 成图、图注说明和 QA。

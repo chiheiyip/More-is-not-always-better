@@ -12,6 +12,7 @@ dependencies = [
   "pandas>=1.5",
   "scipy>=1.10",
   "statsmodels>=0.14",
+  "matplotlib>=3.8",
   "openpyxl>=3.1",
 ]
 
