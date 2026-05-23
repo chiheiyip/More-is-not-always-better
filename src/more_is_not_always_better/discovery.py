@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import re
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
+from xml.etree import ElementTree as ET
 
 import pandas as pd
 
@@ -12,10 +14,21 @@ from .io import write_csv
 
 EYE_FILE_RE = re.compile(r"^raw_(?P<subject>.+?)_(?P<record_id>\d+)_(?P<split_id>\d+)\.csv$", re.IGNORECASE)
 SCENE_DIR_RE = re.compile(
-    r"^\((?P<code_order1>\d+-\d+-\d+)、(?P<code_order2>\d+-\d+-\d+)\)\s*"
-    r"(?P<scene_group>组\d+)-C(?P<cond>\d+)W(?P<wwr>\d+)$"
+    r"^\((?P<code_order1>\d+-\d+-\d+)\u3001(?P<code_order2>\d+-\d+-\d+)\)\s*"
+    r"(?P<scene_group>\u7ec4\d+)-C(?P<cond>\d+)W(?P<wwr>\d+)$"
 )
 GENERIC_EYE_SUBJECTS = {"user", "user1", "user2", "test", "pilot", "practice"}
+QUESTIONNAIRE_COLUMN_CANDIDATES = {
+    "participant_id": ["\u59d3\u540d", "name"],
+    "Order": ["Q1.8_\u573a\u666f\u987a\u5e8f\u7f16\u53f7", "Q1.8"],
+    "Experience": ["Q1.4_\u4e52\u4e53\u7403\u7ecf\u9a8c\uff1a", "Q1.4"],
+    "SportFreq": ["Q1.5_\u8fd1 6 \u4e2a\u6708\u5e73\u5747\u8fd0\u52a8\u9891\u7387\uff1a", "Q1.5"],
+    "Age": ["Q1.1_\u5e74\u9f84\uff08\u5c81\uff09\uff1a", "Q1.1"],
+    "Gender": ["Q1.2_\u6027\u522b\uff1a", "Q1.2"],
+    "RightHanded": ["Q1.3_\u662f\u5426\u60ef\u7528\u53f3\u624b\uff1a", "Q1.3"],
+    "VRExperience": ["Q1.6_VR \u4f7f\u7528\u7ecf\u9a8c\uff1a", "Q1.6"],
+    "MotionSickness": ["Q1.7_\u662f\u5426\u5bb9\u6613\u6655\u52a8/\u6655 VR\uff1a", "Q1.7"],
+}
 
 
 @dataclass(frozen=True)
@@ -133,9 +146,12 @@ def build_participants_from_roots(
     out_csv: Optional[str | Path] = None,
     include_adaptation: bool = False,
     eye_alias_csv: Optional[str | Path] = None,
+    questionnaire_xlsx: Optional[str | Path] = None,
 ) -> pd.DataFrame:
     eye = apply_eye_aliases(scan_eye_raw(eye_root, include_adaptation=include_adaptation), alias_csv=eye_alias_csv)
     eeg = scan_eeg_raw(eeg_root)
+    questionnaire = load_questionnaire_metadata(questionnaire_xlsx) if questionnaire_xlsx else pd.DataFrame()
+    questionnaire_index = questionnaire.set_index("participant_id") if not questionnaire.empty else pd.DataFrame()
     eye_counts = eye.groupby("participant_id")["eye_csv_path"].nunique().rename("eye_scene_file_count") if not eye.empty else pd.Series(dtype=int)
     eeg_ids = set(eeg["participant_id"]) if not eeg.empty else set()
     eye_ids = set(eye["participant_id"]) if not eye.empty else set()
@@ -162,6 +178,22 @@ def build_participants_from_roots(
             row["eeg_set_path"] = eeg_paths.loc[participant_id, "eeg_set_path"]
             row["eeg_fdt_path"] = eeg_paths.loc[participant_id, "eeg_fdt_path"]
             row["has_fdt"] = bool(eeg_paths.loc[participant_id, "has_fdt"])
+        if not questionnaire_index.empty and participant_id in questionnaire_index.index:
+            qrow = questionnaire_index.loc[participant_id]
+            for col in [
+                "Order",
+                "Experience",
+                "SportFreq",
+                "Age",
+                "Gender",
+                "RightHanded",
+                "VRExperience",
+                "MotionSickness",
+            ]:
+                row[col] = qrow.get(col, "")
+            row["has_questionnaire"] = True
+        else:
+            row["has_questionnaire"] = False
         rows.append(row)
 
     out = pd.DataFrame(rows)
@@ -266,6 +298,7 @@ def summarize_roots(
     eye_root: str | Path,
     eeg_root: str | Path,
     eye_alias_csv: Optional[str | Path] = None,
+    questionnaire_xlsx: Optional[str | Path] = None,
 ) -> dict:
     eye_raw = scan_eye_raw(eye_root)
     eye = apply_eye_aliases(eye_raw, alias_csv=eye_alias_csv)
@@ -274,6 +307,8 @@ def summarize_roots(
     eeg_ids = set(eeg["participant_id"]) if not eeg.empty else set()
     scene_folders = sorted(eye["source_folder"].unique().tolist()) if not eye.empty else []
     alias_rows = eye.loc[eye.get("alias_source", "") != ""] if not eye.empty else pd.DataFrame()
+    questionnaire = load_questionnaire_metadata(questionnaire_xlsx) if questionnaire_xlsx else pd.DataFrame()
+    questionnaire_ids = set(questionnaire["participant_id"]) if not questionnaire.empty else set()
     return {
         "eye_csv_count": int(len(eye_raw)),
         "eye_subject_count_raw": int(eye_raw["participant_id"].nunique()) if not eye_raw.empty else 0,
@@ -284,10 +319,135 @@ def summarize_roots(
         "matched_subject_count": int(len(eye_ids & eeg_ids)),
         "eye_only_subjects": sorted(eye_ids - eeg_ids),
         "eeg_only_subjects": sorted(eeg_ids - eye_ids),
+        "questionnaire_subject_count": int(len(questionnaire_ids)),
+        "questionnaire_missing_for_eye_subjects": sorted(eye_ids - questionnaire_ids) if questionnaire_xlsx else [],
+        "questionnaire_order_counts": questionnaire["Order"].value_counts(dropna=False).to_dict() if not questionnaire.empty else {},
         "aliased_eye_rows": int(len(alias_rows)),
         "aliases": sorted(alias_rows[["raw_eye_subject_id", "participant_id", "eye_record_id", "alias_source"]].drop_duplicates().to_dict("records"), key=lambda x: str(x)),
         "scene_folders": scene_folders,
     }
+
+
+def load_questionnaire_metadata(path: str | Path) -> pd.DataFrame:
+    workbook = Path(path)
+    if not workbook.exists():
+        raise FileNotFoundError(f"Questionnaire workbook not found: {workbook}")
+    df = _read_xlsx_first_sheet(workbook)
+    resolved: dict[str, str] = {}
+    for output_col, candidates in QUESTIONNAIRE_COLUMN_CANDIDATES.items():
+        actual = _first_existing(df.columns, candidates)
+        if actual is not None:
+            resolved[output_col] = actual
+    if "participant_id" not in resolved:
+        raise ValueError("Questionnaire workbook must contain a participant name column")
+
+    out = pd.DataFrame()
+    out["participant_id"] = df[resolved["participant_id"]].astype(str).str.strip()
+    for output_col in [
+        "Order",
+        "Experience",
+        "SportFreq",
+        "Age",
+        "Gender",
+        "RightHanded",
+        "VRExperience",
+        "MotionSickness",
+    ]:
+        out[output_col] = df[resolved[output_col]] if output_col in resolved else ""
+
+    out = out.loc[out["participant_id"].ne("") & out["participant_id"].ne("nan")].copy()
+    out["Order"] = pd.to_numeric(out["Order"], errors="coerce").astype("Int64")
+    if out["participant_id"].duplicated().any():
+        dupes = out.loc[out["participant_id"].duplicated(keep=False), "participant_id"].tolist()
+        raise ValueError(f"Questionnaire contains duplicate participant names: {dupes[:10]}")
+    return out
+
+
+def _read_xlsx_first_sheet(workbook: Path) -> pd.DataFrame:
+    try:
+        return pd.read_excel(workbook, sheet_name=0)
+    except ImportError:
+        return _read_xlsx_first_sheet_stdlib(workbook)
+
+
+def _read_xlsx_first_sheet_stdlib(workbook: Path) -> pd.DataFrame:
+    ns = {
+        "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+        "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
+        "officeRel": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+    }
+    with zipfile.ZipFile(workbook) as zf:
+        shared_strings = _read_shared_strings(zf, ns)
+        workbook_xml = ET.fromstring(zf.read("xl/workbook.xml"))
+        first_sheet = workbook_xml.find("main:sheets/main:sheet", ns)
+        if first_sheet is None:
+            return pd.DataFrame()
+        rel_id = first_sheet.attrib.get(f"{{{ns['officeRel']}}}id")
+        rels_xml = ET.fromstring(zf.read("xl/_rels/workbook.xml.rels"))
+        target = None
+        for rel in rels_xml.findall("rel:Relationship", ns):
+            if rel.attrib.get("Id") == rel_id:
+                target = rel.attrib.get("Target")
+                break
+        if not target:
+            raise ValueError(f"Cannot resolve first worksheet in {workbook}")
+        sheet_path = "xl/" + target.lstrip("/")
+        sheet_xml = ET.fromstring(zf.read(sheet_path))
+        rows = []
+        max_col = 0
+        for row_el in sheet_xml.findall("main:sheetData/main:row", ns):
+            values: dict[int, object] = {}
+            for cell in row_el.findall("main:c", ns):
+                col_index = _xlsx_col_to_index(cell.attrib.get("r", "A1"))
+                values[col_index] = _xlsx_cell_value(cell, shared_strings, ns)
+                max_col = max(max_col, col_index)
+            rows.append([values.get(i, "") for i in range(max_col + 1)])
+    if not rows:
+        return pd.DataFrame()
+    header = [str(v) for v in rows[0]]
+    data = [row + [""] * (len(header) - len(row)) for row in rows[1:]]
+    return pd.DataFrame(data, columns=header)
+
+
+def _read_shared_strings(zf: zipfile.ZipFile, ns: dict[str, str]) -> list[str]:
+    if "xl/sharedStrings.xml" not in zf.namelist():
+        return []
+    root = ET.fromstring(zf.read("xl/sharedStrings.xml"))
+    strings: list[str] = []
+    for si in root.findall("main:si", ns):
+        text = "".join(t.text or "" for t in si.findall(".//main:t", ns))
+        strings.append(text)
+    return strings
+
+
+def _xlsx_cell_value(cell: ET.Element, shared_strings: list[str], ns: dict[str, str]) -> object:
+    cell_type = cell.attrib.get("t")
+    if cell_type == "inlineStr":
+        return "".join(t.text or "" for t in cell.findall(".//main:t", ns))
+    value_el = cell.find("main:v", ns)
+    if value_el is None or value_el.text is None:
+        return ""
+    value = value_el.text
+    if cell_type == "s":
+        idx = int(value)
+        return shared_strings[idx] if idx < len(shared_strings) else ""
+    if cell_type in {"str", "b"}:
+        return value
+    try:
+        numeric = float(value)
+        return int(numeric) if numeric.is_integer() else numeric
+    except ValueError:
+        return value
+
+
+def _xlsx_col_to_index(cell_ref: str) -> int:
+    letters = re.match(r"([A-Z]+)", cell_ref.upper())
+    if not letters:
+        return 0
+    index = 0
+    for char in letters.group(1):
+        index = index * 26 + (ord(char) - ord("A") + 1)
+    return index - 1
 
 
 def _scene_position_from_order_code(order_code: object) -> tuple[int, int, int]:
@@ -321,7 +481,7 @@ def _truthy(value: object) -> bool:
 
 
 def _is_adaptation_folder(folder_name: str) -> bool:
-    return "适应" in folder_name or folder_name.lower() in {"adaptation", "practice"}
+    return "\u9002\u5e94" in folder_name or folder_name.lower() in {"adaptation", "practice"}
 
 
 def _is_generic_eye_subject(value: object) -> bool:

@@ -27,6 +27,8 @@ Recommended columns:
 subject_id,scene_id,block_id,cycle_in_block,view_start_s,view_end_s,view_dur_s,O_alpha,O_theta,O_beta,F_theta,F_alpha,F_beta,P_theta,P_alpha,P_beta
 ```
 
+`scene_id` is the presentation position `1..12`, matching `participants.csv:Order` and the scene manifest generated from the questionnaire. `presentation_pos` is also exported as an explicit duplicate for clarity.
+
 Subject mapping:
 
 - `subject_id` is mapped to `participants.csv:eeg_subject_id`.

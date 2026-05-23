@@ -72,9 +72,10 @@ for s = reshape(start_idx, 1, [])
     end
     scene_id = scene_id + 1;
     segment = double(EEG.data(:, start_sample:end_sample));
-    row = table(string(subject_id), scene_id, ceil(scene_id / 6), mod(scene_id - 1, 6) + 1, ...
+    presentation_pos = scene_id;
+    row = table(string(subject_id), scene_id, presentation_pos, ceil(scene_id / 6), mod(scene_id - 1, 6) + 1, ...
         start_sample / EEG.srate, end_sample / EEG.srate, (end_sample - start_sample) / EEG.srate, ...
-        'VariableNames', {'subject_id','scene_id','block_id','cycle_in_block','view_start_s','view_end_s','view_dur_s'});
+        'VariableNames', {'subject_id','scene_id','presentation_pos','block_id','cycle_in_block','view_start_s','view_end_s','view_dur_s'});
     row = append_bandpower_columns(row, segment, EEG, opts.Rois, opts.Bands);
     rows = [rows; row]; %#ok<AGROW>
 end

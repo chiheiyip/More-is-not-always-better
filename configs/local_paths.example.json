@@ -1,6 +1,7 @@
 {
   "eye_root": "E:/2.7\u773c\u52a8\u6570\u636e/\u6620\u5c04",
   "eeg_raw_root": "E:/eeg\u539f\u59cb\u6587\u4ef6",
+  "questionnaire_xlsx": "E:/VR+EEG\u5b9e\u9a8c\u95ee\u5377-\u6587\u672c\u7248-2026-02-17.xlsx",
   "participants_out": "manifests/generated/participants.csv",
   "scene_manifest_out": "manifests/generated/scene_manifest.csv",
   "eeg_summary_out": "outputs/eeg/summary/all_subjects_scene_level.csv",

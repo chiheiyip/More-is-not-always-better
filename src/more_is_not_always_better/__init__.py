@@ -2,6 +2,7 @@
 
 __all__ = [
     "aoi",
+    "alignment",
     "columns",
     "discovery",
     "eye_batch",

@@ -16,6 +16,7 @@ from more_is_not_always_better.discovery import (
 
 DEFAULT_EYE_ROOT = "E:\\2.7\u773c\u52a8\u6570\u636e\\\u6620\u5c04"
 DEFAULT_EEG_ROOT = "E:\\eeg\u539f\u59cb\u6587\u4ef6"
+DEFAULT_QUESTIONNAIRE = "E:\\VR+EEG\u5b9e\u9a8c\u95ee\u5377-\u6587\u672c\u7248-2026-02-17.xlsx"
 
 
 def main() -> None:
@@ -25,6 +26,8 @@ def main() -> None:
     parser.add_argument("--participants_out", default="manifests/generated/participants.csv")
     parser.add_argument("--scene_manifest_out", default="manifests/generated/scene_manifest.csv")
     parser.add_argument("--participants_in", default=None, help="Use an existing participants CSV for Order/group fields.")
+    parser.add_argument("--questionnaire_xlsx", default=DEFAULT_QUESTIONNAIRE)
+    parser.add_argument("--no_questionnaire", action="store_true")
     parser.add_argument("--eye_alias_csv", default=None)
     parser.add_argument("--include_adaptation", action="store_true")
     parser.add_argument("--default_order", type=int, default=1, choices=[1, 2])
@@ -32,7 +35,13 @@ def main() -> None:
     parser.add_argument("--dry_run", action="store_true")
     args = parser.parse_args()
 
-    summary = summarize_roots(args.eye_root, args.eeg_root, eye_alias_csv=args.eye_alias_csv)
+    questionnaire_xlsx = None if args.no_questionnaire else args.questionnaire_xlsx
+    summary = summarize_roots(
+        args.eye_root,
+        args.eeg_root,
+        eye_alias_csv=args.eye_alias_csv,
+        questionnaire_xlsx=questionnaire_xlsx,
+    )
     print("Raw data summary:")
     for key, value in summary.items():
         if key == "scene_folders":
@@ -52,6 +61,7 @@ def main() -> None:
             out_csv=args.participants_out,
             include_adaptation=args.include_adaptation,
             eye_alias_csv=args.eye_alias_csv,
+            questionnaire_xlsx=questionnaire_xlsx,
         )
         print(f"participants: {args.participants_out} ({len(participants)} rows)")
 

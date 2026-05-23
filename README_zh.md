@@ -37,6 +37,12 @@ E:\eeg原始文件
 E:\2.7眼动数据\映射
 ```
 
+问卷输入默认目录：
+
+```text
+E:\VR+EEG实验问卷-文本版-2026-02-17.xlsx
+```
+
 先只检查目录，不跑全量：
 
 ```bash
@@ -50,6 +56,8 @@ python scripts/run_end_to_end.py --dry_run
 python scripts/build_manifests.py
 ```
 
+`build_manifests.py` 会读取问卷里的 `Q1.8_场景顺序编号`，写入 `participants.csv` 的 `Order` 字段，因此不再猜测 counterbalance 顺序。
+
 EEG 端到端导出场景级频段功率：
 
 ```bash
@@ -59,6 +67,26 @@ matlab -batch "addpath('matlab'); run_eeg_bandpower_from_set('E:/eeg原始文件
 如果后续发现眼动导出使用了错误被试名，可以用 `--eye_alias_csv` 提供手动别名表。脚本也保留了基于 record id 的通用自动别名机制，用于处理 `User1` 这类泛化标签，但没有任何针对某个被试的硬编码。
 
 如果 `aoi_json_path` 为空，眼动脚本不会中断，会输出 `whole_scene` 级别的基础眼动指标；之后补上 AOI JSON 后会自动输出 AOI class 指标。
+
+## 精准对齐 QC
+
+眼动 CSV 保留的是连续眼动记录的 `Recording Time Stamp[ms]`，不是每个场景重新从 0 开始。因此可以按被试拟合：
+
+```text
+eeg_time_ms = time_sync_slope * eye_time_ms + time_sync_offset_ms
+```
+
+对齐锚点是每个场景的眼动开始/结束时间，以及 EEG 中 marker `7 -> next 8` 导出的 `view_start_s/view_end_s`。
+
+```bash
+python scripts/run_alignment_qc.py --participants manifests/generated/participants.csv --scene_manifest manifests/generated/scene_manifest.csv --eeg_scene_csv outputs/eeg/summary/all_subjects_scene_level.csv --outdir outputs/fusion
+```
+
+输出：
+
+- `outputs/fusion/time_sync_map.csv`
+- `outputs/fusion/alignment_landmarks.csv`
+- `outputs/fusion/alignment_scene_qc.csv`
 
 ## 推荐运行
 

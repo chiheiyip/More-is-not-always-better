@@ -20,6 +20,7 @@ manifests/
   scene_manifest.csv            Scene/order/file mapping template.
 scripts/
   build_manifests.py            Scan raw roots and create manifests.
+  run_alignment_qc.py           Estimate eye-to-EEG time mapping residuals.
   run_eye_aoi_batch.py          Compute eye AOI metrics from scene CSVs.
   run_end_to_end.py             Orchestrate raw-root to fusion outputs.
   run_fusion.py                 Build aligned scene, time-bin, and sync-QC tables.
@@ -77,6 +78,7 @@ The repository can now run from the real raw input roots:
 ```text
 Eye-tracking scenes: E:\2.7眼动数据\映射
 EEG EEGLAB files:   E:\eeg原始文件
+Questionnaire:       E:\VR+EEG实验问卷-文本版-2026-02-17.xlsx
 ```
 
 EEG raw input is `.set/.fdt` pairs. The MATLAB step reads those files with EEGLAB and exports `outputs/eeg/summary/all_subjects_scene_level.csv`:
@@ -97,6 +99,8 @@ Generate manifests when ready:
 ```bash
 python scripts/build_manifests.py
 ```
+
+`build_manifests.py` reads `Q1.8_场景顺序编号` from the questionnaire to populate `participants.csv:Order`, so counterbalanced scene order is not guessed. The eye-recording timestamps provide an independent QC check for this order.
 
 If an eye export uses the wrong subject label, provide a manual alias table with `--eye_alias_csv`. Automatic record-id based aliasing is also available for generic labels such as `User1`, but no dataset-specific hard-coded alias is required.
 
@@ -140,6 +144,30 @@ The aligned `0 ms` point is interpreted as the EEG scene-viewing start, i.e. the
 Default time bins are non-overlapping `2000 ms` bins, matching the EEG pipeline's 2-second Welch window convention. The current time-bin output computes eye AOI metrics per bin and attaches the corresponding scene-level EEG columns to every bin. If a future EEG export provides true per-bin bandpower, that file can be joined on the same `participant_id + scene_id + bin_start_ms`.
 
 If `aoi_json_path` is blank or missing, the eye pipeline still emits a `whole_scene` class row with dwell, fixation count, TTFF, sample count, and per-bin whole-scene metrics. When AOI JSON files are added later, the same manifest column enables AOI class metrics automatically.
+
+## Precise Alignment QC
+
+Eye CSV files preserve the continuous eye-recorder `Recording Time Stamp[ms]`, not just per-scene relative time. The precise-alignment QC fits one affine map per participant:
+
+```text
+eeg_time_ms = time_sync_slope * eye_time_ms + time_sync_offset_ms
+```
+
+The landmarks are each scene's eye start/end timestamp and the EEG `view_start_s/view_end_s` from marker `7 -> next 8`. Run after EEG scene export:
+
+```bash
+python scripts/run_alignment_qc.py \
+  --participants manifests/generated/participants.csv \
+  --scene_manifest manifests/generated/scene_manifest.csv \
+  --eeg_scene_csv outputs/eeg/summary/all_subjects_scene_level.csv \
+  --outdir outputs/fusion
+```
+
+Generated QC outputs:
+
+- `outputs/fusion/time_sync_map.csv`
+- `outputs/fusion/alignment_landmarks.csv`
+- `outputs/fusion/alignment_scene_qc.csv`
 
 ## Synchronization QC
 
