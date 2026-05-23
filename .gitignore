@@ -9,9 +9,12 @@ build/
 dist/
 outputs/
 manifests/generated/
-data/raw/
-data/interim/
-data/processed/
+data/raw/*
+!data/raw/README.md
+data/interim/*
+!data/interim/README.md
+data/processed/*
+!data/processed/README.md
 *.zip
 *.mat
 *.set

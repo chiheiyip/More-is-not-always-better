@@ -1,0 +1,28 @@
+{
+  "families": [
+    {
+      "name": "questionnaire_s_items",
+      "kind": "continuous",
+      "outcomes": ["q_S1", "q_S2", "q_S3", "q_S4", "q_S5"],
+      "predictors": ["C(WWR)", "C(Complexity)", "C(ExperienceGroup)", "C(Gender)", "Age", "block", "position", "C(RecruitmentBatch)"]
+    },
+    {
+      "name": "eye_two_part_visited",
+      "kind": "binary",
+      "outcomes": ["visited"],
+      "predictors": ["C(WWR)", "C(Complexity)", "C(ExperienceGroup)", "C(Gender)", "block", "position"]
+    },
+    {
+      "name": "eye_continuous",
+      "kind": "continuous",
+      "outcomes": ["FCR", "TFD_ms", "TTFF_ms", "attention_share"],
+      "predictors": ["C(WWR)", "C(Complexity)", "C(ExperienceGroup)", "C(Gender)", "block", "position"]
+    },
+    {
+      "name": "eeg_primary",
+      "kind": "continuous",
+      "outcomes": ["eeg_O_theta", "eeg_F_theta", "eeg_O_alpha", "eeg_delta_O_alpha"],
+      "predictors": ["C(WWR)", "C(Complexity)", "C(ExperienceGroup)", "C(Gender)", "Age", "block", "position", "C(RecruitmentBatch)"]
+    }
+  ]
+}

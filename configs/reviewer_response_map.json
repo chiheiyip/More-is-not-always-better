@@ -1,0 +1,42 @@
+{
+  "reviewer_issues": [
+    {
+      "issue_id": "R1_SAMPLE_SIZE_BALANCE",
+      "claim_id": "C3_EXPERIENCE_MODERATION",
+      "reviewer_concern": "Small and unbalanced experience groups limit interaction reliability.",
+      "action": "Supplement low-experience participants and report before/after balance.",
+      "evidence_file": "outputs/01_sample_qc/group_balance_before_after.csv"
+    },
+    {
+      "issue_id": "R1_GENDER_COVARIATE",
+      "reviewer_concern": "Gender was recorded but not included in the analysis.",
+      "action": "Include Gender in main models and report sensitivity.",
+      "evidence_file": "outputs/06_robustness/gender_sensitivity.csv"
+    },
+    {
+      "issue_id": "R1_ORDER_FATIGUE",
+      "reviewer_concern": "Multiple conditions may introduce fatigue or carryover effects.",
+      "action": "Model block and position; report trial-order diagnostics.",
+      "evidence_file": "outputs/06_robustness/order_fatigue_effects.csv"
+    },
+    {
+      "issue_id": "R1_WWR_NONLINEARITY",
+      "claim_id": "C1_WWR_NONLINEAR",
+      "reviewer_concern": "Only three WWR levels cannot strongly identify a nonlinear optimum.",
+      "action": "Use trend/planned contrasts and soften optimality claims.",
+      "evidence_file": "outputs/06_robustness/nonlinear_wwr_sensitivity.csv"
+    },
+    {
+      "issue_id": "R1_AOI_VALIDITY",
+      "reviewer_concern": "AOI selection lacks validation.",
+      "action": "Report AOI area, visited rate, and AOI-level sample coverage.",
+      "evidence_file": "outputs/03_eye_tracking/aoi_validation_summary.csv"
+    },
+    {
+      "issue_id": "R1_OVERINTERPRETATION",
+      "reviewer_concern": "Discussion overgeneralizes beyond the evidence.",
+      "action": "Generate claim strength table and downgrade weak claims.",
+      "evidence_file": "outputs/07_paper_tables/claim_strength_table.csv"
+    }
+  ]
+}

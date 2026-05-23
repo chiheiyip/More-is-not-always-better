@@ -1,115 +1,52 @@
-# More Is Not Always Better：EEG + 眼动融合项目
+# More is not always better 论文级数据分析仓库
 
-本仓库用于把 EEG 场景级频段功率结果与眼动场景 CSV/AOI 指标合并成一个可直接写论文、建模和出图的独立项目。下面两个仓库只是历史参考，不是运行依赖：
+本仓库是对原 `More-is-not-always-better` 项目的深度改造，不是另建子项目。现在的目标是支撑论文返修与重投：把问卷、眼动、EEG、EEG+眼动融合、稳健性诊断、图表源数据和审稿意见回应证据整合到同一个可复现分析流水线中。
 
-- 眼动：https://github.com/wannaqueen66-create/eyetrack
-- EEG：https://github.com/wannaqueen66-create/eeg
+底层统一使用 `participant_id + scene_id` 作为 canonical trial index。问卷、眼动、EEG、同步 QC、time-bin 融合、统计模型和审稿回应索引都从这张统一试次表派生，避免各脚本各自拼表造成口径不一致。
 
-本仓库不依赖也不修改上述两个仓库。核心合并键是 `participant_id + scene_id`。
-
-## 对齐原则
-
-每个眼动 CSV 已经是单个场景，因此默认：
-
-```text
-eye_aligned_ms = 眼动时间戳 - 该 CSV 最小时间戳 + eye_offset_ms
-```
-
-也就是说，每个眼动场景 CSV 的起点对齐到 EEG 中该场景 `view` 段的起点，即 marker `7 -> 8`。
-
-## 主要输出
-
-- `outputs/fusion/aligned_scene_table.csv`：场景级 EEG + 眼动融合主表。
-- `outputs/fusion/aligned_timebin_table.csv`：默认 2 秒非重叠 time-bin 的眼动 AOI 指标，并附加对应场景 EEG 指标。
-- `outputs/fusion/sync_qc.csv`：同步质量检查，包括 EEG view 时长、眼动 CSV 时长、差值、样本数、bin 数、缺失和 mismatch 标记。
-
-## 端到端原始输入
-
-现在 EEG 原始输入是 `.set/.fdt` 成对文件，默认目录：
-
-```text
-E:\eeg原始文件
-```
-
-眼动输入是已经按场景拆分的 CSV，默认目录：
-
-```text
-E:\2.7眼动数据\映射
-```
-
-问卷输入默认目录：
-
-```text
-E:\VR+EEG实验问卷-文本版-2026-02-17.xlsx
-```
-
-先只检查目录，不跑全量：
+## 一键运行
 
 ```bash
-python scripts/build_manifests.py --dry_run
-python scripts/run_end_to_end.py --dry_run
+python scripts/run_all.py --config configs/paths.example.json
 ```
 
-生成 manifests：
+真实数据运行时，复制 `configs/paths.example.json` 为 `configs/paths.local.json`，并把问卷、眼动、EEG 和输出路径改成本地真实路径。`configs/local_paths.example.json` 只保留安全占位路径，不提交可识别原始数据。
 
-```bash
-python scripts/build_manifests.py
-```
+## 输出结构
 
-`build_manifests.py` 会读取问卷里的 `Q1.8_场景顺序编号`，写入 `participants.csv` 的 `Order` 字段，因此不再猜测 counterbalance 顺序。
+- `outputs/01_sample_qc/`：样本流向、补招前后组别平衡、场景/条件平衡。
+- `outputs/02_questionnaire/`：S1-S5、B1-B3、IPQ 长表、质控和描述统计。
+- `outputs/03_eye_tracking/`：AOI visited、FCR、TFD、TTFF、attention share、AOI 有效性和眼动 QC。
+- `outputs/04_eeg/`：EEG trial 级指标和频段 QC。
+- `outputs/05_multimodal_fusion/`：论文主分析长表、EEG+眼动场景级融合表、time-bin 融合表、同步 QC、精细对齐 QC、claim support matrix。
+- `outputs/06_models/`：注册模型结果、WWR planned contrasts、模型诊断。
+- `outputs/06_robustness/`：顺序/疲劳、性别、补招批次、WWR 非线性、功效敏感性分析。
+- `outputs/07_paper_tables/`：论文表格、claim strength、figure contracts、source data index。
+- `outputs/08_reviewer_response/`：审稿意见到证据文件的回应索引和 reviewer issue matrix。
+- `outputs/09_data_package/`：Nature-style 数据可用性索引和 Data Availability 草稿。
 
-EEG 端到端导出场景级频段功率：
+## 面向拒稿意见的设计
 
-```bash
-matlab -batch "addpath('matlab'); run_eeg_bandpower_from_set('E:/eeg原始文件', 'outputs/eeg'); exit"
-```
+- 低经验组不平衡：通过 `RecruitmentBatch`、`SupplementFlag` 和 `group_balance_before_after.csv` 明确记录补招与组别平衡。
+- 性别未纳入：模型配置中保留 `Gender`，并输出 `gender_sensitivity.csv`。
+- 顺序/疲劳效应：所有 trial 保留 `block`、`position`、`round`，并输出 order/fatigue 诊断。
+- 三档 WWR 不能强称最优：只输出 trend/planned contrast 证据，claim strength 自动限制为探索性或有界表述。
+- AOI 有效性不足：输出 AOI 面积、visited rate、样本覆盖和眼动 QC。
+- EEG 解释过强：EEG 结论必须经过同步 QC、眼动/问卷收敛和 `claim_support_matrix.csv` 约束。
 
-如果后续发现眼动导出使用了错误被试名，可以用 `--eye_alias_csv` 提供手动别名表。脚本也保留了基于 record id 的通用自动别名机制，用于处理 `User1` 这类泛化标签，但没有任何针对某个被试的硬编码。
+## EEG+眼动融合
 
-如果 `aoi_json_path` 为空，眼动脚本不会中断，会输出 `whole_scene` 级别的基础眼动指标；之后补上 AOI JSON 后会自动输出 AOI class 指标。
+融合层不是补丁脚本，而是根仓库的数据模型层：
 
-## 精准对齐 QC
+- `analysis_master_long.csv`：问卷 + EEG + 眼动的论文统计主表。
+- `aligned_scene_table.csv`：保留原仓库 EEG+AOI 场景级融合逻辑。
+- `aligned_timebin_table.csv`：time-bin 级眼动 AOI 指标，并附加对应场景 EEG 指标。
+- `sync_qc.csv`：眼动时长、EEG 时长、差值、mismatch、场景数量检查。
+- `alignment_scene_qc.csv`、`alignment_landmarks.csv`、`time_sync_map.csv`：眼动时间到 EEG 时间的精细仿射映射诊断。
 
-眼动 CSV 保留的是连续眼动记录的 `Recording Time Stamp[ms]`，不是每个场景重新从 0 开始。因此可以按被试拟合：
+## Nature-skills 对齐
 
-```text
-eeg_time_ms = time_sync_slope * eye_time_ms + time_sync_offset_ms
-```
-
-对齐锚点是每个场景的眼动开始/结束时间，以及 EEG 中 marker `7 -> next 8` 导出的 `view_start_s/view_end_s`。
-
-```bash
-python scripts/run_alignment_qc.py --participants manifests/generated/participants.csv --scene_manifest manifests/generated/scene_manifest.csv --eeg_scene_csv outputs/eeg/summary/all_subjects_scene_level.csv --outdir outputs/fusion
-```
-
-输出：
-
-- `outputs/fusion/time_sync_map.csv`
-- `outputs/fusion/alignment_landmarks.csv`
-- `outputs/fusion/alignment_scene_qc.csv`
-
-## 推荐运行
-
-```bash
-python -m pip install -r requirements.txt
-python scripts/run_eye_aoi_batch.py --participants manifests/participants.csv --scene_manifest manifests/scene_manifest.csv --outdir outputs/eye --dwell_mode fixation
-python scripts/run_fusion.py --participants manifests/participants.csv --scene_manifest manifests/scene_manifest.csv --eeg_scene_csv outputs/eeg/summary/all_subjects_scene_level.csv --eye_aoi_class_csv outputs/eye/batch_aoi_metrics_by_class.csv --outdir outputs/fusion
-```
-
-## 数据表要求
-
-`manifests/participants.csv`：
-
-```csv
-participant_id,eeg_subject_id,eye_subject_id,SportFreq,Experience,Order,exclude
-P001,P001,P001,High,Low,1,false
-```
-
-`manifests/scene_manifest.csv`：
-
-```csv
-participant_id,scene_id,block,position,scene_name,eye_csv_path,aoi_json_path,WWR,Cond,Complexity,eye_offset_ms
-P001,1,1,1,scene_01,data/raw/eye/P001_scene01.csv,data/raw/aoi/scene_01_aoi.json,0.2,A,1,0
-```
-
-`eye_offset_ms` 用于修正固定同步延迟；没有延迟时填 `0`。
+- `nature-response`：`configs/reviewer_response_map.json`、`docs/REVIEWER_ISSUE_MATRIX.md` 和 `outputs/08_reviewer_response/` 保证每条审稿质疑都有行动和证据文件。
+- `nature-writing`：`claim_strength_table.csv` 把论文主张限制在当前证据强度内，避免过度结论。
+- `nature-data`：`configs/data_availability.json`、`docs/DATA_AVAILABILITY_DRAFT.md` 和 `outputs/09_data_package/` 明确 raw/processed/source data 的开放或受限路径。
+- `nature-figure`：`configs/figure_contracts.json`、`docs/FIGURE_CONTRACTS.md` 和 `source_data_index.csv` 为每个论文图建立结论、证据链、源数据和导出格式契约。

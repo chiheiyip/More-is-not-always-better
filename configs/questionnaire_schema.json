@@ -1,0 +1,7 @@
+{
+  "id_columns": ["participant_id", "scene_id"],
+  "s_items": ["S1", "S2", "S3", "S4", "S5"],
+  "b_items": ["B1", "B2", "B3"],
+  "scale": {"min": 1, "max": 7},
+  "notes": "S1-S5 are modeled as separate items. B1-B3 are supplementary and should not be forced into a global scale unless reliability is documented."
+}

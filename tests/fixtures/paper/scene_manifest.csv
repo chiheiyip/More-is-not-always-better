@@ -1,0 +1,7 @@
+participant_id,scene_id,block,position,round,condition_id,WWR,Cond,Complexity,eye_csv_path,aoi_json_path
+P01,1,1,1,1,C0_W15,15,C0,0,eye/P01_scene01.csv,aoi/scene_aoi.json
+P01,2,1,2,1,C1_W45,45,C1,1,eye/P01_scene02.csv,aoi/scene_aoi.json
+P01,3,1,3,1,C0_W75,75,C0,0,eye/P01_scene03.csv,aoi/scene_aoi.json
+P02,1,1,1,1,C0_W15,15,C0,0,eye/P02_scene01.csv,aoi/scene_aoi.json
+P02,2,1,2,1,C1_W45,45,C1,1,eye/P02_scene02.csv,aoi/scene_aoi.json
+P02,3,1,3,1,C0_W75,75,C0,0,eye/P02_scene03.csv,aoi/scene_aoi.json

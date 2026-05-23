@@ -1,0 +1,16 @@
+{
+  "paper_title": "More is not always better: Nonlinear effects of window-to-wall ratio and visual complexity on spatial perception in indoor sports spaces",
+  "primary_design": {
+    "within_subject": ["WWR", "Complexity"],
+    "between_subject": ["ExperienceGroup"],
+    "covariates": ["Gender", "Age", "block", "position", "RecruitmentBatch"]
+  },
+  "primary_eeg_metrics": ["eeg_O_theta", "eeg_F_theta", "eeg_O_alpha", "eeg_delta_O_alpha"],
+  "primary_eye_metrics": ["visited", "FCR", "TFD_ms", "TTFF_ms", "attention_share"],
+  "primary_questionnaire_metrics": ["q_S1", "q_S2", "q_S3", "q_S4", "q_S5"],
+  "claim_policy": {
+    "wwr_nonlinearity": "Three WWR levels support trend/planned-contrast language only, not a strong optimality claim.",
+    "eeg_interpretation": "EEG cognitive-processing claims require convergent questionnaire or eye-tracking evidence.",
+    "experience_moderation": "Experience claims require balanced groups and sensitivity checks."
+  }
+}

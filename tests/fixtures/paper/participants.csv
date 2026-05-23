@@ -1,0 +1,3 @@
+participant_id,eeg_subject_id,eye_subject_id,ExperienceRaw,ExperienceGroup,Gender,Age,RecruitmentBatch,SupplementFlag,exclude,ExcludeReason
+P01,E01,P01,Low,Low,F,22,Original,false,false,
+P02,E02,P02,High,High,M,24,Supplement,true,false,

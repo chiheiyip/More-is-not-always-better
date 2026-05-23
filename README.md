@@ -1,187 +1,58 @@
-# More Is Not Always Better
+# More is not always better: Paper-Level Multimodal Analysis
 
-Independent fusion pipeline for scene-level and time-bin aligned EEG + eye-tracking analysis.
+This repository is the root-level reconstruction of `More-is-not-always-better` into a paper-aligned multimodal analysis repository. It consolidates questionnaire, eye-tracking, EEG, EEG-eye fusion, robustness diagnostics, Nature-style data availability, figure source-data contracts, and reviewer-response evidence into one reproducible pipeline.
 
-This repository runs independently. The earlier repositories are historical references only, not runtime dependencies:
+The repository is intentionally organized around a canonical trial-level data model. Questionnaire, eye-tracking, EEG, synchronization QC, time-bin fusion, paper statistics, and reviewer-response outputs all derive from the same `participant_id + scene_id` trial index.
 
-- Eye-tracking source reference: https://github.com/wannaqueen66-create/eyetrack
-- EEG source reference: https://github.com/wannaqueen66-create/eeg
-
-The main fusion key is `participant_id + scene_id`. Each eye-tracking CSV is assumed to contain one scene only. Its minimum recording timestamp is treated as scene `t=0` and aligned to the EEG `view` segment start, corresponding to marker transition `7 -> 8` in the EEG pipeline.
-
-## Project Layout
-
-```text
-configs/
-  columns_default.json          Eye-tracking column aliases.
-  fusion_config.json            Default fusion parameters.
-manifests/
-  participants.csv              Participant/group mapping template.
-  scene_manifest.csv            Scene/order/file mapping template.
-scripts/
-  build_manifests.py            Scan raw roots and create manifests.
-  run_alignment_qc.py           Estimate eye-to-EEG time mapping residuals.
-  run_eye_aoi_batch.py          Compute eye AOI metrics from scene CSVs.
-  run_end_to_end.py             Orchestrate raw-root to fusion outputs.
-  run_fusion.py                 Build aligned scene, time-bin, and sync-QC tables.
-src/more_is_not_always_better/
-  aoi.py                        AOI loading and polygon metrics.
-  discovery.py                  Raw-root scanning and manifest builders.
-  eye_batch.py                  Batch eye-tracking AOI runner.
-  fusion.py                     EEG + eye fusion and synchronization QC.
-matlab/
-  README.md                     EEG export contract for MATLAB/EEGLAB runs.
-tests/
-  fixtures/                     Minimal 1-subject, 2-scene smoke data.
-```
-
-## Inputs
-
-`manifests/participants.csv`
-
-```csv
-participant_id,eeg_subject_id,eye_subject_id,SportFreq,Experience,Order,exclude
-P001,P001,P001,High,Low,1,false
-```
-
-`manifests/scene_manifest.csv`
-
-```csv
-participant_id,scene_id,block,position,scene_name,eye_csv_path,aoi_json_path,WWR,Cond,Complexity,eye_offset_ms
-P001,1,1,1,scene_01,data/raw/eye/P001_scene01.csv,data/raw/aoi/scene_01_aoi.json,0.2,A,1,0
-```
-
-EEG summary input:
-
-```text
-outputs/eeg/summary/all_subjects_scene_level.csv
-```
-
-Eye AOI batch input to fusion:
-
-```text
-outputs/eye/batch_aoi_metrics_by_class.csv
-```
-
-## Quick Start
-
-Install dependencies:
+## Core Workflow
 
 ```bash
-python -m pip install -r requirements.txt
+python scripts/run_all.py --config configs/paths.example.json
 ```
 
-## End-To-End Raw Inputs
+For real data, copy `configs/paths.example.json` to `configs/paths.local.json` and point it to local questionnaire, eye-tracking, and EEG inputs.
 
-The repository can now run from the real raw input roots:
+## Output Map
 
-```text
-Eye-tracking scenes: E:\2.7眼动数据\映射
-EEG EEGLAB files:   E:\eeg原始文件
-Questionnaire:       E:\VR+EEG实验问卷-文本版-2026-02-17.xlsx
-```
+- `outputs/01_sample_qc/`: participant flow, group balance, scene/design balance.
+- `outputs/02_questionnaire/`: S1-S5, B1-B3, IPQ long tables and summaries.
+- `outputs/03_eye_tracking/`: AOI visited, FCR, TFD, TTFF, attention share, AOI validation.
+- `outputs/04_eeg/`: EEG trial-level table and frequency-band QC.
+- `outputs/05_multimodal_fusion/`: canonical analysis master table, original-style EEG-eye aligned scene table, time-bin table, sync QC, precise alignment QC, and multimodal claim support.
+- `outputs/06_models/`: registered model results and WWR planned contrasts.
+- `outputs/06_robustness/`: order/fatigue, gender, batch, nonlinear WWR, power sensitivity.
+- `outputs/07_paper_tables/`: paper-facing tables, claim strength table, result summary.
+- `outputs/08_reviewer_response/`: reviewer issue to evidence index and reviewer issue matrix.
+- `outputs/09_data_package/`: Data Availability draft and dataset/source-data availability index.
 
-EEG raw input is `.set/.fdt` pairs. The MATLAB step reads those files with EEGLAB and exports `outputs/eeg/summary/all_subjects_scene_level.csv`:
+## Reviewer-Driven Principles
 
-```bash
-matlab -batch "addpath('matlab'); run_eeg_bandpower_from_set('E:/eeg原始文件', 'outputs/eeg'); exit"
-```
+- Supplementary recruitment is encoded explicitly using `RecruitmentBatch` and `SupplementFlag`.
+- Gender, age, block, position, and recruitment batch are available as covariates in registered models.
+- Three WWR levels are treated as supporting trend or planned-contrast language only; the pipeline does not encode a strong optimality claim.
+- EEG interpretations are claim-gated through multimodal convergence with questionnaire and/or eye-tracking evidence.
+- AOI validity is documented via AOI area, visited rate, and per-AOI sample coverage.
 
-Inspect the real roots without running the full dataset:
+## Integrated EEG + Eye Fusion
 
-```bash
-python scripts/build_manifests.py --dry_run
-python scripts/run_end_to_end.py --dry_run
-```
+The fusion layer is not a bolt-on script. It builds a canonical trial index from standardized participants and scene manifests, then emits all downstream views from that shared base:
 
-Generate manifests when ready:
+- `analysis_master_long.csv`: paper-level questionnaire + EEG + eye table for statistical modeling.
+- `aligned_scene_table.csv`: scene-level EEG + AOI metrics, compatible with the original fusion concept.
+- `aligned_timebin_table.csv`: time-bin eye AOI metrics with scene-level EEG attached.
+- `sync_qc.csv`: eye duration, EEG duration, mismatch flags, scene count checks.
+- `alignment_scene_qc.csv`, `alignment_landmarks.csv`, `time_sync_map.csv`: precise eye-to-EEG affine alignment diagnostics.
 
-```bash
-python scripts/build_manifests.py
-```
+## Historical Logic Sources
 
-`build_manifests.py` reads `Q1.8_场景顺序编号` from the questionnaire to populate `participants.csv:Order`, so counterbalanced scene order is not guessed. The eye-recording timestamps provide an independent QC check for this order.
+- Questionnaire logic source: `https://github.com/wannaqueen66-create/spss`
+- EEG + eye-tracking fusion logic source: the original logic in this `More-is-not-always-better` repository, preserved in `src/more_is_not_always_better/` and integrated into the paper-level `src/paper_analysis/` architecture.
 
-If an eye export uses the wrong subject label, provide a manual alias table with `--eye_alias_csv`. Automatic record-id based aliasing is also available for generic labels such as `User1`, but no dataset-specific hard-coded alias is required.
+These are logic sources, not runtime dependencies.
 
-Compute eye-tracking AOI metrics:
+## Nature-Skills Alignment
 
-```bash
-python scripts/run_eye_aoi_batch.py \
-  --participants manifests/participants.csv \
-  --scene_manifest manifests/scene_manifest.csv \
-  --outdir outputs/eye \
-  --dwell_mode fixation
-```
-
-Build fusion outputs:
-
-```bash
-python scripts/run_fusion.py \
-  --participants manifests/participants.csv \
-  --scene_manifest manifests/scene_manifest.csv \
-  --eeg_scene_csv outputs/eeg/summary/all_subjects_scene_level.csv \
-  --eye_aoi_class_csv outputs/eye/batch_aoi_metrics_by_class.csv \
-  --outdir outputs/fusion
-```
-
-Generated outputs:
-
-- `outputs/fusion/aligned_scene_table.csv`
-- `outputs/fusion/aligned_timebin_table.csv`
-- `outputs/fusion/sync_qc.csv`
-
-## Alignment Rule
-
-For each row in `scene_manifest.csv`:
-
-```text
-eye_aligned_ms = eye_timestamp_ms - min(eye_timestamp_ms) + eye_offset_ms
-```
-
-The aligned `0 ms` point is interpreted as the EEG scene-viewing start, i.e. the EEG marker transition `7 -> 8`.
-
-Default time bins are non-overlapping `2000 ms` bins, matching the EEG pipeline's 2-second Welch window convention. The current time-bin output computes eye AOI metrics per bin and attaches the corresponding scene-level EEG columns to every bin. If a future EEG export provides true per-bin bandpower, that file can be joined on the same `participant_id + scene_id + bin_start_ms`.
-
-If `aoi_json_path` is blank or missing, the eye pipeline still emits a `whole_scene` class row with dwell, fixation count, TTFF, sample count, and per-bin whole-scene metrics. When AOI JSON files are added later, the same manifest column enables AOI class metrics automatically.
-
-## Precise Alignment QC
-
-Eye CSV files preserve the continuous eye-recorder `Recording Time Stamp[ms]`, not just per-scene relative time. The precise-alignment QC fits one affine map per participant:
-
-```text
-eeg_time_ms = time_sync_slope * eye_time_ms + time_sync_offset_ms
-```
-
-The landmarks are each scene's eye start/end timestamp and the EEG `view_start_s/view_end_s` from marker `7 -> next 8`. Run after EEG scene export:
-
-```bash
-python scripts/run_alignment_qc.py \
-  --participants manifests/generated/participants.csv \
-  --scene_manifest manifests/generated/scene_manifest.csv \
-  --eeg_scene_csv outputs/eeg/summary/all_subjects_scene_level.csv \
-  --outdir outputs/fusion
-```
-
-Generated QC outputs:
-
-- `outputs/fusion/time_sync_map.csv`
-- `outputs/fusion/alignment_landmarks.csv`
-- `outputs/fusion/alignment_scene_qc.csv`
-
-## Synchronization QC
-
-`sync_qc.csv` reports:
-
-- EEG view duration, inferred from `view_dur_s`, `dur_s`, `duration_s`, or start/end columns.
-- Eye CSV duration from canonical eye timestamp columns.
-- Duration delta and `duration_mismatch`, using a default tolerance of `2 s`.
-- Eye sample count, time-bin count, missing EEG/eye flags, and scene-count checks.
-
-## Tests
-
-```bash
-python -m pytest
-```
-
-The smoke test uses one subject and two scenes to validate manifest loading, eye AOI batch output, scene fusion, sync QC, and time-bin output.
+- `nature-response`: reviewer concerns are mapped through `configs/reviewer_response_map.json`, `docs/REVIEWER_ISSUE_MATRIX.md`, and `outputs/08_reviewer_response/`.
+- `nature-writing`: claim strength is explicitly constrained by `outputs/07_paper_tables/claim_strength_table.csv`.
+- `nature-data`: dataset access routes and unresolved repository identifiers are tracked by `configs/data_availability.json` and `outputs/09_data_package/`.
+- `nature-figure`: each paper figure has a claim/evidence/source-data/export contract in `configs/figure_contracts.json` and `outputs/07_paper_tables/source_data_index.csv`.

@@ -1,0 +1,6 @@
+{
+  "required_columns": ["Recording Time Stamp[ms]", "Gaze Point X[px]", "Gaze Point Y[px]"],
+  "optional_columns": ["Fixation Index", "Fixation Duration[ms]", "Validity Left", "Validity Right"],
+  "primary_metrics": ["visited", "FCR", "TFD_ms", "TTFF_ms", "attention_share"],
+  "aoi_policy": "Report AOI area, visited rate, and per-AOI sample coverage for measurement validity."
+}

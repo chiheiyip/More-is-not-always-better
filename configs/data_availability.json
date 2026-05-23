@@ -1,0 +1,66 @@
+{
+  "statement_status": "draft_with_placeholders",
+  "repository_policy": "Prefer a public DOI-backed repository for de-identified processed tables, figure source data, analysis code, and synthetic fixtures. Raw identifiable eye-tracking, EEG, and questionnaire exports should be listed as restricted unless consent and ethics approval allow public release.",
+  "datasets": [
+    {
+      "dataset_id": "D1_RAW_QUESTIONNAIRE",
+      "label": "Raw questionnaire export",
+      "stage": "raw",
+      "source_config_key": "questionnaire_wide",
+      "derived_outputs": ["outputs/02_questionnaire/questionnaire_long.csv", "outputs/02_questionnaire/questionnaire_qc.csv"],
+      "access_route": "restricted_or_deidentified_repository",
+      "contains_personal_data": true,
+      "repository_target": "AUTHOR_INPUT_NEEDED",
+      "identifier": "AUTHOR_INPUT_NEEDED",
+      "manuscript_use": "Subjective S1-S5 outcomes, B1-B3 supplementary items, demographics, and experience-group covariates."
+    },
+    {
+      "dataset_id": "D2_RAW_EYE_TRACKING",
+      "label": "Raw eye-tracking scene files and AOI definitions",
+      "stage": "raw",
+      "source_config_key": "scene_manifest.eye_csv_path,aoi_json_path",
+      "derived_outputs": ["outputs/03_eye_tracking/eye_aoi_trial_long.csv", "outputs/03_eye_tracking/aoi_validation_summary.csv", "outputs/05_multimodal_fusion/aligned_timebin_table.csv"],
+      "access_route": "restricted_or_deidentified_repository",
+      "contains_personal_data": true,
+      "repository_target": "AUTHOR_INPUT_NEEDED",
+      "identifier": "AUTHOR_INPUT_NEEDED",
+      "manuscript_use": "AOI visited, fixation count rate, total fixation duration, time to first fixation, attention share, and AOI validity."
+    },
+    {
+      "dataset_id": "D3_EEG_SCENE_EXPORT",
+      "label": "EEG scene-level metric export",
+      "stage": "processed_from_eeg",
+      "source_config_key": "eeg_scene_csv",
+      "derived_outputs": ["outputs/04_eeg/eeg_trial_long.csv", "outputs/04_eeg/eeg_qc_summary.csv", "outputs/05_multimodal_fusion/aligned_scene_table.csv"],
+      "access_route": "deidentified_repository_or_controlled_access",
+      "contains_personal_data": false,
+      "repository_target": "AUTHOR_INPUT_NEEDED",
+      "identifier": "AUTHOR_INPUT_NEEDED",
+      "manuscript_use": "Theta/alpha EEG outcomes and EEG-eye synchronization evidence."
+    },
+    {
+      "dataset_id": "D4_ANALYSIS_MASTER",
+      "label": "Canonical multimodal analysis table",
+      "stage": "analysis_ready",
+      "source_config_key": "outputs_root",
+      "derived_outputs": ["outputs/05_multimodal_fusion/analysis_master_long.csv", "outputs/06_models/model_results.csv", "outputs/06_robustness/*.csv"],
+      "access_route": "public_repository",
+      "contains_personal_data": false,
+      "repository_target": "AUTHOR_INPUT_NEEDED",
+      "identifier": "AUTHOR_INPUT_NEEDED",
+      "manuscript_use": "Primary statistical models, robustness diagnostics, and reviewer-response evidence."
+    },
+    {
+      "dataset_id": "D5_FIGURE_SOURCE_DATA",
+      "label": "Figure and table source data",
+      "stage": "source_data",
+      "source_config_key": "figure_contracts",
+      "derived_outputs": ["outputs/07_paper_tables/*.csv", "outputs/08_reviewer_response/*.csv", "outputs/09_data_package/*.csv"],
+      "access_route": "public_repository",
+      "contains_personal_data": false,
+      "repository_target": "AUTHOR_INPUT_NEEDED",
+      "identifier": "AUTHOR_INPUT_NEEDED",
+      "manuscript_use": "Source data underlying manuscript figures, paper tables, and response-to-reviewers material."
+    }
+  ]
+}

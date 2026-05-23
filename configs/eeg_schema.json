@@ -1,0 +1,7 @@
+{
+  "id_columns": ["participant_id", "scene_id"],
+  "alternate_subject_column": "subject_id",
+  "primary_metrics": ["O_theta", "F_theta", "O_alpha", "delta_O_alpha"],
+  "supplementary_metrics": ["O_beta", "F_alpha", "F_beta", "P_theta", "P_alpha", "P_beta"],
+  "interpretation_policy": "Theta and alpha are interpreted cautiously and tied to convergent behavioral or questionnaire evidence."
+}
