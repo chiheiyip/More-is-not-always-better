@@ -57,6 +57,20 @@
 
 EEG columns follow ROI + band naming such as `O_theta`, `F_theta`, `O_alpha`. In the fused table they are prefixed as `eeg_O_theta`, etc.
 
+| Field | Meaning |
+|---|---|
+| `hf_ratio_20_40Hz` | Segment high-frequency audit ratio, used as a data-quality indicator. |
+| `rms_mean_uV` | Mean channel RMS amplitude for the EEG segment. |
+| `peak_to_peak_uV` | Mean channel peak-to-peak amplitude for the EEG segment. |
+| `nan_fraction` | Fraction of non-finite EEG samples in the segment. |
+| `flat_fraction` | Fraction of flat channels in the segment. |
+| `segment_valid_duration` | Whether the EEG segment duration passes the configured minimum duration. |
+| `eeg_legacy_hf_flag` | Legacy audit flag for `hf_ratio_20_40Hz > 0.4`; not treated as a universal standard by default. |
+| `bad_eeg_quality` | Formal Python-side EEG quality exclusion flag under the configured QC policy. |
+| `eeg_qc_reasons` | Semicolon-delimited formal EEG QC reasons. |
+| `eeg_qc_policy` | EEG QC policy used, such as `robust`, `legacy_0_4`, `audit_only`, `off`, or `unavailable`. |
+| `eeg_subject_quality_exclusion` | Whether the participant crossed the configured bad-scene fraction threshold. |
+
 ## Reporting And Nature-Style Metadata
 
 | Field | Meaning |

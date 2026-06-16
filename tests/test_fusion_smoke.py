@@ -147,6 +147,58 @@ def test_questionnaire_order_flows_into_manifest(tmp_path: Path) -> None:
     assert sorted(scene_manifest["scene_id"].tolist()) == [1, 11]
 
 
+def test_questionnaire_required_for_screening_and_gender_standardization(tmp_path: Path) -> None:
+    eye_root = tmp_path / "eye"
+    eeg_root = tmp_path / "eeg"
+    _write_eye_csv(eye_root / "(1-1-1\u30012-1-1) \u7ec41-C1W45" / "raw_\u5f20\u4e09_260501000001_0207000001.csv")
+    _write_eye_csv(eye_root / "(1-1-2\u30012-1-2) \u7ec41-C0W15" / "raw_\u674e\u56db_260501000001_0207000002.csv")
+    _write_eeg_pair(eeg_root, "\u5f20\u4e09")
+    _write_eeg_pair(eeg_root, "\u674e\u56db")
+    questionnaire = tmp_path / "questionnaire.xlsx"
+    _write_minimal_xlsx(
+        questionnaire,
+        [
+            ["\u59d3\u540d", "Q1.8_\u573a\u666f\u987a\u5e8f\u7f16\u53f7", "Q1.2_\u6027\u522b\uff1a"],
+            ["\u5f20\u4e09", 2, "\u5973"],
+        ],
+    )
+
+    participants = build_participants_from_roots(eye_root, eeg_root, questionnaire_xlsx=questionnaire)
+    by_id = participants.set_index("participant_id")
+
+    assert bool(by_id.loc["\u5f20\u4e09", "exclude"]) is False
+    assert by_id.loc["\u5f20\u4e09", "GenderRaw"] == "\u5973"
+    assert by_id.loc["\u5f20\u4e09", "Gender"] == "Female"
+    assert bool(by_id.loc["\u674e\u56db", "exclude"]) is True
+    assert by_id.loc["\u674e\u56db", "ExcludeReason"] == "missing_questionnaire"
+
+
+def test_neworder2_applies_from_2026_05_01(tmp_path: Path) -> None:
+    eye_root = tmp_path / "eye"
+    folder = "(1-1-9\u30012-1-4) \u7ec41-C0W75"
+    _write_eye_csv(eye_root / folder / "raw_New_260501000001_0207000001.csv")
+    _write_eye_csv(eye_root / folder / "raw_Old_260430000001_0207000001.csv")
+    participants_csv = tmp_path / "participants.csv"
+    participants_csv.write_text(
+        "participant_id,eeg_subject_id,eye_subject_id,Order,exclude\n"
+        "New,New,New,2,false\n"
+        "Old,Old,Old,2,false\n",
+        encoding="utf-8",
+    )
+
+    scene_manifest = build_scene_manifest_from_eye_root(eye_root, participants_csv)
+    by_id = scene_manifest.set_index("participant_id")
+
+    assert by_id.loc["New", "order_scheme"] == "neworder2"
+    assert by_id.loc["New", "order_code"] == "1"
+    assert int(by_id.loc["New", "scene_id"]) == 1
+    assert int(by_id.loc["New", "block"]) == 1
+    assert int(by_id.loc["New", "position"]) == 1
+    assert by_id.loc["Old", "order_scheme"] == "order2"
+    assert by_id.loc["Old", "order_code"] == "2-1-4"
+    assert int(by_id.loc["Old", "scene_id"]) == 4
+
+
 def test_alignment_qc_estimates_time_sync_map(tmp_path: Path) -> None:
     participants = tmp_path / "participants.csv"
     scene_manifest = tmp_path / "scene_manifest.csv"

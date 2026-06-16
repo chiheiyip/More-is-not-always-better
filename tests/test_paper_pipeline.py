@@ -81,6 +81,9 @@ def test_full_pipeline_builds_paper_outputs(tmp_path: Path) -> None:
     assert pd.read_csv(intake["group_balance"])["factor"].isin(["ExperienceGroup"]).any()
     assert pd.read_csv(eye["aoi_validation_summary"])["class_name"].isin(["table", "window"]).any()
     assert pd.read_csv(stats["model_diagnostics"]).shape[0] > 0
+    assert pd.read_csv(stats["eeg_core_lmm"]).shape[0] > 0
+    assert pd.read_csv(stats["eeg_peak_index"]).shape[0] > 0
+    assert pd.read_csv(stats["eeg_trial_index_models"]).shape[0] > 0
     assert pd.read_csv(diagnostics["nonlinear_wwr_sensitivity"]).shape[0] > 0
     assert pd.read_csv(reporting["claim_strength_table"]).shape[0] > 0
     assert {"figure_id", "source_data", "review_risk"}.issubset(pd.read_csv(reporting["figure_contracts_index"]).columns)
@@ -112,4 +115,216 @@ def test_questionnaire_wide_to_long_keeps_design_columns(tmp_path: Path) -> None
     q = pd.read_csv(questionnaire["questionnaire_long"])
     assert len(q) == 6
     assert {"WWR", "Complexity", "ExperienceGroup", "Gender", "Age"}.issubset(q.columns)
+    assert set(q["Gender"].dropna()) == {"Female", "Male"}
     assert q[["participant_id", "scene_id"]].duplicated().sum() == 0
+
+
+def test_eeg_pipeline_robust_qc_flags_trials_and_keeps_legacy_audit(tmp_path: Path) -> None:
+    participants = tmp_path / "participants.csv"
+    scene = tmp_path / "scene_manifest.csv"
+    eeg = tmp_path / "eeg_scene.csv"
+    participants.write_text(
+        "participant_id,eeg_subject_id,exclude\n"
+        "P01,P01,false\n"
+        "P02,P02,false\n",
+        encoding="utf-8",
+    )
+    scene.write_text(
+        "participant_id,scene_id,WWR,Complexity,block,position\n"
+        "P01,1,15,0,1,1\n"
+        "P01,2,45,0,1,2\n"
+        "P02,1,15,1,1,1\n"
+        "P02,2,45,1,1,2\n",
+        encoding="utf-8",
+    )
+    eeg.write_text(
+        "participant_id,scene_id,view_dur_s,O_theta,hf_ratio_20_40Hz,rms_mean_uV,peak_to_peak_uV,nan_fraction,flat_fraction\n"
+        "P01,1,3,1.0,0.10,10,50,0,0\n"
+        "P01,2,3,1.1,0.11,11,51,0,0\n"
+        "P02,1,3,1.2,0.12,12,52,0,0\n"
+        "P02,2,3,1.3,0.80,13,53,0,0\n",
+        encoding="utf-8",
+    )
+
+    robust = run_eeg_pipeline(
+        participants_csv=participants,
+        scene_manifest_csv=scene,
+        eeg_scene_csv=eeg,
+        outdir=tmp_path / "eeg_robust",
+        eeg_qc_config={"policy": "robust", "robust_min_n": 4, "bad_scene_fraction_threshold": 0.9},
+    )
+    robust_trial = pd.read_csv(robust["eeg_trial_long"])
+    bad = robust_trial.set_index(["participant_id", "scene_id"]).loc[("P02", 2)]
+    assert bool(bad["bad_eeg_quality"]) is True
+    assert bool(bad["eeg_legacy_hf_flag"]) is True
+    assert "robust_hf_ratio_20_40Hz" in bad["eeg_qc_reasons"]
+    assert "legacy_hf_ratio" not in bad["eeg_qc_reasons"]
+
+    legacy = run_eeg_pipeline(
+        participants_csv=participants,
+        scene_manifest_csv=scene,
+        eeg_scene_csv=eeg,
+        outdir=tmp_path / "eeg_legacy",
+        eeg_qc_config={"policy": "legacy_0_4", "robust_min_n": 4, "bad_scene_fraction_threshold": 0.9},
+    )
+    legacy_bad = pd.read_csv(legacy["eeg_trial_long"]).set_index(["participant_id", "scene_id"]).loc[("P02", 2)]
+    assert "legacy_hf_ratio" in legacy_bad["eeg_qc_reasons"]
+
+
+def test_eeg_pipeline_subject_quality_exclusion_and_old_csv_compatibility(tmp_path: Path) -> None:
+    participants = tmp_path / "participants.csv"
+    scene = tmp_path / "scene_manifest.csv"
+    eeg = tmp_path / "eeg_scene.csv"
+    participants.write_text("participant_id,eeg_subject_id,exclude\nP01,P01,false\n", encoding="utf-8")
+    scene.write_text(
+        "participant_id,scene_id,WWR,Complexity\n"
+        "P01,1,15,0\n"
+        "P01,2,45,0\n"
+        "P01,3,75,0\n",
+        encoding="utf-8",
+    )
+    eeg.write_text(
+        "participant_id,scene_id,view_dur_s,O_theta,segment_valid_duration\n"
+        "P01,1,3,1.0,true\n"
+        "P01,2,3,1.1,false\n"
+        "P01,3,3,1.2,false\n",
+        encoding="utf-8",
+    )
+
+    out = run_eeg_pipeline(
+        participants_csv=participants,
+        scene_manifest_csv=scene,
+        eeg_scene_csv=eeg,
+        outdir=tmp_path / "eeg_subject",
+        eeg_qc_config={"policy": "robust", "bad_scene_fraction_threshold": 0.3},
+    )
+    trial = pd.read_csv(out["eeg_trial_long"])
+    assert trial["eeg_subject_quality_exclusion"].astype(str).str.lower().isin(["true", "1"]).all()
+    assert trial["bad_eeg_quality"].astype(str).str.lower().isin(["true", "1"]).all()
+
+    old_eeg = tmp_path / "old_eeg_scene.csv"
+    old_eeg.write_text(
+        "participant_id,scene_id,view_dur_s,O_theta\n"
+        "P01,1,3,1.0\n"
+        "P01,2,3,1.1\n"
+        "P01,3,3,1.2\n",
+        encoding="utf-8",
+    )
+    old = run_eeg_pipeline(participants, scene, old_eeg, tmp_path / "old_eeg")
+    old_trial = pd.read_csv(old["eeg_trial_long"])
+    assert old_trial["eeg_qc_policy"].eq("unavailable").all()
+    assert old_trial["bad_eeg_quality"].astype(str).str.lower().isin(["false", "0"]).all()
+
+
+def test_fusion_qc_filters_analysis_master_and_keeps_audit_tables(tmp_path: Path) -> None:
+    participants = tmp_path / "participants.csv"
+    scene_manifest = tmp_path / "scene_manifest.csv"
+    questionnaire = tmp_path / "questionnaire_long.csv"
+    eye_metrics = tmp_path / "eye_aoi_trial_long.csv"
+    eeg = tmp_path / "eeg_trial_long.csv"
+    eye1 = tmp_path / "P01_scene01.csv"
+    eye2 = tmp_path / "P01_scene02.csv"
+    eye3 = tmp_path / "P02_scene01.csv"
+    eye1.write_text("Recording Time Stamp[ms],Gaze Point X[px],Gaze Point Y[px]\n0,1,1\n1000,1,1\n2000,1,1\n", encoding="utf-8")
+    eye2.write_text("Recording Time Stamp[ms],Gaze Point X[px],Gaze Point Y[px]\n0,1,1\n5000,1,1\n", encoding="utf-8")
+    eye3.write_text("Recording Time Stamp[ms],Gaze Point X[px],Gaze Point Y[px]\n0,1,1\n1000,1,1\n2000,1,1\n", encoding="utf-8")
+    participants.write_text(
+        "participant_id,eeg_subject_id,eye_subject_id,ExperienceGroup,Gender,exclude\n"
+        "P01,P01,P01,Low,F,false\n"
+        "P02,P02,P02,High,M,false\n",
+        encoding="utf-8",
+    )
+    scene_manifest.write_text(
+        "participant_id,scene_id,condition_id,WWR,Complexity,Cond,block,position,eye_csv_path,aoi_json_path\n"
+        f"P01,1,C0_W15,15,0,C0,1,1,{eye1.as_posix()},\n"
+        f"P01,2,C1_W45,45,1,C1,1,2,{eye2.as_posix()},\n"
+        f"P02,1,C0_W15,15,0,C0,1,1,{eye3.as_posix()},\n",
+        encoding="utf-8",
+    )
+    questionnaire.write_text(
+        "participant_id,scene_id,S1\n"
+        "P01,1,5\n"
+        "P01,2,4\n"
+        "P02,1,3\n",
+        encoding="utf-8",
+    )
+    eye_metrics.write_text(
+        "participant_id,scene_id,class_name,FCR,TFD_ms,TTFF_ms,attention_share,visited\n"
+        "P01,1,whole_scene,1,100,0,1,true\n"
+        "P01,2,whole_scene,1,100,0,1,true\n"
+        "P02,1,whole_scene,1,100,0,1,true\n",
+        encoding="utf-8",
+    )
+    eeg.write_text(
+        "participant_id,scene_id,view_dur_s,O_theta\n"
+        "P01,1,2,1.1\n"
+        "P01,2,2,1.2\n"
+        "P02,1,2,1.3\n",
+        encoding="utf-8",
+    )
+
+    fusion = run_fusion_pipeline(
+        questionnaire_long=questionnaire,
+        eye_aoi_trial_long=eye_metrics,
+        eeg_trial_long=eeg,
+        participants_csv=participants,
+        scene_manifest_csv=scene_manifest,
+        outdir=tmp_path / "fusion",
+        expected_scenes_per_subject=2,
+        duration_tolerance_s=2.0,
+    )
+
+    master = pd.read_csv(fusion["analysis_master_long"])
+    pre_qc = pd.read_csv(fusion["analysis_master_long_pre_qc"])
+    qc = pd.read_csv(fusion["analysis_qc_exclusions"])
+    kept_keys = set(zip(master["participant_id"], master["scene_id"]))
+    reasons = qc.set_index(["participant_id", "scene_id"])["analysis_exclusion_reasons"]
+
+    assert pre_qc[["participant_id", "scene_id"]].drop_duplicates().shape[0] == 3
+    assert kept_keys == {("P01", 1)}
+    assert "duration_mismatch" in reasons.loc[("P01", 2)]
+    assert "scene_count_mismatch" in reasons.loc[("P02", 1)]
+
+
+def test_fusion_qc_excludes_bad_eeg_quality(tmp_path: Path) -> None:
+    participants = tmp_path / "participants.csv"
+    scene_manifest = tmp_path / "scene_manifest.csv"
+    questionnaire = tmp_path / "questionnaire_long.csv"
+    eye_metrics = tmp_path / "eye_aoi_trial_long.csv"
+    eeg = tmp_path / "eeg_trial_long.csv"
+    eye = tmp_path / "P01_scene01.csv"
+    eye.write_text("Recording Time Stamp[ms],Gaze Point X[px],Gaze Point Y[px]\n0,1,1\n1000,1,1\n2000,1,1\n", encoding="utf-8")
+    participants.write_text("participant_id,eeg_subject_id,eye_subject_id,exclude\nP01,P01,P01,false\n", encoding="utf-8")
+    scene_manifest.write_text(
+        "participant_id,scene_id,WWR,Complexity,block,position,eye_csv_path,aoi_json_path\n"
+        f"P01,1,15,0,1,1,{eye.as_posix()},\n",
+        encoding="utf-8",
+    )
+    questionnaire.write_text("participant_id,scene_id,S1\nP01,1,5\n", encoding="utf-8")
+    eye_metrics.write_text(
+        "participant_id,scene_id,class_name,FCR,TFD_ms,TTFF_ms,attention_share,visited\n"
+        "P01,1,whole_scene,1,100,0,1,true\n",
+        encoding="utf-8",
+    )
+    eeg.write_text(
+        "participant_id,scene_id,view_dur_s,O_theta,bad_eeg_quality,eeg_qc_reasons,eeg_qc_policy\n"
+        "P01,1,2,1.0,true,robust_hf_ratio_20_40Hz,robust\n",
+        encoding="utf-8",
+    )
+
+    fusion = run_fusion_pipeline(
+        questionnaire_long=questionnaire,
+        eye_aoi_trial_long=eye_metrics,
+        eeg_trial_long=eeg,
+        participants_csv=participants,
+        scene_manifest_csv=scene_manifest,
+        outdir=tmp_path / "fusion_bad_eeg",
+        expected_scenes_per_subject=1,
+        duration_tolerance_s=2.0,
+    )
+    master = pd.read_csv(fusion["analysis_master_long"])
+    qc = pd.read_csv(fusion["analysis_qc_exclusions"])
+    assert master.empty
+    assert bool(qc.loc[0, "bad_eeg_quality"]) is True
+    assert "bad_eeg_quality" in qc.loc[0, "analysis_exclusion_reasons"]
+    assert qc.loc[0, "eeg_qc_reasons"] == "robust_hf_ratio_20_40Hz"

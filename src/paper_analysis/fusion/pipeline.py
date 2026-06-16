@@ -66,15 +66,25 @@ def run_fusion_pipeline(
 
     q_pref = prefix_non_core_columns(questionnaire, "q")
     eeg_pref = prefix_non_core_columns(eeg, "eeg")
-    master = trial_index.merge(q_pref, on=KEYS, how="left", suffixes=("", "_qdup"))
-    master = master.merge(eeg_pref, on=KEYS, how="left", suffixes=("", "_eegdup"))
+    master_pre_qc = trial_index.merge(q_pref, on=KEYS, how="left", suffixes=("", "_qdup"))
+    master_pre_qc = master_pre_qc.merge(eeg_pref, on=KEYS, how="left", suffixes=("", "_eegdup"))
     if not eye.empty:
-        master = master.merge(eye, on=KEYS, how="left", suffixes=("", "_eye"))
-    master = canonical_columns_first(coalesce_design_columns(master))
+        master_pre_qc = master_pre_qc.merge(eye, on=KEYS, how="left", suffixes=("", "_eye"))
+    master_pre_qc = canonical_columns_first(coalesce_design_columns(master_pre_qc))
+    analysis_qc = build_analysis_qc_exclusions(
+        master=master_pre_qc,
+        sync_qc=sync_qc,
+        questionnaire=questionnaire,
+        eye=eye,
+        eeg=eeg,
+    )
+    master = apply_analysis_qc(master_pre_qc, analysis_qc)
     convergence = modality_convergence(master)
     claim_support = claim_support_matrix(convergence)
     outdir = Path(outdir)
     return {
+        "analysis_master_long_pre_qc": write_table(master_pre_qc, outdir / "analysis_master_long_pre_qc.csv"),
+        "analysis_qc_exclusions": write_table(analysis_qc, outdir / "analysis_qc_exclusions.csv"),
         "analysis_master_long": write_table(master, outdir / "analysis_master_long.csv"),
         "aligned_scene": write_table(aligned_scene, outdir / "aligned_scene_table.csv"),
         "aligned_timebin": write_table(aligned_timebin, outdir / "aligned_timebin_table.csv"),
@@ -170,6 +180,73 @@ def build_sync_qc(
             "duration_mismatch": bool(abs(delta) > duration_tolerance_s) if pd.notna(delta) else True,
         })
     return pd.DataFrame(rows).sort_values(KEYS).reset_index(drop=True)
+
+
+def build_analysis_qc_exclusions(
+    master: pd.DataFrame,
+    sync_qc: pd.DataFrame,
+    questionnaire: pd.DataFrame,
+    eye: pd.DataFrame,
+    eeg: pd.DataFrame,
+) -> pd.DataFrame:
+    trials = master[KEYS].drop_duplicates().copy()
+    q_keys = _key_set(questionnaire)
+    eye_keys = _key_set(eye)
+    eeg_keys = _key_set(eeg)
+    rows: list[dict] = []
+    sync_lookup = sync_qc.drop_duplicates(KEYS).set_index(KEYS) if set(KEYS).issubset(sync_qc.columns) else pd.DataFrame()
+    eeg_lookup = eeg.drop_duplicates(KEYS).set_index(KEYS) if set(KEYS).issubset(eeg.columns) else pd.DataFrame()
+    for _, trial in trials.iterrows():
+        key = (str(trial["participant_id"]), int(trial["scene_id"]))
+        sync = sync_lookup.loc[key] if not sync_lookup.empty and key in sync_lookup.index else pd.Series(dtype=object)
+        eeg_row = eeg_lookup.loc[key] if not eeg_lookup.empty and key in eeg_lookup.index else pd.Series(dtype=object)
+        missing_questionnaire = key not in q_keys
+        missing_eye = bool(sync.get("missing_eye_file", False)) or key not in eye_keys
+        missing_eeg = bool(sync.get("missing_eeg_scene", False)) or key not in eeg_keys
+        duration_mismatch = bool(sync.get("duration_mismatch", False))
+        scene_count_mismatch = bool(sync.get("scene_count_mismatch", False))
+        bad_eeg_quality = _truthy(eeg_row.get("bad_eeg_quality", False)) if not eeg_row.empty else False
+        eeg_qc_reasons = str(eeg_row.get("eeg_qc_reasons", "") or "")
+        eeg_qc_policy = str(eeg_row.get("eeg_qc_policy", "") or "")
+        reasons = []
+        if missing_questionnaire:
+            reasons.append("missing_questionnaire")
+        if missing_eye:
+            reasons.append("missing_eye")
+        if missing_eeg:
+            reasons.append("missing_eeg")
+        if bad_eeg_quality:
+            reasons.append("bad_eeg_quality")
+        if duration_mismatch:
+            reasons.append("duration_mismatch")
+        if scene_count_mismatch:
+            reasons.append("scene_count_mismatch")
+        rows.append({
+            "participant_id": key[0],
+            "scene_id": key[1],
+            "excluded_from_analysis": bool(reasons),
+            "analysis_exclusion_reasons": ";".join(reasons),
+            "missing_questionnaire": missing_questionnaire,
+            "missing_eye": missing_eye,
+            "missing_eeg": missing_eeg,
+            "bad_eeg_quality": bad_eeg_quality,
+            "eeg_qc_reasons": eeg_qc_reasons,
+            "eeg_qc_policy": eeg_qc_policy,
+            "duration_mismatch": duration_mismatch,
+            "scene_count_mismatch": scene_count_mismatch,
+            "duration_delta_s": sync.get("duration_delta_s", np.nan),
+            "manifest_scene_count": sync.get("manifest_scene_count", np.nan),
+            "expected_scenes_per_subject": sync.get("expected_scenes_per_subject", np.nan),
+        })
+    return pd.DataFrame(rows).sort_values(KEYS).reset_index(drop=True)
+
+
+def apply_analysis_qc(master: pd.DataFrame, analysis_qc: pd.DataFrame) -> pd.DataFrame:
+    if analysis_qc.empty:
+        return master.copy()
+    keep = analysis_qc.loc[~analysis_qc["excluded_from_analysis"], KEYS]
+    out = master.merge(keep, on=KEYS, how="inner")
+    return canonical_columns_first(out.reset_index(drop=True))
 
 
 def build_precise_alignment_qc(
@@ -330,7 +407,7 @@ def _load_scene_for_fusion(
 
 def _trial_base(trial: pd.Series) -> dict:
     out = {key: trial[key] for key in KEYS}
-    for col in ["condition_id", "WWR", "WWR_numeric", "Cond", "Complexity", "block", "position", "round", "participant_order", "eye_csv_path", "aoi_json_path"]:
+    for col in ["condition_id", "WWR", "WWR_numeric", "Cond", "Complexity", "block", "position", "round", "participant_order", "order_scheme", "order_code", "eye_csv_path", "aoi_json_path"]:
         if col in trial.index:
             out[col] = trial[col]
     return out
@@ -351,6 +428,13 @@ def _first_existing(df: pd.DataFrame, candidates: list[str]) -> str | None:
     return None
 
 
+def _key_set(df: pd.DataFrame) -> set[tuple[str, int]]:
+    if not set(KEYS).issubset(df.columns):
+        return set()
+    keys = df[KEYS].dropna().drop_duplicates()
+    return {(str(row["participant_id"]), int(row["scene_id"])) for _, row in keys.iterrows()}
+
+
 def _number_or_default(value: object, default: float) -> float:
     try:
         out = pd.to_numeric(value, errors="coerce")
@@ -359,3 +443,19 @@ def _number_or_default(value: object, default: float) -> float:
         return float(out)
     except Exception:
         return default
+
+
+def _truthy(value: object) -> bool:
+    if pd.isna(value):
+        return False
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"true", "1", "yes", "y"}:
+        return True
+    if text in {"false", "0", "no", "n", ""}:
+        return False
+    try:
+        return float(text) != 0.0
+    except ValueError:
+        return False

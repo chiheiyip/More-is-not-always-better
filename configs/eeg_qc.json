@@ -1,0 +1,11 @@
+{
+  "policy": "robust",
+  "legacy_hf_threshold": 0.4,
+  "bad_scene_fraction_threshold": 0.3,
+  "min_segment_duration_s": 1.0,
+  "nan_fraction_threshold": 0.2,
+  "flat_fraction_threshold": 0.2,
+  "robust_k": 3.5,
+  "robust_min_n": 4,
+  "robust_metrics": ["hf_ratio_20_40Hz", "rms_mean_uV", "peak_to_peak_uV"]
+}

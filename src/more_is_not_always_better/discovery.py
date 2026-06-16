@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import zipfile
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Iterable, Optional
 from xml.etree import ElementTree as ET
@@ -18,6 +19,25 @@ SCENE_DIR_RE = re.compile(
     r"(?P<scene_group>\u7ec4\d+)-C(?P<cond>\d+)W(?P<wwr>\d+)$"
 )
 GENERIC_EYE_SUBJECTS = {"user", "user1", "user2", "test", "pilot", "practice"}
+NEW_ORDER2_START_DATE = date(2026, 5, 1)
+NEW_ORDER2_BY_BLOCK = {
+    1: {
+        "C0W75": ("1", 1),
+        "C1W15": ("2", 2),
+        "C0W45": ("3", 3),
+        "C1W75": ("4", 4),
+        "C0W15": ("5", 5),
+        "C1W45": ("6", 6),
+    },
+    2: {
+        "C1W15": ("a", 1),
+        "C0W15": ("b", 2),
+        "C1W75": ("c", 3),
+        "C0W75": ("d", 4),
+        "C1W45": ("e", 5),
+        "C0W45": ("f", 6),
+    },
+}
 QUESTIONNAIRE_COLUMN_CANDIDATES = {
     "participant_id": ["\u59d3\u540d", "name"],
     "Order": ["Q1.8_\u573a\u666f\u987a\u5e8f\u7f16\u53f7", "Q1.8"],
@@ -155,13 +175,23 @@ def build_participants_from_roots(
     eye_counts = eye.groupby("participant_id")["eye_csv_path"].nunique().rename("eye_scene_file_count") if not eye.empty else pd.Series(dtype=int)
     eeg_ids = set(eeg["participant_id"]) if not eeg.empty else set()
     eye_ids = set(eye["participant_id"]) if not eye.empty else set()
-    all_ids = sorted(eeg_ids | eye_ids)
+    questionnaire_ids = set(questionnaire["participant_id"]) if not questionnaire.empty else set()
+    questionnaire_required = questionnaire_xlsx is not None
+    all_ids = sorted(eeg_ids | eye_ids | questionnaire_ids)
 
     eeg_paths = eeg.set_index("participant_id") if not eeg.empty else pd.DataFrame()
     rows: list[dict] = []
     for participant_id in all_ids:
         has_eeg = participant_id in eeg_ids
         has_eye = participant_id in eye_ids
+        has_questionnaire = participant_id in questionnaire_ids if questionnaire_required else False
+        exclude_reasons = []
+        if not has_eeg:
+            exclude_reasons.append("missing_eeg")
+        if not has_eye:
+            exclude_reasons.append("missing_eye")
+        if questionnaire_required and not has_questionnaire:
+            exclude_reasons.append("missing_questionnaire")
         row = {
             "participant_id": participant_id,
             "eeg_subject_id": participant_id if has_eeg else "",
@@ -169,9 +199,11 @@ def build_participants_from_roots(
             "SportFreq": "",
             "Experience": "",
             "Order": "",
-            "exclude": not (has_eeg and has_eye),
+            "exclude": bool(exclude_reasons),
+            "ExcludeReason": ";".join(exclude_reasons),
             "has_eeg_raw": has_eeg,
             "has_eye_raw": has_eye,
+            "has_questionnaire": has_questionnaire,
             "eye_scene_file_count": int(eye_counts.get(participant_id, 0)),
         }
         if has_eeg and not eeg_paths.empty:
@@ -185,6 +217,7 @@ def build_participants_from_roots(
                 "Experience",
                 "SportFreq",
                 "Age",
+                "GenderRaw",
                 "Gender",
                 "RightHanded",
                 "VRExperience",
@@ -192,8 +225,6 @@ def build_participants_from_roots(
             ]:
                 row[col] = qrow.get(col, "")
             row["has_questionnaire"] = True
-        else:
-            row["has_questionnaire"] = False
         rows.append(row)
 
     out = pd.DataFrame(rows)
@@ -233,8 +264,7 @@ def build_scene_manifest_from_eye_root(
     for _, row in eye.iterrows():
         participant_id = str(row["participant_id"])
         order = order_map.get(participant_id, default_order)
-        order_code = row.get(f"order_code_{order}") or row.get("order_code_1")
-        block, position, scene_id = _scene_position_from_order_code(order_code)
+        order_scheme, order_code, block, position, scene_id = _resolve_order_position(row, order)
         order_missing = _order_is_missing(participants, participant_id)
         rows.append({
             "participant_id": participant_id,
@@ -249,6 +279,7 @@ def build_scene_manifest_from_eye_root(
             "Complexity": row.get("Complexity", ""),
             "eye_offset_ms": eye_offset_ms,
             "participant_order": order,
+            "order_scheme": order_scheme,
             "order_missing": order_missing,
             "order_code": order_code,
             "order_code_1": row.get("order_code_1", ""),
@@ -357,6 +388,8 @@ def load_questionnaire_metadata(path: str | Path) -> pd.DataFrame:
 
     out = out.loc[out["participant_id"].ne("") & out["participant_id"].ne("nan")].copy()
     out["Order"] = pd.to_numeric(out["Order"], errors="coerce").astype("Int64")
+    out["GenderRaw"] = out["Gender"]
+    out["Gender"] = out["GenderRaw"].map(_standardize_gender)
     if out["participant_id"].duplicated().any():
         dupes = out.loc[out["participant_id"].duplicated(keep=False), "participant_id"].tolist()
         raise ValueError(f"Questionnaire contains duplicate participant names: {dupes[:10]}")
@@ -459,6 +492,57 @@ def _scene_position_from_order_code(order_code: object) -> tuple[int, int, int]:
     return block, position, (block - 1) * 6 + position
 
 
+def _resolve_order_position(row: pd.Series, order: int) -> tuple[str, object, int, int, int]:
+    selected_code = row.get(f"order_code_{order}") or row.get("order_code_1")
+    if order == 2 and _uses_neworder2(row.get("eye_record_id")):
+        old_block, _, _ = _scene_position_from_order_code(row.get("order_code_2") or selected_code)
+        condition = _condition_key(row)
+        try:
+            label, position = NEW_ORDER2_BY_BLOCK[old_block][condition]
+        except KeyError as exc:
+            raise ValueError(
+                f"Cannot map condition {condition!r} in block {old_block} to neworder2 "
+                f"for folder {row.get('source_folder', '')!r}"
+            ) from exc
+        return "neworder2", label, old_block, position, (old_block - 1) * 6 + position
+    block, position, scene_id = _scene_position_from_order_code(selected_code)
+    return f"order{order}", selected_code, block, position, scene_id
+
+
+def _uses_neworder2(eye_record_id: object) -> bool:
+    experiment_date = _experiment_date_from_eye_record_id(eye_record_id)
+    return experiment_date is not None and experiment_date >= NEW_ORDER2_START_DATE
+
+
+def _experiment_date_from_eye_record_id(value: object) -> Optional[date]:
+    match = re.match(r"(\d{6})", str(value or "").strip())
+    if not match:
+        return None
+    text = match.group(1)
+    year = 2000 + int(text[:2])
+    month = int(text[2:4])
+    day = int(text[4:6])
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
+
+
+def _condition_key(row: pd.Series) -> str:
+    cond = str(row.get("Cond") or "").strip().upper().replace("_", "")
+    if not cond:
+        condition_code = str(row.get("condition_code") or "").strip().upper().replace("_", "")
+        match = re.search(r"C\d+", condition_code)
+        cond = match.group(0) if match else ""
+    if not cond and pd.notna(row.get("Complexity")):
+        cond = f"C{int(float(row.get('Complexity')))}"
+    wwr_match = re.search(r"\d+(\.\d+)?", str(row.get("WWR") or row.get("condition_code") or ""))
+    wwr = int(float(wwr_match.group(0))) if wwr_match else None
+    if not cond or wwr is None:
+        raise ValueError(f"Cannot derive condition key from row: {row.to_dict()}")
+    return f"{cond}W{wwr}"
+
+
 def _normalize_order(value: object, default_order: int) -> int:
     if value is None or pd.isna(value):
         return default_order
@@ -478,6 +562,18 @@ def _truthy(value: object) -> bool:
     if value is None or pd.isna(value):
         return False
     return str(value).strip().lower() in {"true", "1", "yes", "y"}
+
+
+def _standardize_gender(value: object) -> str:
+    text = str(value or "").strip()
+    if not text or text.lower() in {"nan", "none", "unknown"}:
+        return "Unknown"
+    low = text.lower()
+    if low in {"m", "male", "man"} or text in {"男", "男性", "男生"}:
+        return "Male"
+    if low in {"f", "female", "woman"} or text in {"女", "女性", "女生"}:
+        return "Female"
+    return text
 
 
 def _is_adaptation_folder(folder_name: str) -> bool:

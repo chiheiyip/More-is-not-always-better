@@ -11,3 +11,6 @@
 9. Figure claims must have source-data contracts before final artwork is produced.
 10. Data Availability separates raw, processed, source-data, and restricted-access materials.
 11. Repository-generated scientific figures use Python/matplotlib only, with editable SVG, vector PDF, high-resolution TIFF, QA PNG, panel source CSV, and a figure QA table.
+12. EEG raw/preprocessed `.set` files are converted upstream by MATLAB/EEGLAB into scene-level tables; Python remains the primary analysis and fusion stack.
+13. EEG quality filtering uses configurable robust thresholds by default. The legacy high-frequency ratio threshold from the upstream EEG repository is retained as an audit/sensitivity flag, not as a universal exclusion standard.
+14. High-beta and low-gamma EEG metrics are exploratory because scalp high-frequency activity is more sensitive to muscle artifacts.

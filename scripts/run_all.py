@@ -48,6 +48,7 @@ def main() -> None:
         scene_manifest_csv=intake["scene_manifest_standardized"],
         eeg_scene_csv=config["eeg_scene_csv"],
         outdir=outputs / "04_eeg",
+        eeg_qc_config=config.get("eeg_qc_config", "configs/eeg_qc.json"),
     )
     fusion = run_fusion_pipeline(
         questionnaire_long=questionnaire["questionnaire_long"],

@@ -12,6 +12,7 @@ DESIGN_COLUMNS = [
     "position",
     "round",
     "participant_order",
+    "order_scheme",
     "order_code",
 ]
 
@@ -23,6 +24,7 @@ PARTICIPANT_COLUMNS = [
     "Experience",
     "ExperienceGroup",
     "SportFreq",
+    "GenderRaw",
     "Gender",
     "Age",
     "RecruitmentBatch",

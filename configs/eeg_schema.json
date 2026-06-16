@@ -2,6 +2,7 @@
   "id_columns": ["participant_id", "scene_id"],
   "alternate_subject_column": "subject_id",
   "primary_metrics": ["O_theta", "F_theta", "O_alpha", "delta_O_alpha"],
-  "supplementary_metrics": ["O_beta", "F_alpha", "F_beta", "P_theta", "P_alpha", "P_beta"],
+  "supplementary_metrics": ["O_beta", "F_alpha", "F_beta", "P_theta", "P_alpha", "P_beta", "O_low_beta", "O_high_beta", "O_low_gamma", "F_low_beta", "F_high_beta", "F_low_gamma", "O_TAR", "O_TBR", "O_BA"],
+  "qc_metrics": ["hf_ratio_20_40Hz", "rms_mean_uV", "peak_to_peak_uV", "nan_fraction", "flat_fraction", "near_boundary", "segment_valid_duration", "bad_eeg_quality", "eeg_qc_reasons", "eeg_qc_policy"],
   "interpretation_policy": "Theta and alpha are interpreted cautiously and tied to convergent behavioral or questionnaire evidence."
 }

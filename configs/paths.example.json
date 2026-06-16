@@ -4,6 +4,7 @@
   "questionnaire_wide": "tests/fixtures/paper/questionnaire/questionnaire_wide.csv",
   "questionnaire_long": null,
   "eeg_scene_csv": "tests/fixtures/paper/eeg/eeg_scene.csv",
+  "eeg_qc_config": "configs/eeg_qc.json",
   "outputs_root": "outputs",
   "expected_scenes_per_subject": 3,
   "bin_size_ms": 2000

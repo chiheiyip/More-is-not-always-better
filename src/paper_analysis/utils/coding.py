@@ -35,6 +35,18 @@ HIGH_EXPERIENCE_PATTERNS = [
 ]
 
 
+def standardize_gender(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text or text.lower() in {"nan", "none", "unknown"}:
+        return "Unknown"
+    low = text.lower()
+    if low in {"m", "male", "man"} or text in {"男", "男性", "男生"}:
+        return "Male"
+    if low in {"f", "female", "woman"} or text in {"女", "女性", "女生"}:
+        return "Female"
+    return text
+
+
 def standardize_participants(participants: pd.DataFrame) -> pd.DataFrame:
     out = participants.copy()
     if "exclude" not in out.columns:
@@ -49,6 +61,12 @@ def standardize_participants(participants: pd.DataFrame) -> pd.DataFrame:
         out["SupplementFlag"] = out["RecruitmentBatch"].astype(str).str.lower().eq("supplement")
     if "Gender" not in out.columns:
         out["Gender"] = ""
+    if "GenderRaw" not in out.columns:
+        out["GenderRaw"] = out["Gender"]
+    else:
+        missing_raw = out["GenderRaw"].astype(str).str.strip().str.lower().isin({"", "nan", "none"})
+        out.loc[missing_raw, "GenderRaw"] = out.loc[missing_raw, "Gender"]
+    out["Gender"] = out["GenderRaw"].map(standardize_gender)
     if "Age" not in out.columns:
         out["Age"] = np.nan
     out["Age"] = pd.to_numeric(out["Age"], errors="coerce")
