@@ -14,3 +14,6 @@
 12. EEG raw/preprocessed `.set` files are converted upstream by MATLAB/EEGLAB into scene-level tables; Python remains the primary analysis and fusion stack.
 13. EEG quality filtering uses configurable robust thresholds by default. The legacy high-frequency ratio threshold from the upstream EEG repository is retained as an audit/sensitivity flag, not as a universal exclusion standard.
 14. High-beta and low-gamma EEG metrics are exploratory because scalp high-frequency activity is more sensitive to muscle artifacts.
+15. AOI hit testing accepts `gaze` or `fixation` coordinates, but formal AOI analyses should use fixation points when exported by the eye tracker; `auto` records the actual source used.
+16. Eye-tracking validity, screen-bounds, timestamp-segment, image-size, and AOI-overlap checks are audit outputs by default. Hard exclusions must be configured explicitly and re-run, because validity codes and screen/image geometry are device/export-specific.
+17. Eye metric expansion follows a bounded hierarchy: `visited`, `FCR`/`FC_rate`, `TFD_ms`, `TTFF_ms`, and `attention_share` remain primary; `FFD_ms`, `MFD_ms`, `RFF`, and `MPD` are exploratory unless pre-registered for a specific manuscript claim.

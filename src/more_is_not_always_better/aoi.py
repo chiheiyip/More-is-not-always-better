@@ -137,20 +137,25 @@ def compute_metrics(
     df: pd.DataFrame,
     aois: List[PolygonAOI],
     dwell_mode: str = "fixation",
+    point_source: str = "auto",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    _require_eye_columns(df)
-    x = pd.to_numeric(df["Gaze Point X[px]"], errors="coerce").to_numpy()
-    y = pd.to_numeric(df["Gaze Point Y[px]"], errors="coerce").to_numpy()
+    x_col, y_col, point_source_used = _resolve_point_columns(df, point_source)
+    _require_eye_columns(df, x_col=x_col, y_col=y_col)
+    x = pd.to_numeric(df[x_col], errors="coerce").to_numpy()
+    y = pd.to_numeric(df[y_col], errors="coerce").to_numpy()
     t = pd.to_numeric(df["Recording Time Stamp[ms]"], errors="coerce").to_numpy()
     t0 = float(np.nanmin(t)) if np.isfinite(t).any() else np.nan
     finite_xy = np.isfinite(x) & np.isfinite(y)
+    trial_tfd = _dwell_time(df, mode=dwell_mode)
+    trial_fc = _fixation_count(df)
+    trial_s = _trial_duration_s(df)
 
     per_poly_rows: list[dict] = []
     class_to_masks: Dict[str, List[np.ndarray]] = {}
     for aoi in aois:
         mask = point_in_poly(x, y, aoi.points) & finite_xy
         class_to_masks.setdefault(aoi.class_name, []).append(mask)
-        per_poly_rows.append(_metric_row(df.loc[mask], t0, aoi.class_name, dwell_mode, {
+        per_poly_rows.append(_metric_row(df.loc[mask], t0, aoi.class_name, dwell_mode, trial_tfd, trial_fc, trial_s, point_source_used, {
             "polygon_id": aoi.polygon_id,
             "samples": int(mask.sum()),
         }))
@@ -158,7 +163,7 @@ def compute_metrics(
     per_class_rows: list[dict] = []
     for class_name, masks in class_to_masks.items():
         union = np.logical_or.reduce(masks) if masks else np.zeros_like(x, dtype=bool)
-        per_class_rows.append(_metric_row(df.loc[union], t0, class_name, dwell_mode, {
+        per_class_rows.append(_metric_row(df.loc[union], t0, class_name, dwell_mode, trial_tfd, trial_fc, trial_s, point_source_used, {
             "polygon_count": len(masks),
             "samples": int(union.sum()),
         }))
@@ -172,8 +177,10 @@ def compute_timebin_metrics(
     bin_size_ms: int = 2000,
     eye_offset_ms: float = 0.0,
     dwell_mode: str = "fixation",
+    point_source: str = "auto",
 ) -> pd.DataFrame:
-    _require_eye_columns(df)
+    x_col, y_col, _ = _resolve_point_columns(df, point_source)
+    _require_eye_columns(df, x_col=x_col, y_col=y_col)
     if bin_size_ms <= 0:
         raise ValueError("bin_size_ms must be positive")
 
@@ -189,7 +196,7 @@ def compute_timebin_metrics(
     for bin_index, sub in out.dropna(subset=["bin_index"]).groupby("bin_index", sort=True):
         bin_start_ms = int(bin_index) * bin_size_ms
         bin_end_ms = bin_start_ms + bin_size_ms
-        _, class_df = compute_metrics(sub, aois, dwell_mode=dwell_mode)
+        _, class_df = compute_metrics(sub, aois, dwell_mode=dwell_mode, point_source=point_source)
         if class_df.empty:
             rows.append({
                 "bin_index": int(bin_index),
@@ -215,9 +222,11 @@ def compute_whole_scene_metrics(
     df: pd.DataFrame,
     dwell_mode: str = "fixation",
     class_name: str = "whole_scene",
+    point_source: str = "auto",
 ) -> pd.DataFrame:
     """Compute one scene-level eye row when AOI polygons are not available."""
-    _require_eye_columns(df)
+    x_col, y_col, point_source_used = _resolve_point_columns(df, point_source)
+    _require_eye_columns(df, x_col=x_col, y_col=y_col)
     t = pd.to_numeric(df["Recording Time Stamp[ms]"], errors="coerce")
     t0 = float(t.min()) if t.notna().any() else np.nan
     row = _metric_row(
@@ -225,6 +234,10 @@ def compute_whole_scene_metrics(
         t0,
         class_name,
         dwell_mode,
+        _dwell_time(df, mode=dwell_mode),
+        _fixation_count(df),
+        _trial_duration_s(df),
+        point_source_used,
         {
             "polygon_count": 0,
             "samples": int(len(df)),
@@ -242,9 +255,11 @@ def compute_whole_scene_timebin_metrics(
     eye_offset_ms: float = 0.0,
     dwell_mode: str = "fixation",
     class_name: str = "whole_scene",
+    point_source: str = "auto",
 ) -> pd.DataFrame:
     """Compute per-bin eye rows without AOI polygons."""
-    _require_eye_columns(df)
+    x_col, y_col, _ = _resolve_point_columns(df, point_source)
+    _require_eye_columns(df, x_col=x_col, y_col=y_col)
     if bin_size_ms <= 0:
         raise ValueError("bin_size_ms must be positive")
     out = df.copy()
@@ -259,7 +274,7 @@ def compute_whole_scene_timebin_metrics(
     for bin_index, sub in out.dropna(subset=["bin_index"]).groupby("bin_index", sort=True):
         bin_start_ms = int(bin_index) * bin_size_ms
         bin_end_ms = bin_start_ms + bin_size_ms
-        class_df = compute_whole_scene_metrics(sub, dwell_mode=dwell_mode, class_name=class_name)
+        class_df = compute_whole_scene_metrics(sub, dwell_mode=dwell_mode, class_name=class_name, point_source=point_source)
         class_df.insert(0, "bin_end_ms", bin_end_ms)
         class_df.insert(0, "bin_start_ms", bin_start_ms)
         class_df.insert(0, "bin_index", int(bin_index))
@@ -297,11 +312,26 @@ def eye_file_stats(df: pd.DataFrame, eye_offset_ms: float = 0.0, bin_size_ms: in
     }
 
 
-def _require_eye_columns(df: pd.DataFrame) -> None:
-    required = ["Gaze Point X[px]", "Gaze Point Y[px]", "Recording Time Stamp[ms]"]
+def _require_eye_columns(df: pd.DataFrame, x_col: str, y_col: str) -> None:
+    required = [x_col, y_col, "Recording Time Stamp[ms]"]
     missing = [col for col in required if col not in df.columns]
     if missing:
         raise ValueError(f"Eye dataframe missing columns: {missing}")
+
+
+def _resolve_point_columns(df: pd.DataFrame, point_source: str = "auto") -> tuple[str, str, str]:
+    point_source = str(point_source or "auto").strip().lower()
+    if point_source not in {"auto", "gaze", "fixation"}:
+        raise ValueError("point_source must be one of: auto, gaze, fixation")
+    fixation = ("Fixation Point X[px]", "Fixation Point Y[px]")
+    gaze = ("Gaze Point X[px]", "Gaze Point Y[px]")
+    if point_source in {"auto", "fixation"} and set(fixation).issubset(df.columns):
+        return fixation[0], fixation[1], "fixation"
+    if point_source in {"auto", "gaze"} and set(gaze).issubset(df.columns):
+        return gaze[0], gaze[1], "gaze"
+    if point_source == "fixation":
+        raise ValueError("Fixation point columns are unavailable")
+    raise ValueError("Gaze point columns are unavailable")
 
 
 def _metric_row(
@@ -309,18 +339,35 @@ def _metric_row(
     t0: float,
     class_name: str,
     dwell_mode: str,
+    trial_tfd: float,
+    trial_fc: int,
+    trial_s: float,
+    point_source_used: str,
     extra: dict,
 ) -> dict:
     row = {"class_name": class_name}
     row.update(extra)
     dwell = _dwell_time(sub, mode=dwell_mode)
     row["dwell_time_ms"] = float(dwell) if pd.notna(dwell) else np.nan
+    row["TFD_ms"] = row["dwell_time_ms"]
+    row["TFD"] = row["TFD_ms"]
     row["fixation_count"] = _fixation_count(sub)
+    row["FC"] = row["fixation_count"]
     if len(sub) and pd.notna(t0):
         ttff = pd.to_numeric(sub["Recording Time Stamp[ms]"], errors="coerce").min() - t0
         row["TTFF_ms"] = float(ttff) if pd.notna(ttff) else np.nan
     else:
         row["TTFF_ms"] = np.nan
+    row["TTFF"] = row["TTFF_ms"]
+    row["visited"] = bool(row["FC"] > 0 or row.get("samples", 0) > 0)
+    row["attention_share"] = row["TFD_ms"] / trial_tfd if trial_tfd and pd.notna(row["TFD_ms"]) else np.nan
+    row["share"] = row["attention_share"]
+    row["share_pct"] = 100.0 * row["share"] if pd.notna(row["share"]) else np.nan
+    row["FC_share"] = row["FC"] / trial_fc if trial_fc and trial_fc > 0 else np.nan
+    row["FC_prop"] = row["FC_share"]
+    row["FC_rate"] = row["FC"] / trial_s if trial_s and trial_s > 0 else np.nan
+    row["FCR"] = row["FC_rate"]
+    row["point_source_used"] = point_source_used
     return row
 
 
@@ -345,3 +392,11 @@ def _fixation_count(sub: pd.DataFrame) -> int:
     if len(sub) == 0 or "Fixation Index" not in sub.columns:
         return 0
     return int(pd.to_numeric(sub["Fixation Index"], errors="coerce").dropna().nunique())
+
+
+def _trial_duration_s(df: pd.DataFrame) -> float:
+    if "Video Time[ms]" in df.columns:
+        t = pd.to_numeric(df["Video Time[ms]"], errors="coerce").dropna()
+    else:
+        t = pd.to_numeric(df["Recording Time Stamp[ms]"], errors="coerce").dropna()
+    return float((t.max() - t.min()) / 1000.0) if len(t) > 1 else np.nan

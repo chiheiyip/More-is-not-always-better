@@ -1,0 +1,13 @@
+{
+  "mode": "audit",
+  "point_source": "auto",
+  "timestamp_gap_ms": 5000,
+  "screen_w": null,
+  "screen_h": null,
+  "validity_accepted": null,
+  "notes": [
+    "Audit mode reports finite coordinate, screen-bound, validity, AOI-overlap, and timestamp-segment fields without excluding trials.",
+    "Set validity_accepted explicitly for a device/export-specific validity filter; do not assume one universal validity code across vendors.",
+    "Use point_source=fixation for formal AOI analyses only when fixation point columns are available; otherwise auto falls back to gaze and records the fallback."
+  ]
+}

@@ -1,6 +1,24 @@
 {
-  "required_columns": ["Recording Time Stamp[ms]", "Gaze Point X[px]", "Gaze Point Y[px]"],
-  "optional_columns": ["Fixation Index", "Fixation Duration[ms]", "Validity Left", "Validity Right"],
-  "primary_metrics": ["visited", "FCR", "TFD_ms", "TTFF_ms", "attention_share"],
-  "aoi_policy": "Report AOI area, visited rate, and per-AOI sample coverage for measurement validity."
+  "required_columns": ["Recording Time Stamp[ms]"],
+  "point_source_policy": "Default point_source=auto: prefer Fixation Point X/Y when available, otherwise use Gaze Point X/Y and record point_source_used.",
+  "point_columns": {
+    "gaze": ["Gaze Point X[px]", "Gaze Point Y[px]"],
+    "fixation": ["Fixation Point X[px]", "Fixation Point Y[px]"]
+  },
+  "optional_columns": [
+    "Fixation Index",
+    "Fixation Duration[ms]",
+    "Video Time[ms]",
+    "Video Time[HH:mm:ss.ms]",
+    "Validity Left",
+    "Validity Right",
+    "Pupil Diameter Left[mm]",
+    "Pupil Diameter Right[mm]",
+    "Pupil Diameter Left[px]",
+    "Pupil Diameter Right[px]"
+  ],
+  "primary_metrics": ["visited", "FCR", "FC", "FC_share", "FC_rate", "TFD_ms", "TTFF_ms", "attention_share", "share_pct"],
+  "exploratory_metrics": ["FFD_ms", "MFD_ms", "RFF", "MPD"],
+  "qc_outputs": ["eye_qc.csv", "aoi_validation_summary.csv", "aoi_overlap_summary.csv"],
+  "aoi_policy": "Report AOI area, visited rate, per-AOI sample coverage, AOI overlap, point source used, timestamp segments, and validity/screen ratios. Trial exclusion is configurable and not applied by default."
 }

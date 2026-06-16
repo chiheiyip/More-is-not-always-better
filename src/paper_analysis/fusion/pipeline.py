@@ -36,6 +36,11 @@ def run_fusion_pipeline(
     expected_scenes_per_subject: int = 12,
     duration_outlier_s: float = 5.0,
     residual_outlier_ms: float = 3000.0,
+    eye_point_source: str = "auto",
+    eye_screen_w: int | None = None,
+    eye_screen_h: int | None = None,
+    eye_validity_accepted: tuple[str, ...] | None = None,
+    eye_timestamp_gap_ms: float = 5000.0,
 ) -> dict[str, Path]:
     questionnaire = read_table(questionnaire_long)
     eye = read_table(eye_aoi_trial_long)
@@ -49,6 +54,11 @@ def run_fusion_pipeline(
         trial_index=trial_index,
         eeg=eeg,
         bin_size_ms=bin_size_ms,
+        point_source=eye_point_source,
+        screen_w=eye_screen_w,
+        screen_h=eye_screen_h,
+        validity_accepted=eye_validity_accepted,
+        timestamp_gap_ms=eye_timestamp_gap_ms,
     )
     sync_qc = build_sync_qc(
         trial_index=trial_index,
@@ -113,6 +123,11 @@ def build_aligned_timebin_table(
     trial_index: pd.DataFrame,
     eeg: pd.DataFrame,
     bin_size_ms: int = 2000,
+    point_source: str = "auto",
+    screen_w: int | None = None,
+    screen_h: int | None = None,
+    validity_accepted: tuple[str, ...] | None = None,
+    timestamp_gap_ms: float = 5000.0,
 ) -> pd.DataFrame:
     rows: list[pd.DataFrame] = []
     eeg_pref = prefix_non_core_columns(eeg, "eeg")
@@ -124,9 +139,28 @@ def build_aligned_timebin_table(
         df = read_table(eye_csv)
         eye_offset_ms = _number_or_default(trial.get("eye_offset_ms"), 0.0)
         if aoi_json and aoi_json.exists():
-            metrics = compute_timebin_aoi_metrics(df, load_aoi_json(aoi_json), bin_size_ms=bin_size_ms, eye_offset_ms=eye_offset_ms)
+            metrics = compute_timebin_aoi_metrics(
+                df,
+                load_aoi_json(aoi_json),
+                bin_size_ms=bin_size_ms,
+                eye_offset_ms=eye_offset_ms,
+                point_source=point_source,
+                screen_w=screen_w,
+                screen_h=screen_h,
+                validity_accepted=validity_accepted,
+                timestamp_gap_ms=timestamp_gap_ms,
+            )
         else:
-            metrics = compute_whole_scene_timebin_metrics(df, bin_size_ms=bin_size_ms, eye_offset_ms=eye_offset_ms)
+            metrics = compute_whole_scene_timebin_metrics(
+                df,
+                bin_size_ms=bin_size_ms,
+                eye_offset_ms=eye_offset_ms,
+                point_source=point_source,
+                screen_w=screen_w,
+                screen_h=screen_h,
+                validity_accepted=validity_accepted,
+                timestamp_gap_ms=timestamp_gap_ms,
+            )
         if metrics.empty:
             continue
         for col in [c for c in trial_index.columns if c not in metrics.columns]:

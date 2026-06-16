@@ -13,9 +13,15 @@
       "predictors": ["C(WWR)", "C(Complexity)", "C(ExperienceGroup)", "C(Gender)", "block", "position"]
     },
     {
-      "name": "eye_continuous",
+      "name": "eye_continuous_primary",
       "kind": "continuous",
-      "outcomes": ["FCR", "TFD_ms", "TTFF_ms", "attention_share"],
+      "outcomes": ["FCR", "FC", "FC_share", "FC_rate", "TFD_ms", "TTFF_ms", "attention_share", "share_pct"],
+      "predictors": ["C(WWR)", "C(Complexity)", "C(ExperienceGroup)", "C(Gender)", "block", "position"]
+    },
+    {
+      "name": "eye_exploratory",
+      "kind": "continuous",
+      "outcomes": ["FFD_ms", "MFD_ms", "RFF", "MPD"],
       "predictors": ["C(WWR)", "C(Complexity)", "C(ExperienceGroup)", "C(Gender)", "block", "position"]
     },
     {

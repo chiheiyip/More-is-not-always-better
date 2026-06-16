@@ -35,10 +35,23 @@
 | Field | Meaning |
 |---|---|
 | `visited` | Whether the AOI was visited. |
-| `FCR` | Fixation count rate. |
+| `FC` | Number of unique fixations in the AOI. |
+| `FCR` / `FC_rate` | Fixation count per valid trial second. |
+| `FC_share` / `FC_prop` | AOI fixation count divided by total valid trial fixation count. |
 | `TFD_ms` | Total fixation duration in milliseconds. |
 | `TTFF_ms` | Time to first fixation in milliseconds. |
-| `attention_share` | AOI TFD divided by trial total fixation duration. |
+| `FFD_ms` | First fixation duration in the AOI. Exploratory by default. |
+| `MFD_ms` | Mean fixation duration in the AOI. Exploratory by default. |
+| `RFF` | Re-fixation frequency, counted as returns to an AOI after leaving it. Exploratory by default. |
+| `MPD` | Mean pupil diameter over AOI samples when exported by the eye tracker. Exploratory by default. |
+| `attention_share` / `share` / `share_pct` | AOI TFD divided by total valid trial TFD, with `share_pct` expressed as percent. |
+| `point_source_used` | Coordinate source used for AOI hit testing: `fixation` or `gaze`. Formal analyses should use fixation points when exported; `auto` falls back to gaze and records the fallback. |
+| `analysis_valid_ratio` | Fraction of rows retained after finite-coordinate, optional screen-bounds, and optional validity-code checks. |
+| `screen_valid_ratio` | Fraction of rows with coordinates inside configured screen bounds; audit-only unless screen dimensions are supplied. |
+| `validity_valid_ratio` | Fraction of rows whose vendor validity codes match the configured accepted values; audit-only unless accepted values are supplied. |
+| `time_segment_count` | Number of timestamp segments detected after resets or large gaps. |
+| `timestamp_gap_count` | Number of timestamp gaps above the configured threshold. |
+| `aoi_overlap_summary.csv` | Per-trial overlap of AOI class hit masks. Non-zero overlap means AOI shares can legitimately sum above 1 and should be interpreted with care. |
 
 ## Fusion And Synchronization Fields
 

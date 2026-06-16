@@ -25,9 +25,11 @@ def run_eye_aoi_batch(
     outdir: str | Path = "outputs/eye",
     columns_map: Optional[str | Path] = None,
     dwell_mode: str = "fixation",
+    point_source: str = "auto",
     screen_w: Optional[int] = None,
     screen_h: Optional[int] = None,
     require_validity: bool = False,
+    validity_accepted: tuple[str, ...] | None = None,
 ) -> dict[str, Path]:
     participants = active_participants(load_participants(participants_csv))
     manifest_path = Path(scene_manifest_csv)
@@ -69,13 +71,22 @@ def run_eye_aoi_batch(
 
         df = read_csv(eye_csv)
         rename_df_columns_inplace(df, cmap)
-        df = filter_by_screen_and_validity(df, screen_w, screen_h, require_validity)
+        x_col, y_col = _point_columns_for_filter(df, point_source)
+        df = filter_by_screen_and_validity(
+            df,
+            screen_w,
+            screen_h,
+            require_validity,
+            x_col=x_col,
+            y_col=y_col,
+            validity_accepted=validity_accepted,
+        )
         if qc_base["missing_aoi_file"]:
             poly_df = pd.DataFrame()
-            class_df = compute_whole_scene_metrics(df, dwell_mode=dwell_mode)
+            class_df = compute_whole_scene_metrics(df, dwell_mode=dwell_mode, point_source=point_source)
         else:
             aois = load_aoi_json(aoi_json)
-            poly_df, class_df = compute_metrics(df, aois, dwell_mode=dwell_mode)
+            poly_df, class_df = compute_metrics(df, aois, dwell_mode=dwell_mode, point_source=point_source)
 
         for output_df in (poly_df, class_df):
             if output_df.empty:
@@ -118,3 +129,12 @@ def _number_or_default(value: object, default: float) -> float:
         return float(out)
     except Exception:
         return default
+
+
+def _point_columns_for_filter(df: pd.DataFrame, point_source: str) -> tuple[str, str]:
+    point_source = str(point_source or "auto").strip().lower()
+    fixation = ("Fixation Point X[px]", "Fixation Point Y[px]")
+    gaze = ("Gaze Point X[px]", "Gaze Point Y[px]")
+    if point_source in {"auto", "fixation"} and set(fixation).issubset(df.columns):
+        return fixation
+    return gaze

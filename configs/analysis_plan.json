@@ -6,7 +6,8 @@
     "covariates": ["Gender", "Age", "block", "position", "RecruitmentBatch"]
   },
   "primary_eeg_metrics": ["eeg_O_theta", "eeg_F_theta", "eeg_O_alpha", "eeg_delta_O_alpha"],
-  "primary_eye_metrics": ["visited", "FCR", "TFD_ms", "TTFF_ms", "attention_share"],
+  "primary_eye_metrics": ["visited", "FCR", "FC_rate", "FC_share", "TFD_ms", "TTFF_ms", "attention_share", "share_pct"],
+  "exploratory_eye_metrics": ["FFD_ms", "MFD_ms", "RFF", "MPD"],
   "primary_questionnaire_metrics": ["q_S1", "q_S2", "q_S3", "q_S4", "q_S5"],
   "claim_policy": {
     "wwr_nonlinearity": "Three WWR levels support trend/planned-contrast language only, not a strong optimality claim.",
