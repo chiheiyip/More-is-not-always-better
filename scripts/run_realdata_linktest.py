@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 from pathlib import Path
 import sys
@@ -15,7 +16,10 @@ from more_is_not_always_better.discovery import (
     build_scene_manifest_from_eye_root,
     load_questionnaire_long_from_wjx,
 )
+from paper_analysis.eeg.contract import validate_eeg_scene_summary
+from paper_analysis.eeg.pipeline import run_eeg_pipeline
 from paper_analysis.eye_tracking.pipeline import run_eye_pipeline
+from paper_analysis.fusion.pipeline import run_fusion_pipeline
 from paper_analysis.intake.pipeline import build_manifests
 from paper_analysis.questionnaire.pipeline import run_questionnaire_pipeline
 
@@ -34,6 +38,7 @@ def main() -> None:
     parser.add_argument("--outdir", default=DEFAULT_OUTDIR)
     parser.add_argument("--participants", default="", help="Comma-separated participant names to include.")
     parser.add_argument("--max-participants", type=int, default=3)
+    parser.add_argument("--eeg_scene_csv", default=None, help="Optional scene-level EEG CSV; when provided, run EEG standardization and fusion.")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--cleanup", action="store_true", help="Remove the scratch outdir after a successful run.")
     args = parser.parse_args()
@@ -50,6 +55,8 @@ def main() -> None:
         participants_csv = outdir / "participants_raw.csv"
         scene_csv = outdir / "scene_manifest_raw.csv"
         q_long_csv = outdir / "questionnaire_long_raw.csv"
+        summary_json = outdir / "linktest_summary.json"
+        summary_csv = outdir / "linktest_summary.csv"
 
         participants = build_participants_from_roots(
             eye_root=args.eye_root,
@@ -92,15 +99,69 @@ def main() -> None:
             outdir=outdir / "03_eye_tracking",
         )
 
+        eeg_outputs = None
+        fusion_outputs = None
+        eeg_contract = None
+        if args.eeg_scene_csv:
+            eeg_contract = validate_eeg_scene_summary(args.eeg_scene_csv)
+            if eeg_contract["status"] == "error":
+                raise SystemExit("EEG scene CSV failed contract validation: " + "; ".join(eeg_contract["errors"]))
+            eeg_outputs = run_eeg_pipeline(
+                participants_csv=intake["participants_standardized"],
+                scene_manifest_csv=intake["scene_manifest_standardized"],
+                eeg_scene_csv=args.eeg_scene_csv,
+                outdir=outdir / "04_eeg",
+            )
+            fusion_outputs = run_fusion_pipeline(
+                questionnaire_long=q["questionnaire_long"],
+                eye_aoi_trial_long=eye["eye_aoi_trial_long"],
+                eeg_trial_long=eeg_outputs["eeg_trial_long"],
+                participants_csv=intake["participants_standardized"],
+                scene_manifest_csv=intake["scene_manifest_standardized"],
+                outdir=outdir / "05_multimodal_fusion",
+                expected_scenes_per_subject=12,
+            )
+
+        summary = _build_summary(participants, scene, q, eye, eeg_outputs, fusion_outputs, eeg_contract)
+        summary_json.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+        pd.DataFrame([summary]).to_csv(summary_csv, index=False, encoding="utf-8-sig")
+
         print(f"participants: {len(participants)}")
         print(f"scene rows: {len(scene)}")
         print(f"questionnaire rows: {len(pd.read_csv(q['questionnaire_long']))}")
         print(f"eye metrics rows: {len(pd.read_csv(eye['eye_aoi_trial_long']))}")
+        print(f"eeg scene csv provided: {bool(args.eeg_scene_csv)}")
+        print(f"fusion run: {fusion_outputs is not None}")
+        print(f"summary: {summary_json.resolve()}")
         print(f"scratch outdir: {outdir.resolve()}")
     finally:
         if args.cleanup and outdir.exists():
             shutil.rmtree(outdir)
             print(f"cleaned scratch outdir: {outdir.resolve()}")
+
+
+def _build_summary(participants: pd.DataFrame, scene: pd.DataFrame, questionnaire: dict, eye: dict, eeg: dict | None, fusion: dict | None, eeg_contract: dict | None) -> dict:
+    q_rows = len(pd.read_csv(questionnaire["questionnaire_long"]))
+    eye_rows = len(pd.read_csv(eye["eye_aoi_trial_long"]))
+    summary = {
+        "participants": int(len(participants)),
+        "participant_ids": ",".join(participants["participant_id"].astype(str).tolist()),
+        "scene_rows": int(len(scene)),
+        "questionnaire_rows": int(q_rows),
+        "eye_metric_rows": int(eye_rows),
+        "eeg_raw_present_all": bool(participants.get("has_eeg_raw", pd.Series(False, index=participants.index)).fillna(False).all()),
+        "eeg_scene_csv_available": eeg is not None,
+        "eeg_contract_status": eeg_contract.get("status") if eeg_contract else "not_provided",
+        "fusion_run": fusion is not None,
+    }
+    if eeg is not None:
+        summary["eeg_trial_rows"] = int(len(pd.read_csv(eeg["eeg_trial_long"])))
+    if fusion is not None:
+        qc = pd.read_csv(fusion["analysis_qc_exclusions"])
+        summary["fusion_pre_qc_rows"] = int(len(pd.read_csv(fusion["analysis_master_long_pre_qc"])))
+        summary["fusion_kept_rows"] = int(len(pd.read_csv(fusion["analysis_master_long"])))
+        summary["fusion_excluded_trials"] = int(qc["excluded_from_analysis"].astype(str).str.lower().isin({"true", "1"}).sum()) if "excluded_from_analysis" in qc.columns else 0
+    return summary
 
 
 if __name__ == "__main__":

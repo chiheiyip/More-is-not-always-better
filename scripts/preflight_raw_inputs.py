@@ -44,6 +44,7 @@ def main() -> None:
         "questionnaire_subject_count",
         "eye_csv_count",
         "eye_subject_count_after_alias",
+        "eye_suffix_note_alias_rows",
         "eye_scene_folder_count",
         "eye_aoi_json_count",
         "eye_missing_aoi_json_rows",

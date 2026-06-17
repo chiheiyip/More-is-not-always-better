@@ -28,6 +28,7 @@ SIMPLE_CONDITION_POSITION = {
     "C1W75": 6,
 }
 GENERIC_EYE_SUBJECTS = {"user", "user1", "user2", "test", "pilot", "practice"}
+SUFFIX_NOTE_RE = re.compile(r"^(?P<name>.+?)-\d+-\d+$")
 NEW_ORDER2_START_DATE = date(2026, 5, 1)
 NEW_ORDER2_BY_BLOCK = {
     1: {
@@ -146,6 +147,12 @@ def apply_eye_aliases(
         out["alias_source"] = ""
 
     if auto_alias:
+        suffix_target = out["participant_id"].map(_strip_suffix_note)
+        suffix_mask = suffix_target.ne(out["participant_id"])
+        out.loc[suffix_mask, "eye_subject_alias"] = out.loc[suffix_mask, "participant_id"]
+        out.loc[suffix_mask, "participant_id"] = suffix_target.loc[suffix_mask]
+        out.loc[suffix_mask, "eye_subject_id"] = suffix_target.loc[suffix_mask]
+        out.loc[suffix_mask, "alias_source"] = "suffix_note"
         for record_id, sub in out.groupby("eye_record_id", dropna=False):
             subjects = sorted(set(str(v) for v in sub["participant_id"].dropna()))
             generic = [s for s in subjects if _is_generic_eye_subject(s)]
@@ -385,6 +392,8 @@ def summarize_roots(
         "eye_csv_count": int(len(eye_raw)),
         "eye_subject_count_raw": int(eye_raw["participant_id"].nunique()) if not eye_raw.empty else 0,
         "eye_subject_count_after_alias": int(len(eye_ids)),
+        "eye_suffix_note_alias_rows": int(eye["alias_source"].eq("suffix_note").sum()) if not eye.empty and "alias_source" in eye.columns else 0,
+        "eye_suffix_note_alias_subjects": sorted(eye.loc[eye["alias_source"].eq("suffix_note"), "raw_eye_subject_id"].dropna().unique().tolist()) if not eye.empty and "alias_source" in eye.columns else [],
         "eye_scene_folder_count": int(len(scene_folders)),
         "eye_aoi_json_count": int(eye_raw["aoi_json_path"].replace("", pd.NA).dropna().nunique()) if not eye_raw.empty and "aoi_json_path" in eye_raw.columns else 0,
         "eye_missing_aoi_json_rows": int(eye_raw["aoi_json_path"].eq("").sum()) if not eye_raw.empty and "aoi_json_path" in eye_raw.columns else 0,
@@ -721,6 +730,12 @@ def _is_adaptation_folder(folder_name: str) -> bool:
 def _is_generic_eye_subject(value: object) -> bool:
     text = str(value or "").strip().lower()
     return text in GENERIC_EYE_SUBJECTS or re.fullmatch(r"user\d+", text) is not None
+
+
+def _strip_suffix_note(value: object) -> str:
+    text = str(value or "").strip()
+    match = SUFFIX_NOTE_RE.match(text)
+    return match.group("name") if match else text
 
 
 def _first_existing(columns: Iterable[str], candidates: Iterable[str]) -> Optional[str]:

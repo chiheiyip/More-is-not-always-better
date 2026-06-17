@@ -2,18 +2,22 @@ from __future__ import annotations
 
 from pathlib import Path
 import importlib.util
+import subprocess
+import sys
 from xml.sax.saxutils import escape
 import zipfile
 
 import pandas as pd
 
 from more_is_not_always_better.discovery import (
+    apply_eye_aliases,
     build_participants_from_roots,
     build_scene_manifest_from_eye_root,
     load_questionnaire_long_from_wjx,
     parse_scene_folder,
     scan_eye_raw,
 )
+from paper_analysis.eeg.contract import validate_eeg_scene_summary_frame
 
 
 def test_simple_eye_folder_manifest_and_aoi_json(tmp_path: Path) -> None:
@@ -77,6 +81,67 @@ def test_wjx_questionnaire_long_parser_scores_chinese_points(tmp_path: Path) -> 
     assert by_scene["IPQ1"].dropna().eq(4.0).all()
 
 
+def test_suffix_note_eye_alias_normalization(tmp_path: Path) -> None:
+    eye_root = tmp_path / "eye"
+    eeg_root = tmp_path / "eeg"
+    _write_eye_csv(eye_root / "1-C0W15" / "raw_牛雨雨-325-400_260526150342_0617145623.csv")
+    _write_eye_csv(eye_root / "1-C0W45" / "raw_张三_260526150342_0617150451.csv")
+    _write_eeg_pair(eeg_root, "牛雨雨")
+    _write_eeg_pair(eeg_root, "张三")
+
+    eye = apply_eye_aliases(scan_eye_raw(eye_root))
+    by_raw = eye.set_index("raw_eye_subject_id")
+    assert by_raw.loc["牛雨雨-325-400", "participant_id"] == "牛雨雨"
+    assert by_raw.loc["牛雨雨-325-400", "eye_subject_alias"] == "牛雨雨-325-400"
+    assert by_raw.loc["牛雨雨-325-400", "alias_source"] == "suffix_note"
+    assert by_raw.loc["张三", "participant_id"] == "张三"
+    assert by_raw.loc["张三", "alias_source"] == ""
+
+    participants_csv = tmp_path / "participants.csv"
+    participants = build_participants_from_roots(eye_root, eeg_root, out_csv=participants_csv)
+    assert set(participants["participant_id"]) == {"牛雨雨", "张三"}
+    assert participants["exclude"].astype(str).str.lower().isin({"false", "0"}).all()
+
+
+def test_manual_alias_overrides_suffix_note(tmp_path: Path) -> None:
+    eye_root = tmp_path / "eye"
+    _write_eye_csv(eye_root / "1-C0W15" / "raw_牛雨雨-325-400_260526150342_0617145623.csv")
+    alias_csv = tmp_path / "alias.csv"
+    alias_csv.write_text("eye_subject_id,participant_id\n牛雨雨-325-400,牛雨雨正式\n", encoding="utf-8")
+
+    eye = apply_eye_aliases(scan_eye_raw(eye_root), alias_csv=alias_csv)
+    assert eye.loc[0, "participant_id"] == "牛雨雨正式"
+    assert eye.loc[0, "alias_source"] == "manual"
+
+
+def test_eeg_scene_summary_contract_validator() -> None:
+    ok = pd.DataFrame({
+        "subject_id": ["P01"],
+        "scene_id": [1],
+        "view_start_s": [1.0],
+        "view_end_s": [3.0],
+        "view_dur_s": [2.0],
+        "O_theta": [1.2],
+        "hf_ratio_20_40Hz": [0.1],
+        "rms_mean_uV": [10.0],
+        "peak_to_peak_uV": [50.0],
+        "nan_fraction": [0.0],
+        "flat_fraction": [0.0],
+        "segment_valid_duration": [True],
+    })
+    result = validate_eeg_scene_summary_frame(ok)
+    assert result["status"] == "pass"
+
+    missing = validate_eeg_scene_summary_frame(pd.DataFrame({"participant_id": ["P01"], "view_dur_s": [2.0]}))
+    assert missing["status"] == "error"
+    assert any("scene_id" in e for e in missing["errors"])
+    assert any("core EEG metric" in e for e in missing["errors"])
+
+    warn = validate_eeg_scene_summary_frame(pd.DataFrame({"participant_id": ["P01"], "scene_id": [1], "O_alpha": [0.9]}))
+    assert warn["status"] == "warning"
+    assert warn["warnings"]
+
+
 def test_scripts_do_not_reference_order_material_roots() -> None:
     script_dir = Path(__file__).resolve().parents[1] / "scripts"
     checked = [script_dir / "preflight_raw_inputs.py", script_dir / "run_realdata_linktest.py"]
@@ -94,6 +159,23 @@ def test_preflight_json_safe_converts_non_string_keys() -> None:
 
     safe = module._json_safe({pd.Series([1], dtype="int64").iloc[0]: {"x": pd.Series([2], dtype="int64").iloc[0]}})
     assert safe == {"1": {"x": 2}}
+
+
+def test_linktest_dry_run_does_not_create_outdir(tmp_path: Path) -> None:
+    outdir = tmp_path / "scratch"
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_realdata_linktest.py"
+    result = subprocess.run([sys.executable, str(script), "--dry-run", "--outdir", str(outdir)], capture_output=True, text=True, check=True)
+    assert "Raw input directories are read-only" in result.stdout
+    assert not outdir.exists()
+
+
+def test_eeg_validator_cli_json(tmp_path: Path) -> None:
+    eeg = tmp_path / "eeg_scene.csv"
+    eeg.write_text("subject_id,scene_id,view_dur_s,O_theta\nP01,1,2,1.2\n", encoding="utf-8")
+    script = Path(__file__).resolve().parents[1] / "scripts" / "validate_eeg_scene_summary.py"
+    result = subprocess.run([sys.executable, str(script), str(eeg), "--json"], capture_output=True, text=True, check=True)
+    assert '"status": "warning"' in result.stdout
+    assert '"rows": 1' in result.stdout
 
 
 def _write_eye_csv(path: Path) -> None:
