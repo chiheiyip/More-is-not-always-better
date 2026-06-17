@@ -9,8 +9,17 @@
   "primary_eye_metrics": ["visited", "FCR", "FC_rate", "FC_share", "TFD_ms", "TTFF_ms", "attention_share", "share_pct"],
   "exploratory_eye_metrics": ["FFD_ms", "MFD_ms", "RFF", "MPD"],
   "primary_questionnaire_metrics": ["q_S1", "q_S2", "q_S3", "q_S4", "q_S5"],
+  "supplementary_questionnaire_metrics": ["q_Afford4", "q_Bmean", "q_S5_7", "q_IPQ_mean"],
+  "questionnaire_significance": {
+    "enabled": true,
+    "afford4_min_items": 3,
+    "wwr_levels": [15, 45, 75],
+    "method_policy": "Use item-level LMM and WWR trend contrasts as diagnostics; do not replace primary multimodal models or force a global scale."
+  },
   "claim_policy": {
     "wwr_nonlinearity": "Three WWR levels support trend/planned-contrast language only, not a strong optimality claim.",
+    "questionnaire_composites": "Afford4/Bmean/IPQ_mean are supplementary unless reliability, missingness, and construct rationale are documented.",
+    "ipq_interpretation": "IPQ is participant-level and should not be interpreted as scene-level WWR or Complexity evidence.",
     "eeg_interpretation": "EEG cognitive-processing claims require convergent questionnaire or eye-tracking evidence.",
     "experience_moderation": "Experience claims require balanced groups and sensitivity checks."
   }

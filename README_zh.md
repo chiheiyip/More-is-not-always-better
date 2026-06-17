@@ -15,7 +15,7 @@ python scripts/run_all.py --config configs/paths.example.json
 ## 输出结构
 
 - `outputs/01_sample_qc/`：样本流向、补招前后组别平衡、场景/条件平衡。
-- `outputs/02_questionnaire/`：S1-S5、B1-B3、IPQ 长表、质控和描述统计。
+- `outputs/02_questionnaire/`：S1-S5、B1-B3、IPQ 长表、扩展描述统计、信度诊断、B 题 C1-only QC、IPQ 被试层结果、逐题 LMM 诊断和 WWR 趋势对比。
 - `outputs/03_eye_tracking/`：AOI visited、FCR、TFD、TTFF、attention share、AOI 有效性和眼动 QC。
 - `outputs/04_eeg/`：EEG trial 级指标和频段 QC。
 - `outputs/05_multimodal_fusion/`：论文主分析长表、EEG+眼动场景级融合表、time-bin 融合表、同步 QC、精细对齐 QC、claim support matrix。
@@ -25,6 +25,12 @@ python scripts/run_all.py --config configs/paths.example.json
 - `outputs/08_reviewer_response/`：审稿意见到证据文件的回应索引和 reviewer issue matrix。
 - `outputs/09_data_package/`：Nature-style 数据可用性索引和 Data Availability 草稿。
 - `outputs/10_figures/`：Nature-style SVG/PDF/TIFF/PNG 成图、panel source CSV、figure manifest、图注说明和 QA。
+
+## 问卷方法口径
+
+问卷模块吸收了 `wannaqueen66-create/spss` 的合理思路，但没有整仓照搬。保留的是扩展描述统计、Cronbach alpha 作为内部一致性诊断、B 题 C1-only 处理、IPQ 被试层分析、逐题混合模型、WWR 线性/二次趋势对比。
+
+修正后的口径是：S1-S5 仍是主要逐题结果；`Afford4` 只是 S1-S4 的补充候选构念；`Bmean` 只用于 C1 补充分析；`IPQ_mean` 只在被试层解释，不作为场景级 WWR/Complexity 证据；Shapiro、偏度、峰度只作诊断；三档 WWR 只能支持 trend/planned contrast 表述，不能强称最优点。
 
 ## 面向拒稿意见的设计
 

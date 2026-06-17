@@ -2,6 +2,32 @@
   "id_columns": ["participant_id", "scene_id"],
   "s_items": ["S1", "S2", "S3", "S4", "S5"],
   "b_items": ["B1", "B2", "B3"],
+  "ipq_items": ["IPQ1", "IPQ2", "IPQ3", "IPQ4", "IPQ5", "IPQ6"],
   "scale": {"min": 1, "max": 7},
-  "notes": "S1-S5 are modeled as separate items. B1-B3 are supplementary and should not be forced into a global scale unless reliability is documented."
+  "composites": {
+    "primary_policy": "S1-S5 remain separate item-level outcomes.",
+    "Afford4": {
+      "items": ["S1", "S2", "S3", "S4"],
+      "min_valid_items": 3,
+      "role": "supplementary candidate construct when reliability and missingness are acceptable"
+    },
+    "Bmean": {
+      "items": ["B1", "B2", "B3"],
+      "role": "C1-only supplementary manipulation/check construct"
+    },
+    "IPQ_mean": {
+      "items": ["IPQ1", "IPQ2", "IPQ3", "IPQ4", "IPQ5", "IPQ6"],
+      "role": "participant-level descriptive construct only"
+    }
+  },
+  "reliability_policy": {
+    "cronbach_alpha": "Internal-consistency diagnostic only; it does not establish validity by itself.",
+    "status_labels": ["acceptable_diagnostic", "check_before_composite", "low_do_not_force_composite", "insufficient"],
+    "notes": "Composite scores may be exported for diagnostics, but manuscript claims should prioritize item-level S outcomes unless reliability and construct rationale are documented."
+  },
+  "claim_policy": {
+    "wwr_polynomial": "Three WWR levels support linear/quadratic trend language only, not definitive optimum identification.",
+    "ipq": "IPQ is analyzed at participant level; WWR/Complexity trial-level inference is not reported for repeated IPQ values."
+  },
+  "notes": "Inspired by the external spss questionnaire workflow, but corrected for this multimodal paper pipeline: no forced global scale, B items are C1-only, and IPQ is subject-level."
 }

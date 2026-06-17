@@ -28,7 +28,18 @@
 
 ## Questionnaire Fields
 
-`S1`-`S5` are scene-level subjective items and are analyzed separately. `B1`-`B3` are supplementary C1-related items. `IPQ` is treated descriptively unless explicitly modeled.
+`S1`-`S5` are primary scene-level subjective items and are analyzed separately by default; the pipeline does not force them into a total score. `Afford4` is a supplementary composite from `S1`-`S4` when enough valid items are present and reliability diagnostics support that interpretation. `S5_7` rescales a detected 1-9 `S5` item to 1-7 for comparability, but `S5` is not merged into `Afford4`. `B1`-`B3` and `Bmean` are supplementary C1-only outcomes. `IPQ1`-`IPQ6` and `IPQ_mean` are subject-level scale fields; IPQ outputs should not be interpreted as repeated scene-level trial effects.
+
+| Field or file | Meaning |
+|---|---|
+| `questionnaire_descriptives.csv` | Item/composite descriptives with observation count, subject count, mean, SD, median, range, 95% CI, skewness, kurtosis, and Shapiro diagnostic p value when estimable. |
+| `questionnaire_reliability.csv` | Cronbach alpha diagnostics for configured scales such as `S1`-`S4`, `S1`-`S5`, `B1`-`B3`, and `IPQ1`-`IPQ6`; statuses distinguish acceptable, check, insufficient rows, and missing items. |
+| `questionnaire_scale_qc.csv` | Scale and composite warnings, including `S5` scale conversion notes and composite interpretation limits. |
+| `questionnaire_b_item_qc.csv` | C1-only quality-control table for `B1`-`B3`, including warnings if C0 rows contain B-item values. |
+| `questionnaire_item_model_results.csv` | Reproducible item-level mixed-model or fallback regression coefficients, confidence intervals, p values, and model metadata; this is not labelled as SPSS Type III output. |
+| `questionnaire_wwr_polynomial_contrasts.csv` | Participant-aggregated three-level WWR linear and quadratic planned contrasts with `claim_strength=trend_only`. |
+| `ipq_subject_level.csv` | One row per participant for IPQ subject-level analysis. |
+| `ipq_descriptives.csv`, `ipq_reliability.csv`, `ipq_group_comparisons.csv` | Subject-level IPQ descriptives, reliability diagnostics, and group comparisons when IPQ item data are available. |
 
 ## Eye-Tracking Fields
 

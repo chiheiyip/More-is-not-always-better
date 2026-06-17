@@ -115,8 +115,62 @@ def test_questionnaire_wide_to_long_keeps_design_columns(tmp_path: Path) -> None
     q = pd.read_csv(questionnaire["questionnaire_long"])
     assert len(q) == 6
     assert {"WWR", "Complexity", "ExperienceGroup", "Gender", "Age"}.issubset(q.columns)
+    assert {"Afford4", "Afford4_n_valid"}.issubset(q.columns)
+    desc = pd.read_csv(questionnaire["s_items_descriptives"])
+    assert {"median", "ci95_low", "ci95_high", "skewness", "kurtosis", "shapiro_p"}.issubset(desc.columns)
+    reliability = pd.read_csv(questionnaire["questionnaire_reliability"])
+    assert reliability["scale"].isin(["S1_S4_Afford4_candidate"]).any()
+    poly = pd.read_csv(questionnaire["questionnaire_wwr_polynomial_contrasts"])
+    assert poly["contrast"].isin(["Linear", "Quadratic"]).any()
     assert set(q["Gender"].dropna()) == {"Female", "Male"}
     assert q[["participant_id", "scene_id"]].duplicated().sum() == 0
+
+
+def test_questionnaire_enhanced_outputs_handle_ipq_b_items_and_s5_scale(tmp_path: Path) -> None:
+    participants = tmp_path / "participants.csv"
+    scene = tmp_path / "scene_manifest.csv"
+    questionnaire = tmp_path / "questionnaire_long.csv"
+    participants.write_text(
+        "participant_id,ExperienceGroup,SportFreqGroup,Gender,Age,exclude\n"
+        "P01,Low,Low,Female,22,false\n"
+        "P02,High,High,Male,24,false\n"
+        "P03,High,Low,Female,23,false\n",
+        encoding="utf-8",
+    )
+    scene.write_text(
+        "participant_id,scene_id,WWR,Complexity,Cond,block,position\n"
+        "P01,1,15,0,C0,1,1\nP01,2,45,1,C1,1,2\nP01,3,75,0,C0,1,3\n"
+        "P02,1,15,0,C0,1,1\nP02,2,45,1,C1,1,2\nP02,3,75,0,C0,1,3\n"
+        "P03,1,15,0,C0,1,1\nP03,2,45,1,C1,1,2\nP03,3,75,0,C0,1,3\n",
+        encoding="utf-8",
+    )
+    questionnaire.write_text(
+        "participant_id,scene_id,S1,S2,S3,S4,S5,B1,B2,B3,IPQ1,IPQ2,IPQ3,IPQ4,IPQ5,IPQ6\n"
+        "P01,1,5,5,5,5,8,,,,4,4,5,5,4,5\n"
+        "P01,2,6,6,6,6,9,6,6,5,4,4,5,5,4,5\n"
+        "P01,3,4,4,4,4,7,,,,4,4,5,5,4,5\n"
+        "P02,1,4,4,4,4,7,,,,5,5,5,6,5,6\n"
+        "P02,2,5,5,5,5,8,5,5,5,5,5,5,6,5,6\n"
+        "P02,3,3,3,3,3,6,,,,5,5,5,6,5,6\n"
+        "P03,1,3,3,3,3,6,,,,6,6,6,6,6,6\n"
+        "P03,2,4,4,4,4,7,4,4,4,6,6,6,6,6,6\n"
+        "P03,3,2,2,2,2,5,,,,6,6,6,6,6,6\n",
+        encoding="utf-8",
+    )
+    out = run_questionnaire_pipeline(participants, scene, tmp_path / "questionnaire", questionnaire_long=questionnaire)
+    q = pd.read_csv(out["questionnaire_long"])
+    assert {"S5_7", "Bmean", "Afford4", "IPQ_mean"}.issubset(q.columns)
+    assert q["S5_7"].notna().any()
+    assert q.loc[q["Cond"].eq("C1"), "Bmean"].notna().all()
+    b_qc = pd.read_csv(out["questionnaire_b_item_qc"])
+    assert b_qc.loc[0, "status"] == "pass"
+    ipq = pd.read_csv(out["ipq_subject_level"])
+    assert ipq.shape[0] == 3
+    rel = pd.read_csv(out["questionnaire_reliability"])
+    assert rel["scale"].isin(["IPQ1_IPQ6_subject_level"]).any()
+    poly = pd.read_csv(out["questionnaire_wwr_polynomial_contrasts"])
+    assert set(poly["contrast"].dropna()) >= {"Linear", "Quadratic"}
+    assert poly["claim_strength"].dropna().eq("trend_only").all()
 
 
 def test_eeg_pipeline_robust_qc_flags_trials_and_keeps_legacy_audit(tmp_path: Path) -> None:

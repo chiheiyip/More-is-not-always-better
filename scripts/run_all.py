@@ -37,6 +37,10 @@ def main() -> None:
         questionnaire_wide=config.get("questionnaire_wide"),
         questionnaire_long=config.get("questionnaire_long"),
         outdir=outputs / "02_questionnaire",
+        with_significance=config.get("questionnaire_significance", True),
+        afford4_min_items=config.get("afford4_min_items", 3),
+        wwr_levels=tuple(config.get("wwr_levels", [15.0, 45.0, 75.0])),
+        skip_reliability=config.get("skip_questionnaire_reliability", False),
     )
     eye = run_eye_pipeline(
         participants_csv=intake["participants_standardized"],

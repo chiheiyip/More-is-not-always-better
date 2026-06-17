@@ -15,7 +15,7 @@ For real data, copy `configs/paths.example.json` to `configs/paths.local.json` a
 ## Output Map
 
 - `outputs/01_sample_qc/`: participant flow, group balance, scene/design balance.
-- `outputs/02_questionnaire/`: S1-S5, B1-B3, IPQ long tables and summaries.
+- `outputs/02_questionnaire/`: S1-S5, B1-B3, IPQ long tables, extended descriptives, reliability diagnostics, C1-only B-item QC, subject-level IPQ summaries, item-level LMM diagnostics, and WWR trend contrasts.
 - `outputs/03_eye_tracking/`: AOI visited, FCR, TFD, TTFF, attention share, AOI validation.
 - `outputs/04_eeg/`: EEG trial-level table and frequency-band QC.
 - `outputs/05_multimodal_fusion/`: canonical analysis master table, original-style EEG-eye aligned scene table, time-bin table, sync QC, precise alignment QC, and multimodal claim support.
@@ -25,6 +25,12 @@ For real data, copy `configs/paths.example.json` to `configs/paths.local.json` a
 - `outputs/08_reviewer_response/`: reviewer issue to evidence index and reviewer issue matrix.
 - `outputs/09_data_package/`: Data Availability draft and dataset/source-data availability index.
 - `outputs/10_figures/`: Nature-style SVG/PDF/TIFF/PNG figure exports, panel source CSV files, figure manifest, legends, and QA.
+
+## Questionnaire Method Policy
+
+Questionnaire logic draws on the public `wannaqueen66-create/spss` workflow, but it is not copied wholesale. The adopted pieces are the robust parts: extended descriptive diagnostics, Cronbach alpha as internal-consistency evidence, B-item C1-only handling, subject-level IPQ analysis, item-level mixed models, and WWR linear/quadratic trend contrasts.
+
+The corrections are deliberate: S1-S5 stay as primary item-level outcomes; `Afford4` is only a supplementary S1-S4 candidate construct; `Bmean` is C1-only; `IPQ_mean` is participant-level and is not interpreted as scene-level WWR/Complexity evidence; Shapiro/skew/kurtosis are diagnostics only; three WWR levels support trend language, not a definitive optimum claim.
 
 ## Reviewer-Driven Principles
 

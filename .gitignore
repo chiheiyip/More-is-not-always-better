@@ -2,6 +2,7 @@
 .venv-system/
 __pycache__/
 .pytest_cache/
+.pytest_tmp/
 *.pyc
 *.pyo
 *.egg-info/
@@ -15,6 +16,7 @@ data/interim/*
 !data/interim/README.md
 data/processed/*
 !data/processed/README.md
+_external_spss_compare/
 *.zip
 *.mat
 *.set
