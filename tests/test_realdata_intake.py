@@ -178,6 +178,29 @@ def test_eeg_validator_cli_json(tmp_path: Path) -> None:
     assert '"rows": 1' in result.stdout
 
 
+def test_run_eeg_from_raw_dry_run_command(tmp_path: Path) -> None:
+    eeg_root = tmp_path / "eeg raw"
+    eeglab_root = tmp_path / "eeglab root"
+    outdir = tmp_path / "eeg out"
+    eeg_root.mkdir()
+    eeglab_root.mkdir()
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_eeg_from_raw.py"
+    result = subprocess.run([
+        sys.executable,
+        str(script),
+        "--dry-run",
+        "--eeg_root",
+        str(eeg_root),
+        "--eeglab_root",
+        str(eeglab_root),
+        "--outdir",
+        str(outdir),
+    ], capture_output=True, text=True, check=True)
+    assert "eeglab('nogui')" in result.stdout
+    assert "run_eeg_bandpower_from_set" in result.stdout
+    assert not outdir.exists()
+
+
 def _write_eye_csv(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("Recording Time Stamp[ms],Gaze Point X[px],Gaze Point Y[px]\n0,1,1\n", encoding="utf-8")

@@ -29,6 +29,14 @@ Validation command:
 python scripts/validate_eeg_scene_summary.py path/to/all_subjects_scene_level.csv
 ```
 
+Run the raw `.set/.fdt` exporter from Python when MATLAB and EEGLAB are available:
+
+```bash
+python scripts/run_eeg_from_raw.py --eeg_root E:\26\补\脑电数据 --eeglab_root "D:\Program Files\MATLAB\eeglab" --outdir outputs/eeg_realdata
+```
+
+For a small smoke test, pass one `.set` file as `--eeg_root` and write to a scratch outdir.
+
 JSON output for automated checks:
 
 ```bash
