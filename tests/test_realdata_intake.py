@@ -144,7 +144,7 @@ def test_eeg_scene_summary_contract_validator() -> None:
 
 def test_scripts_do_not_reference_order_material_roots() -> None:
     script_dir = Path(__file__).resolve().parents[1] / "scripts"
-    checked = [script_dir / "preflight_raw_inputs.py", script_dir / "run_realdata_linktest.py"]
+    checked = [script_dir / "preflight_raw_inputs.py", script_dir / "run_realdata_linktest.py", script_dir / "run_realdata_all.py"]
     text = "\n".join(path.read_text(encoding="utf-8") for path in checked)
     assert "顺序1" not in text
     assert "顺序2-new" not in text
@@ -201,15 +201,152 @@ def test_run_eeg_from_raw_dry_run_command(tmp_path: Path) -> None:
     assert not outdir.exists()
 
 
+def test_run_realdata_all_dry_run_does_not_create_outputs(tmp_path: Path) -> None:
+    outdir = tmp_path / "real_outputs"
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_realdata_all.py"
+    result = subprocess.run([
+        sys.executable,
+        str(script),
+        "--dry-run",
+        "--outputs_root",
+        str(outdir),
+        "--skip-eeg-export",
+        "--skip-models",
+        "--skip-diagnostics",
+        "--skip-reporting",
+        "--skip-figures",
+    ], capture_output=True, text=True, check=True)
+    assert '"status": "dry_run"' in result.stdout
+    assert '"raw_inputs_read_only": true' in result.stdout
+    assert not outdir.exists()
+
+
+def test_run_realdata_all_with_existing_eeg_scene_csv(tmp_path: Path) -> None:
+    questionnaire = tmp_path / "questionnaire.xlsx"
+    eye_root = tmp_path / "eye"
+    eeg_root = tmp_path / "eeg"
+    outputs = tmp_path.parent / "realdata_all_outputs"
+    eeg_scene = tmp_path / "eeg_scene.csv"
+    _write_realdata_all_fixture(questionnaire, eye_root, eeg_root, eeg_scene)
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_realdata_all.py"
+    result = subprocess.run([
+        sys.executable,
+        str(script),
+        "--questionnaire_xlsx",
+        str(questionnaire),
+        "--eye_root",
+        str(eye_root),
+        "--eeg_root",
+        str(eeg_root),
+        "--eeg_scene_csv",
+        str(eeg_scene),
+        "--outputs_root",
+        str(outputs),
+        "--participants",
+        "张三,李四",
+        "--expected-scenes-per-subject",
+        "2",
+        "--skip-questionnaire-significance",
+        "--skip-questionnaire-reliability",
+        "--skip-models",
+        "--skip-diagnostics",
+        "--skip-reporting",
+        "--skip-figures",
+        "--cleanup-scratch",
+    ], capture_output=True, text=True, check=True)
+    assert '"status": "complete"' in result.stdout
+    assert not (outputs / "_raw_intake").exists()
+    summary = pd.read_json(outputs / "realdata_run_summary.json", typ="series")
+    assert summary["participants"] == 2
+    assert summary["fusion_run"] is True
+    assert (outputs / "05_multimodal_fusion" / "analysis_master_long.csv").exists()
+    assert (outputs / "04_eeg" / "eeg_trial_long.csv").exists()
+
+
+def test_run_realdata_all_rejects_outputs_inside_raw_root(tmp_path: Path) -> None:
+    eye_root = tmp_path / "eye"
+    eeg_root = tmp_path / "eeg"
+    eye_root.mkdir()
+    eeg_root.mkdir()
+    questionnaire = tmp_path / "questionnaire.xlsx"
+    _write_minimal_xlsx(questionnaire, [["Q1.0_姓名："], ["张三"]])
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_realdata_all.py"
+    result = subprocess.run([
+        sys.executable,
+        str(script),
+        "--dry-run",
+        "--questionnaire_xlsx",
+        str(questionnaire),
+        "--eye_root",
+        str(eye_root),
+        "--eeg_root",
+        str(eeg_root),
+        "--outputs_root",
+        str(eye_root / "bad_outputs"),
+    ], capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "outputs_root must not be inside a raw input directory" in result.stderr
+
+
 def _write_eye_csv(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("Recording Time Stamp[ms],Gaze Point X[px],Gaze Point Y[px]\n0,1,1\n", encoding="utf-8")
+    path.write_text(
+        "Recording Time Stamp[ms],Gaze Point X[px],Gaze Point Y[px],Fixation Index,Fixation Duration[ms]\n"
+        "0,50,50,1,200\n"
+        "1000,50,50,1,200\n"
+        "2000,150,50,2,150\n"
+        "3000,150,50,2,150\n",
+        encoding="utf-8",
+    )
 
 
 def _write_eeg_pair(root: Path, subject: str) -> None:
     root.mkdir(parents=True, exist_ok=True)
     (root / f"{subject}.set").write_text("placeholder", encoding="utf-8")
     (root / f"{subject}.fdt").write_text("placeholder", encoding="utf-8")
+
+
+def _write_realdata_all_fixture(questionnaire: Path, eye_root: Path, eeg_root: Path, eeg_scene: Path) -> None:
+    headers = [
+        "Q1.0_姓名：",
+        "Q1.8_场景顺序编号",
+        "Q2.1_S1. 这个空间整体上适合打乒乓球。_",
+        "Q2.2_S2. 空间尺度适合。_",
+        "Q2.3_S3. 空间边界清晰。_",
+        "Q2.4_S4. 空间让我愿意活动。_",
+        "Q2.5_S5.愉悦度评价_",
+        "Q3.1_S1. 这个空间整体上适合打乒乓球。_",
+        "Q3.2_S2. 空间尺度适合。_",
+        "Q3.3_S3. 空间边界清晰。_",
+        "Q3.4_S4. 空间让我愿意活动。_",
+        "Q3.5_S5.愉悦度评价_",
+        "Q16.1_1. 我在佩戴和使用 VR 设备时感到舒适。_",
+        "Q16.2_2. VR 场景让我有临场感。_",
+        "Q16.3_3. 我能自然地观察场景。_",
+        "Q16.4_4. 我能投入其中。_",
+        "Q16.5_5. 场景反应符合预期。_",
+        "Q16.6_6. 总体体验较好。_",
+    ]
+    rows = [headers]
+    for subject, base in [("张三", 5), ("李四", 4)]:
+        rows.append([subject, 1, f"{base}分", "5分", "5分", "5分", "6分", f"{base + 1}分", "6分", "6分", "6分", "7分", "5分", "5分", "5分", "5分", "5分", "5分"])
+        _write_eeg_pair(eeg_root, subject)
+    _write_minimal_xlsx(questionnaire, rows)
+
+    aoi = '{"aoi_classes":{"table":[{"points":[[0,0],[100,0],[100,100],[0,100]]}],"window":[{"points":[[100,0],[200,0],[200,100],[100,100]]}]}}'
+    for folder in ["1-C0W15", "1-C0W45"]:
+        (eye_root / folder).mkdir(parents=True, exist_ok=True)
+        (eye_root / folder / f"{folder}.json").write_text(aoi, encoding="utf-8")
+    for subject in ["张三", "李四"]:
+        _write_eye_csv(eye_root / "1-C0W15" / f"raw_{subject}_260530201640_0617145623.csv")
+        _write_eye_csv(eye_root / "1-C0W45" / f"raw_{subject}_260530201640_0617150451.csv")
+
+    pd.DataFrame([
+        {"subject_id": subject, "scene_id": scene_id, "view_start_s": 0.0, "view_end_s": 3.0, "view_dur_s": 3.0, "O_theta": value, "F_theta": value + 0.1, "O_alpha": value + 0.2, "hf_ratio_20_40Hz": 0.1, "rms_mean_uV": 10.0, "peak_to_peak_uV": 50.0, "nan_fraction": 0.0, "flat_fraction": 0.0, "segment_valid_duration": True}
+        for subject, value in [("张三", 1.0), ("李四", 1.2)]
+        for scene_id in [1, 2]
+    ]).to_csv(eeg_scene, index=False, encoding="utf-8-sig")
 
 
 def _write_minimal_xlsx(path: Path, rows: list[list[object]]) -> None:

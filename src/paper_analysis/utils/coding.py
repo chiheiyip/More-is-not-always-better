@@ -61,9 +61,11 @@ def standardize_participants(participants: pd.DataFrame) -> pd.DataFrame:
         out["SupplementFlag"] = out["RecruitmentBatch"].astype(str).str.lower().eq("supplement")
     if "Gender" not in out.columns:
         out["Gender"] = ""
+    out["Gender"] = out["Gender"].astype("object")
     if "GenderRaw" not in out.columns:
         out["GenderRaw"] = out["Gender"]
     else:
+        out["GenderRaw"] = out["GenderRaw"].astype("object")
         missing_raw = out["GenderRaw"].astype(str).str.strip().str.lower().isin({"", "nan", "none"})
         out.loc[missing_raw, "GenderRaw"] = out.loc[missing_raw, "Gender"]
     out["Gender"] = out["GenderRaw"].map(standardize_gender)
