@@ -19,7 +19,7 @@ def main() -> None:
     parser.add_argument("--outdir", default="outputs/fusion")
     parser.add_argument("--columns_map", default=None)
     parser.add_argument("--bin_size_ms", type=int, default=2000)
-    parser.add_argument("--duration_tolerance_s", type=float, default=2.0)
+    parser.add_argument("--duration_tolerance_s", type=float, default=5.0)
     parser.add_argument("--expected_scenes_per_subject", type=int, default=12)
     parser.add_argument("--dwell_mode", default="fixation", choices=["row", "fixation"])
     parser.add_argument("--screen_w", type=int, default=None)

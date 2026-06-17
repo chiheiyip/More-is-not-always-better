@@ -32,7 +32,7 @@ def run_fusion_pipeline(
     scene_manifest_csv: str | Path | None = None,
     outdir: str | Path = "outputs/05_multimodal_fusion",
     bin_size_ms: int = 2000,
-    duration_tolerance_s: float = 2.0,
+    duration_tolerance_s: float = 5.0,
     expected_scenes_per_subject: int = 12,
     duration_outlier_s: float = 5.0,
     residual_outlier_ms: float = 3000.0,

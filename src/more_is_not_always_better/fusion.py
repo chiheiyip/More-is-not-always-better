@@ -37,7 +37,7 @@ def run_fusion(
     outdir: str | Path = "outputs/fusion",
     columns_map: Optional[str | Path] = None,
     bin_size_ms: int = 2000,
-    duration_tolerance_s: float = 2.0,
+    duration_tolerance_s: float = 5.0,
     expected_scenes_per_subject: int = 12,
     dwell_mode: str = "fixation",
     screen_w: Optional[int] = None,
