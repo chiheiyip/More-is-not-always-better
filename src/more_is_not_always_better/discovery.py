@@ -18,6 +18,15 @@ SCENE_DIR_RE = re.compile(
     r"^\((?P<code_order1>\d+-\d+-\d+)\u3001(?P<code_order2>\d+-\d+-\d+)\)\s*"
     r"(?P<scene_group>\u7ec4\d+)-C(?P<cond>\d+)W(?P<wwr>\d+)$"
 )
+SIMPLE_SCENE_DIR_RE = re.compile(r"^(?P<block>\d+)-C(?P<cond>\d+)W(?P<wwr>\d+)$", re.IGNORECASE)
+SIMPLE_CONDITION_POSITION = {
+    "C0W15": 1,
+    "C0W45": 2,
+    "C0W75": 3,
+    "C1W15": 4,
+    "C1W45": 5,
+    "C1W75": 6,
+}
 GENERIC_EYE_SUBJECTS = {"user", "user1", "user2", "test", "pilot", "practice"}
 NEW_ORDER2_START_DATE = date(2026, 5, 1)
 NEW_ORDER2_BY_BLOCK = {
@@ -39,15 +48,15 @@ NEW_ORDER2_BY_BLOCK = {
     },
 }
 QUESTIONNAIRE_COLUMN_CANDIDATES = {
-    "participant_id": ["\u59d3\u540d", "name"],
-    "Order": ["Q1.8_\u573a\u666f\u987a\u5e8f\u7f16\u53f7", "Q1.8"],
-    "Experience": ["Q1.4_\u4e52\u4e53\u7403\u7ecf\u9a8c\uff1a", "Q1.4"],
-    "SportFreq": ["Q1.5_\u8fd1 6 \u4e2a\u6708\u5e73\u5747\u8fd0\u52a8\u9891\u7387\uff1a", "Q1.5"],
-    "Age": ["Q1.1_\u5e74\u9f84\uff08\u5c81\uff09\uff1a", "Q1.1"],
-    "Gender": ["Q1.2_\u6027\u522b\uff1a", "Q1.2"],
-    "RightHanded": ["Q1.3_\u662f\u5426\u60ef\u7528\u53f3\u624b\uff1a", "Q1.3"],
-    "VRExperience": ["Q1.6_VR \u4f7f\u7528\u7ecf\u9a8c\uff1a", "Q1.6"],
-    "MotionSickness": ["Q1.7_\u662f\u5426\u5bb9\u6613\u6655\u52a8/\u6655 VR\uff1a", "Q1.7"],
+    "participant_id": ["Q1.0_姓名：", "姓名", "name"],
+    "Order": ["Q1.8_场景顺序编号", "Q1.8_场景顺序编号：", "Q1.8_场景顺序编号", "Q1.8"],
+    "Experience": ["Q1.4_乒乓球经验：", "Q1.4"],
+    "SportFreq": ["Q1.5_近 6 个月平均运动频率：", "Q1.5"],
+    "Age": ["Q1.1_年龄（岁）：", "Q1.1"],
+    "Gender": ["Q1.2_性别：", "Q1.2"],
+    "RightHanded": ["Q1.3_是否惯用右手：", "Q1.3"],
+    "VRExperience": ["Q1.6_VR 使用经验：", "Q1.6"],
+    "MotionSickness": ["Q1.7_是否容易晕动/晕 VR：", "Q1.7"],
 }
 
 
@@ -61,6 +70,10 @@ class SceneFolderMeta:
     wwr: int
     condition_code: str
     complexity: int
+    block: int | None = None
+    position: int | None = None
+    scene_id: int | None = None
+    order_scheme: str = "coded_folder"
 
 
 def scan_eeg_raw(eeg_root: str | Path) -> pd.DataFrame:
@@ -95,6 +108,7 @@ def scan_eye_raw(eye_root: str | Path, include_adaptation: bool = False) -> pd.D
             "eye_subject_id": match.group("subject").strip(),
             "raw_eye_subject_id": match.group("subject").strip(),
             "eye_csv_path": str(csv_file),
+            "aoi_json_path": str(_find_aoi_json(csv_file.parent, scene_folder)),
             "eye_record_id": match.group("record_id"),
             "eye_split_id": match.group("split_id"),
             "source_folder": scene_folder,
@@ -109,6 +123,10 @@ def scan_eye_raw(eye_root: str | Path, include_adaptation: bool = False) -> pd.D
                 "Cond": f"C{folder_meta.cond}",
                 "WWR": folder_meta.wwr,
                 "Complexity": folder_meta.complexity,
+                "folder_block": folder_meta.block,
+                "folder_position": folder_meta.position,
+                "folder_scene_id": folder_meta.scene_id,
+                "folder_order_scheme": folder_meta.order_scheme,
             })
         rows.append(base)
     return pd.DataFrame(rows)
@@ -273,7 +291,7 @@ def build_scene_manifest_from_eye_root(
             "position": position,
             "scene_name": row.get("condition_code", row.get("source_folder", "")),
             "eye_csv_path": row["eye_csv_path"],
-            "aoi_json_path": "",
+            "aoi_json_path": row.get("aoi_json_path", ""),
             "WWR": row.get("WWR", ""),
             "Cond": row.get("Cond", ""),
             "Complexity": row.get("Complexity", ""),
@@ -307,7 +325,29 @@ def build_scene_manifest_from_eye_root(
 def parse_scene_folder(folder_name: str) -> Optional[SceneFolderMeta]:
     match = SCENE_DIR_RE.match(folder_name)
     if not match:
-        return None
+        simple = SIMPLE_SCENE_DIR_RE.match(folder_name)
+        if not simple:
+            return None
+        block = int(simple.group("block"))
+        cond = simple.group("cond")
+        wwr = int(simple.group("wwr"))
+        condition_code = f"C{cond}W{wwr}"
+        position = SIMPLE_CONDITION_POSITION.get(condition_code.upper())
+        scene_id = (block - 1) * 6 + position if position is not None else None
+        return SceneFolderMeta(
+            folder_name=folder_name,
+            code_order1="",
+            code_order2="",
+            scene_group=str(block),
+            cond=cond,
+            wwr=wwr,
+            condition_code=condition_code,
+            complexity=int(cond),
+            block=block,
+            position=position,
+            scene_id=scene_id,
+            order_scheme="simple_condition_folder",
+        )
     scene_group = match.group("scene_group")
     group_number_match = re.search(r"\d+", scene_group)
     complexity = int(group_number_match.group(0)) if group_number_match else 0
@@ -340,21 +380,25 @@ def summarize_roots(
     alias_rows = eye.loc[eye.get("alias_source", "") != ""] if not eye.empty else pd.DataFrame()
     questionnaire = load_questionnaire_metadata(questionnaire_xlsx) if questionnaire_xlsx else pd.DataFrame()
     questionnaire_ids = set(questionnaire["participant_id"]) if not questionnaire.empty else set()
+    tri = eye_ids & eeg_ids & questionnaire_ids if questionnaire_xlsx else eye_ids & eeg_ids
     return {
         "eye_csv_count": int(len(eye_raw)),
         "eye_subject_count_raw": int(eye_raw["participant_id"].nunique()) if not eye_raw.empty else 0,
         "eye_subject_count_after_alias": int(len(eye_ids)),
         "eye_scene_folder_count": int(len(scene_folders)),
+        "eye_aoi_json_count": int(eye_raw["aoi_json_path"].replace("", pd.NA).dropna().nunique()) if not eye_raw.empty and "aoi_json_path" in eye_raw.columns else 0,
+        "eye_missing_aoi_json_rows": int(eye_raw["aoi_json_path"].eq("").sum()) if not eye_raw.empty and "aoi_json_path" in eye_raw.columns else 0,
         "eeg_set_count": int(len(eeg)),
         "eeg_fdt_count": int(eeg["has_fdt"].sum()) if not eeg.empty else 0,
         "matched_subject_count": int(len(eye_ids & eeg_ids)),
+        "trimodal_subject_count": int(len(tri)),
         "eye_only_subjects": sorted(eye_ids - eeg_ids),
         "eeg_only_subjects": sorted(eeg_ids - eye_ids),
         "questionnaire_subject_count": int(len(questionnaire_ids)),
         "questionnaire_missing_for_eye_subjects": sorted(eye_ids - questionnaire_ids) if questionnaire_xlsx else [],
         "questionnaire_order_counts": questionnaire["Order"].value_counts(dropna=False).to_dict() if not questionnaire.empty else {},
         "aliased_eye_rows": int(len(alias_rows)),
-        "aliases": sorted(alias_rows[["raw_eye_subject_id", "participant_id", "eye_record_id", "alias_source"]].drop_duplicates().to_dict("records"), key=lambda x: str(x)),
+        "aliases": sorted(alias_rows[["raw_eye_subject_id", "participant_id", "eye_record_id", "alias_source"]].drop_duplicates().to_dict("records"), key=lambda x: str(x)) if not alias_rows.empty else [],
         "scene_folders": scene_folders,
     }
 
@@ -394,6 +438,86 @@ def load_questionnaire_metadata(path: str | Path) -> pd.DataFrame:
         dupes = out.loc[out["participant_id"].duplicated(keep=False), "participant_id"].tolist()
         raise ValueError(f"Questionnaire contains duplicate participant names: {dupes[:10]}")
     return out
+
+
+def load_questionnaire_long_from_wjx(
+    path: str | Path,
+    max_participants: int | None = None,
+    participants: Iterable[str] | None = None,
+) -> pd.DataFrame:
+    workbook = Path(path)
+    if not workbook.exists():
+        raise FileNotFoundError(f"Questionnaire workbook not found: {workbook}")
+    wide = _read_xlsx_first_sheet(workbook)
+    participant_col = _first_matching_column(wide.columns, [r"^Q1\.0_.*姓名", r"^姓名$", r"name"])
+    if participant_col is None:
+        raise ValueError("Questionnaire workbook must contain Q1.0/name participant column")
+    wanted = {str(v).strip() for v in participants or [] if str(v).strip()}
+    selected_participants: list[str] = []
+    rows_by_key: dict[tuple[str, int], dict] = {}
+    ipq_by_participant: dict[str, dict[str, float | None]] = {}
+    ipq_cols = {f"IPQ{i}": _first_matching_column(wide.columns, [rf"^Q16\.{i}_", rf"IPQ{i}"]) for i in range(1, 7)}
+
+    for _, row in wide.iterrows():
+        participant_id = str(row.get(participant_col, "")).strip()
+        if not participant_id or participant_id.lower() == "nan":
+            continue
+        if wanted and participant_id not in wanted:
+            continue
+        if participant_id not in selected_participants:
+            selected_participants.append(participant_id)
+        if max_participants is not None and len(selected_participants) > max_participants:
+            break
+        ipq_by_participant[participant_id] = {item: _score_value(row[col]) if col is not None else None for item, col in ipq_cols.items()}
+        for col in wide.columns:
+            parsed = _parse_wjx_question_column(str(col))
+            if parsed is None:
+                continue
+            scene_id, item = parsed
+            key = (participant_id, scene_id)
+            rows_by_key.setdefault(key, {"participant_id": participant_id, "scene_id": scene_id})[item] = _score_value(row.get(col))
+
+    out = pd.DataFrame(rows_by_key.values())
+    if out.empty:
+        return out
+    for item in ipq_cols:
+        out[item] = out["participant_id"].map(lambda pid, item=item: ipq_by_participant.get(pid, {}).get(item))
+    return out.sort_values(["participant_id", "scene_id"]).reset_index(drop=True)
+
+
+def _parse_wjx_question_column(name: str) -> tuple[int, str] | None:
+    match = re.match(r"^Q(?P<q>\d+)\.\d+_(?P<item>S[1-5]|B[1-3])\b", name, re.IGNORECASE)
+    if not match:
+        return None
+    q_number = int(match.group("q"))
+    item = match.group("item").upper()
+    if item.startswith("S") and 2 <= q_number <= 7:
+        scene_id = q_number - 1
+    elif item.startswith("S") and 9 <= q_number <= 14:
+        scene_id = q_number - 2
+    elif item.startswith("B") and q_number == 8:
+        scene_id = 6
+    elif item.startswith("B") and q_number == 15:
+        scene_id = 12
+    else:
+        return None
+    return scene_id, item
+
+
+def _score_value(value: object) -> float | None:
+    if value is None or pd.isna(value):
+        return None
+    match = re.search(r"-?\d+(?:\.\d+)?", str(value))
+    return float(match.group(0)) if match else None
+
+
+def _first_matching_column(columns: Iterable[str], patterns: Iterable[str]) -> Optional[str]:
+    for pattern in patterns:
+        regex = re.compile(pattern, re.IGNORECASE)
+        for col in columns:
+            if regex.search(str(col)):
+                return str(col)
+    return None
 
 
 def _read_xlsx_first_sheet(workbook: Path) -> pd.DataFrame:
@@ -493,6 +617,12 @@ def _scene_position_from_order_code(order_code: object) -> tuple[int, int, int]:
 
 
 def _resolve_order_position(row: pd.Series, order: int) -> tuple[str, object, int, int, int]:
+    folder_scene_id = row.get("folder_scene_id")
+    if pd.notna(folder_scene_id) and str(folder_scene_id).strip():
+        block = int(row.get("folder_block"))
+        position = int(row.get("folder_position"))
+        scene_id = int(folder_scene_id)
+        return str(row.get("folder_order_scheme") or "simple_condition_folder"), row.get("condition_code", ""), block, position, scene_id
     selected_code = row.get(f"order_code_{order}") or row.get("order_code_1")
     if order == 2 and _uses_neworder2(row.get("eye_record_id")):
         old_block, _, _ = _scene_position_from_order_code(row.get("order_code_2") or selected_code)
@@ -526,6 +656,14 @@ def _experiment_date_from_eye_record_id(value: object) -> Optional[date]:
         return date(year, month, day)
     except ValueError:
         return None
+
+
+def _find_aoi_json(folder: Path, scene_folder: str) -> Path | str:
+    preferred = folder / f"{scene_folder}.json"
+    if preferred.exists():
+        return preferred
+    json_files = sorted(folder.glob("*.json"))
+    return json_files[0] if len(json_files) == 1 else ""
 
 
 def _condition_key(row: pd.Series) -> str:
@@ -577,7 +715,7 @@ def _standardize_gender(value: object) -> str:
 
 
 def _is_adaptation_folder(folder_name: str) -> bool:
-    return "\u9002\u5e94" in folder_name or folder_name.lower() in {"adaptation", "practice"}
+    return "适应" in folder_name or folder_name.lower() in {"adaptation", "practice"}
 
 
 def _is_generic_eye_subject(value: object) -> bool:
