@@ -7,5 +7,6 @@
   "eeg_qc_config": "configs/eeg_qc.json",
   "outputs_root": "outputs",
   "expected_scenes_per_subject": 3,
-  "bin_size_ms": 2000
+  "bin_size_ms": 2000,
+  "duration_tolerance_s": 10.0
 }

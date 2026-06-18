@@ -1,6 +1,6 @@
 {
   "bin_size_ms": 2000,
-  "duration_tolerance_s": 5.0,
+  "duration_tolerance_s": 10.0,
   "expected_scenes_per_subject": 12,
   "dwell_mode": "fixation",
   "screen_w": null,

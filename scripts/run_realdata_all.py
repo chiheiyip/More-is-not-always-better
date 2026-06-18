@@ -53,6 +53,7 @@ def main() -> None:
     parser.add_argument("--matlab_command", default="matlab")
     parser.add_argument("--expected-scenes-per-subject", type=int, default=12)
     parser.add_argument("--bin-size-ms", type=int, default=2000)
+    parser.add_argument("--duration-tolerance-s", type=float, default=10.0)
     parser.add_argument("--model-config", default="configs/model_families.json")
     parser.add_argument("--eeg-qc-config", default="configs/eeg_qc.json")
     parser.add_argument("--figure-contracts", default="configs/figure_contracts.json")
@@ -163,6 +164,7 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
         outdir=outputs_root / "05_multimodal_fusion",
         expected_scenes_per_subject=args.expected_scenes_per_subject,
         bin_size_ms=args.bin_size_ms,
+        duration_tolerance_s=args.duration_tolerance_s,
     )
 
     stats = None
@@ -240,19 +242,21 @@ def _prepare_eeg_scene_csv(args: argparse.Namespace, outputs_root: Path) -> Path
 
 def _select_participants(participants: pd.DataFrame, selected: list[str], max_participants: int | None) -> pd.DataFrame:
     out = participants.copy()
+    complete_mask = (
+        out.get("has_eeg_raw", False).fillna(False)
+        & out.get("has_eye_raw", False).fillna(False)
+        & out.get("has_questionnaire", False).fillna(False)
+    )
     if selected:
         missing = sorted(set(selected) - set(out["participant_id"].astype(str)))
         if missing:
             raise SystemExit(f"Requested participants not found: {missing}")
         out = out.loc[out["participant_id"].astype(str).isin(selected)].copy()
     elif max_participants is not None:
-        matched = out.loc[
-            out.get("has_eeg_raw", False).fillna(False)
-            & out.get("has_eye_raw", False).fillna(False)
-            & out.get("has_questionnaire", False).fillna(False),
-            "participant_id",
-        ].astype(str).head(max_participants)
+        matched = out.loc[complete_mask, "participant_id"].astype(str).head(max_participants)
         out = out.loc[out["participant_id"].astype(str).isin(set(matched))].copy()
+    else:
+        out = out.loc[complete_mask].copy()
     if out.empty:
         raise SystemExit("No participants available after filtering.")
     required = ["has_eeg_raw", "has_eye_raw", "has_questionnaire"]
@@ -365,7 +369,8 @@ def _assert_output_not_inside_raw_inputs(outputs_root: Path, raw_inputs: list[st
     raw_dirs = []
     for value in raw_inputs:
         path = Path(value)
-        raw_dirs.append(_resolved(path if path.suffix == "" else path.parent))
+        if path.suffix == "":
+            raw_dirs.append(_resolved(path))
     for raw in raw_dirs:
         if out == raw or raw in out.parents:
             raise SystemExit(f"outputs_root must not be inside a raw input directory: {outputs_root}")

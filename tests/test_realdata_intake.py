@@ -114,6 +114,31 @@ def test_manual_alias_overrides_suffix_note(tmp_path: Path) -> None:
     assert eye.loc[0, "alias_source"] == "manual"
 
 
+def test_questionnaire_middle_dot_names_match_short_raw_ids(tmp_path: Path) -> None:
+    questionnaire = tmp_path / "questionnaire.xlsx"
+    eye_root = tmp_path / "eye"
+    eeg_root = tmp_path / "eeg"
+    _write_minimal_xlsx(
+        questionnaire,
+        [
+            ["Q1.0_姓名：", "Q1.8_场景顺序编号", "Q2.1_S1. 这个空间整体上适合打乒乓球。_"],
+            ["沙力木江·吐尔洪", 1, "5分"],
+        ],
+    )
+    _write_eye_csv(eye_root / "1-C0W15" / "raw_沙力木江_260530201640_0617145623.csv")
+    _write_eeg_pair(eeg_root, "沙力木江")
+
+    participants = build_participants_from_roots(eye_root, eeg_root, questionnaire_xlsx=questionnaire)
+    row = participants.set_index("participant_id").loc["沙力木江"]
+    assert bool(row["has_eeg_raw"]) is True
+    assert bool(row["has_eye_raw"]) is True
+    assert bool(row["has_questionnaire"]) is True
+
+    q_long = load_questionnaire_long_from_wjx(questionnaire, participants=["沙力木江"])
+    assert q_long.loc[0, "participant_id"] == "沙力木江"
+    assert q_long.loc[0, "questionnaire_subject_id"] == "沙力木江·吐尔洪"
+
+
 def test_eeg_scene_summary_contract_validator() -> None:
     ok = pd.DataFrame({
         "subject_id": ["P01"],
@@ -287,6 +312,34 @@ def test_run_realdata_all_rejects_outputs_inside_raw_root(tmp_path: Path) -> Non
     ], capture_output=True, text=True)
     assert result.returncode != 0
     assert "outputs_root must not be inside a raw input directory" in result.stderr
+
+
+def test_run_realdata_all_allows_outputs_next_to_questionnaire_file(tmp_path: Path) -> None:
+    raw_parent = tmp_path / "raw_parent"
+    questionnaire = raw_parent / "questionnaire.xlsx"
+    eye_root = raw_parent / "eye"
+    eeg_root = raw_parent / "eeg"
+    outputs = raw_parent / "analysis_outputs"
+    eye_root.mkdir(parents=True)
+    eeg_root.mkdir()
+    _write_minimal_xlsx(questionnaire, [["Q1.0_姓名："], ["张三"]])
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_realdata_all.py"
+    result = subprocess.run([
+        sys.executable,
+        str(script),
+        "--dry-run",
+        "--questionnaire_xlsx",
+        str(questionnaire),
+        "--eye_root",
+        str(eye_root),
+        "--eeg_root",
+        str(eeg_root),
+        "--outputs_root",
+        str(outputs),
+    ], capture_output=True, text=True, check=True)
+    assert '"status": "dry_run"' in result.stdout
+    assert not outputs.exists()
 
 
 def _write_eye_csv(path: Path) -> None:

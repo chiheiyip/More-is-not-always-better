@@ -63,6 +63,7 @@ def main() -> None:
         outdir=outputs / "05_multimodal_fusion",
         expected_scenes_per_subject=config.get("expected_scenes_per_subject", 12),
         bin_size_ms=config.get("bin_size_ms", 2000),
+        duration_tolerance_s=config.get("duration_tolerance_s", 10.0),
     )
     stats = run_statistical_models(
         master_csv=fusion["analysis_master_long"],

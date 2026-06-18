@@ -29,6 +29,7 @@ SIMPLE_CONDITION_POSITION = {
 }
 GENERIC_EYE_SUBJECTS = {"user", "user1", "user2", "test", "pilot", "practice"}
 SUFFIX_NOTE_RE = re.compile(r"^(?P<name>.+?)-\d+-\d+$")
+ETHNIC_NAME_SEPARATOR_RE = re.compile(r"[·•]")
 NEW_ORDER2_START_DATE = date(2026, 5, 1)
 NEW_ORDER2_BY_BLOCK = {
     1: {
@@ -426,7 +427,9 @@ def load_questionnaire_metadata(path: str | Path) -> pd.DataFrame:
         raise ValueError("Questionnaire workbook must contain a participant name column")
 
     out = pd.DataFrame()
-    out["participant_id"] = df[resolved["participant_id"]].astype(str).str.strip()
+    raw_participant_id = df[resolved["participant_id"]].astype(str).str.strip()
+    out["questionnaire_subject_id"] = raw_participant_id
+    out["participant_id"] = raw_participant_id.map(_canonical_questionnaire_subject_id)
     for output_col in [
         "Order",
         "Experience",
@@ -444,8 +447,8 @@ def load_questionnaire_metadata(path: str | Path) -> pd.DataFrame:
     out["GenderRaw"] = out["Gender"]
     out["Gender"] = out["GenderRaw"].map(_standardize_gender)
     if out["participant_id"].duplicated().any():
-        dupes = out.loc[out["participant_id"].duplicated(keep=False), "participant_id"].tolist()
-        raise ValueError(f"Questionnaire contains duplicate participant names: {dupes[:10]}")
+        dupes = out.loc[out["participant_id"].duplicated(keep=False), ["questionnaire_subject_id", "participant_id"]].to_dict("records")
+        raise ValueError(f"Questionnaire contains duplicate participant names after canonicalization: {dupes[:10]}")
     return out
 
 
@@ -468,7 +471,8 @@ def load_questionnaire_long_from_wjx(
     ipq_cols = {f"IPQ{i}": _first_matching_column(wide.columns, [rf"^Q16\.{i}_", rf"IPQ{i}"]) for i in range(1, 7)}
 
     for _, row in wide.iterrows():
-        participant_id = str(row.get(participant_col, "")).strip()
+        questionnaire_subject_id = str(row.get(participant_col, "")).strip()
+        participant_id = _canonical_questionnaire_subject_id(questionnaire_subject_id)
         if not participant_id or participant_id.lower() == "nan":
             continue
         if wanted and participant_id not in wanted:
@@ -484,7 +488,14 @@ def load_questionnaire_long_from_wjx(
                 continue
             scene_id, item = parsed
             key = (participant_id, scene_id)
-            rows_by_key.setdefault(key, {"participant_id": participant_id, "scene_id": scene_id})[item] = _score_value(row.get(col))
+            rows_by_key.setdefault(
+                key,
+                {
+                    "participant_id": participant_id,
+                    "questionnaire_subject_id": questionnaire_subject_id,
+                    "scene_id": scene_id,
+                },
+            )[item] = _score_value(row.get(col))
 
     out = pd.DataFrame(rows_by_key.values())
     if out.empty:
@@ -736,6 +747,12 @@ def _strip_suffix_note(value: object) -> str:
     text = str(value or "").strip()
     match = SUFFIX_NOTE_RE.match(text)
     return match.group("name") if match else text
+
+
+def _canonical_questionnaire_subject_id(value: object) -> str:
+    text = str(value or "").strip()
+    parts = [part.strip() for part in ETHNIC_NAME_SEPARATOR_RE.split(text) if part.strip()]
+    return parts[0] if len(parts) > 1 else text
 
 
 def _first_existing(columns: Iterable[str], candidates: Iterable[str]) -> Optional[str]:

@@ -19,7 +19,7 @@ def main() -> None:
     parser.add_argument("--scene_manifest", default="outputs/01_sample_qc/scene_manifest_standardized.csv")
     parser.add_argument("--outdir", default="outputs/05_multimodal_fusion")
     parser.add_argument("--bin_size_ms", type=int, default=2000)
-    parser.add_argument("--duration_tolerance_s", type=float, default=5.0)
+    parser.add_argument("--duration_tolerance_s", type=float, default=10.0)
     parser.add_argument("--expected_scenes_per_subject", type=int, default=12)
     parser.add_argument("--eye_point_source", default="auto", choices=["auto", "gaze", "fixation"])
     parser.add_argument("--eye_screen_w", type=int, default=None)
