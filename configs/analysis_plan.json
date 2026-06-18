@@ -5,7 +5,18 @@
     "between_subject": ["ExperienceGroup"],
     "covariates": ["Gender", "Age", "block", "position", "RecruitmentBatch"]
   },
-  "primary_eeg_metrics": ["eeg_O_theta", "eeg_F_theta", "eeg_O_alpha", "eeg_delta_O_alpha"],
+  "primary_eeg_metrics": [
+    "eeg_F_theta",
+    "eeg_F_alpha",
+    "eeg_F_beta",
+    "eeg_P_theta",
+    "eeg_P_alpha",
+    "eeg_P_beta",
+    "eeg_O_theta",
+    "eeg_O_alpha",
+    "eeg_O_beta"
+  ],
+  "supplementary_eeg_metrics": ["eeg_delta_O_alpha"],
   "primary_eye_metrics": ["visited", "FCR", "FC_rate", "FC_share", "TFD_ms", "TTFF_ms", "attention_share", "share_pct"],
   "exploratory_eye_metrics": ["FFD_ms", "MFD_ms", "RFF", "MPD"],
   "primary_questionnaire_metrics": ["q_S1", "q_S2", "q_S3", "q_S4", "q_S5"],
@@ -17,10 +28,10 @@
     "method_policy": "Use item-level LMM and WWR trend contrasts as diagnostics; do not replace primary multimodal models or force a global scale."
   },
   "claim_policy": {
-    "wwr_nonlinearity": "Three WWR levels support trend/planned-contrast language only, not a strong optimality claim.",
+    "wwr_nonlinearity": "For the tested WWR levels, report whether WWR45 is locally more favorable than WWR15 and WWR75; avoid extrapolating to untested WWR values.",
     "questionnaire_composites": "Afford4/Bmean/IPQ_mean are supplementary unless reliability, missingness, and construct rationale are documented.",
     "ipq_interpretation": "IPQ is participant-level and should not be interpreted as scene-level WWR or Complexity evidence.",
-    "eeg_interpretation": "EEG cognitive-processing claims require convergent questionnaire or eye-tracking evidence.",
+    "eeg_interpretation": "Analyze F/P/O x theta/alpha/beta ROI-band metrics symmetrically; interpret EEG patterns cautiously and alongside questionnaire or eye-tracking evidence.",
     "experience_moderation": "Experience claims require balanced groups and sensitivity checks."
   }
 }

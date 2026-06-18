@@ -25,9 +25,25 @@
       "predictors": ["C(WWR)", "C(Complexity)", "C(ExperienceGroup)", "C(Gender)", "block", "position"]
     },
     {
-      "name": "eeg_primary",
+      "name": "eeg_roi_band_primary",
       "kind": "continuous",
-      "outcomes": ["eeg_O_theta", "eeg_F_theta", "eeg_O_alpha", "eeg_delta_O_alpha"],
+      "outcomes": [
+        "eeg_F_theta",
+        "eeg_F_alpha",
+        "eeg_F_beta",
+        "eeg_P_theta",
+        "eeg_P_alpha",
+        "eeg_P_beta",
+        "eeg_O_theta",
+        "eeg_O_alpha",
+        "eeg_O_beta"
+      ],
+      "predictors": ["C(WWR)", "C(Complexity)", "C(ExperienceGroup)", "C(Gender)", "Age", "block", "position", "C(RecruitmentBatch)"]
+    },
+    {
+      "name": "eeg_recovery_supplementary",
+      "kind": "continuous",
+      "outcomes": ["eeg_delta_O_alpha"],
       "predictors": ["C(WWR)", "C(Complexity)", "C(ExperienceGroup)", "C(Gender)", "Age", "block", "position", "C(RecruitmentBatch)"]
     }
   ]

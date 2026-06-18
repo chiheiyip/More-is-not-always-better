@@ -18,7 +18,7 @@
 | Field | Meaning |
 |---|---|
 | `ExperienceRaw` | Original questionnaire response for sports/table-tennis experience. |
-| `ExperienceGroup` | Analysis grouping, usually `Low` or `High`. |
+| `ExperienceGroup` | Two-by-two frequency grouping derived from `ExperienceRaw`: `Low` = never/rarely or occasional (monthly <1 or 1-2 times); `High` = sometimes/often (monthly 3-4 or >=5 times). |
 | `Gender` | Participant gender, included as a model covariate. |
 | `Age` | Participant age, included as a model covariate when available. |
 | `RecruitmentBatch` | Original or supplementary recruitment batch. |
@@ -66,8 +66,11 @@
 
 ## Fusion And Synchronization Fields
 
-| Field | Meaning |
+| Field or file | Meaning |
 |---|---|
+| `analysis_master_long_pre_qc.csv` | AOI-expanded multimodal table before analysis-level QC exclusions. |
+| `analysis_master_long.csv` | Main AOI-expanded analysis table after analysis-level QC. Do not treat its row count as the number of participant-scene trials. |
+| `analysis_qc_exclusions.csv` | Participant-scene QC table listing retained/excluded trials and exclusion reasons. |
 | `aligned_scene_table.csv` | Scene-level EEG + eye AOI projection from the canonical trial index. |
 | `aligned_timebin_table.csv` | Time-bin eye AOI projection with scene-level EEG columns attached. |
 | `sync_qc.csv` | Per-trial duration and scene-count synchronization QC. |
@@ -79,7 +82,7 @@
 
 ## EEG Fields
 
-EEG columns follow ROI + band naming such as `O_theta`, `F_theta`, `O_alpha`. In the fused table they are prefixed as `eeg_O_theta`, etc.
+EEG columns follow ROI + band naming such as `F_theta`, `P_alpha`, and `O_beta`. In the fused table they are prefixed as `eeg_F_theta`, etc. The primary EEG model set analyzes the nine F/P/O x theta/alpha/beta ROI-band metrics symmetrically; recovery contrasts such as `delta_O_alpha` are supplementary.
 
 | Field | Meaning |
 |---|---|

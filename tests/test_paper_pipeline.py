@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -13,9 +14,36 @@ from paper_analysis.intake.pipeline import build_manifests
 from paper_analysis.questionnaire.pipeline import run_questionnaire_pipeline
 from paper_analysis.reporting.pipeline import build_paper_outputs
 from paper_analysis.stats.models import run_statistical_models
+from paper_analysis.utils.coding import experience_group
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "paper"
+
+
+def test_experience_group_uses_two_by_two_frequency_split() -> None:
+    assert experience_group("从不或极少（每月＜1次）") == "Low"
+    assert experience_group("偶尔（每月1–2次）") == "Low"
+    assert experience_group("有时（每月3-4次）") == "High"
+    assert experience_group("经常（每月≥5次）") == "High"
+
+
+def test_eeg_model_config_covers_roi_band_grid() -> None:
+    config = json.loads(Path("configs/model_families.json").read_text(encoding="utf-8"))
+    eeg_outcomes = set()
+    for family in config["families"]:
+        if family["name"] == "eeg_roi_band_primary":
+            eeg_outcomes.update(family["outcomes"])
+    assert eeg_outcomes == {
+        "eeg_F_theta",
+        "eeg_F_alpha",
+        "eeg_F_beta",
+        "eeg_P_theta",
+        "eeg_P_alpha",
+        "eeg_P_beta",
+        "eeg_O_theta",
+        "eeg_O_alpha",
+        "eeg_O_beta",
+    }
 
 
 def test_full_pipeline_builds_paper_outputs(tmp_path: Path) -> None:
