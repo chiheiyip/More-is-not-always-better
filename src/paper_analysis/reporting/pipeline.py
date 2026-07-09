@@ -7,6 +7,7 @@ import pandas as pd
 
 from paper_analysis.utils.io import read_table, write_table, write_text
 from paper_analysis.utils.markdown import dataframe_to_markdown
+from paper_analysis.reporting.experiment_results import build_experiment_result_package
 
 
 def build_paper_outputs(
@@ -31,7 +32,7 @@ def build_paper_outputs(
     data_availability = data_availability_index(data_availability_config)
     data_statement = data_availability_statement(data_availability)
     summary = paper_summary_markdown(paper_tables, claim_strength, figure_contracts, data_availability)
-    return {
+    outputs = {
         "table_model_results": write_table(paper_tables, outdir / "table_model_results.csv"),
         "claim_strength_table": write_table(claim_strength, outdir / "claim_strength_table.csv"),
         "figure_contracts_index": write_table(figure_contracts, outdir / "figure_contracts_index.csv"),
@@ -42,6 +43,8 @@ def build_paper_outputs(
         "data_availability_index": write_table(data_availability, data_package_dir / "data_availability_index.csv"),
         "data_availability_statement": write_text(data_statement, data_package_dir / "data_availability_statement.md"),
     }
+    outputs.update(build_experiment_result_package(outputs_root=outdir.parent, outdir=outdir, audit_dir=outdir.parent / "11_audit"))
+    return outputs
 
 
 def build_model_table(models: pd.DataFrame) -> pd.DataFrame:

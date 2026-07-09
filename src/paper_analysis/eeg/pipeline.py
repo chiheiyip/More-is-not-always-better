@@ -34,6 +34,7 @@ def run_eeg_pipeline(
     qc_config = load_eeg_qc_config(eeg_qc_config)
     eeg = normalize_eeg_ids(eeg, participants)
     require_columns(eeg, ["participant_id", "scene_id"], "EEG scene table")
+    eeg = filter_eeg_to_scene(eeg, scene)
     scene_cols = [c for c in ["participant_id", "scene_id", "WWR", "Complexity", "Cond", "block", "position", "round", "condition_id"] if c in scene.columns]
     out = eeg.merge(scene[scene_cols], on=["participant_id", "scene_id"], how="left", suffixes=("", "_scene"))
     out = add_eeg_derived_metrics(out)
@@ -73,6 +74,17 @@ def normalize_eeg_ids(eeg: pd.DataFrame, participants: pd.DataFrame) -> pd.DataF
     out["participant_id"] = out["participant_id"].astype(str).str.strip()
     out["scene_id"] = pd.to_numeric(out["scene_id"], errors="coerce").astype("Int64")
     return out
+
+
+def filter_eeg_to_scene(eeg: pd.DataFrame, scene: pd.DataFrame) -> pd.DataFrame:
+    """Keep EEG rows that belong to the canonical scene manifest for this run."""
+    if not {"participant_id", "scene_id"}.issubset(scene.columns):
+        return eeg.copy()
+    scene_keys = scene[["participant_id", "scene_id"]].copy()
+    scene_keys["participant_id"] = scene_keys["participant_id"].astype(str).str.strip()
+    scene_keys["scene_id"] = pd.to_numeric(scene_keys["scene_id"], errors="coerce").astype("Int64")
+    out = eeg.merge(scene_keys.drop_duplicates(), on=["participant_id", "scene_id"], how="inner")
+    return out.reset_index(drop=True)
 
 
 def add_eeg_derived_metrics(df: pd.DataFrame) -> pd.DataFrame:

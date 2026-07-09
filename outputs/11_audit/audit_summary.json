@@ -1,0 +1,57 @@
+{
+  "status": "pass_with_warnings",
+  "fail_count": 0,
+  "warning_count": 1,
+  "checks": [
+    {
+      "check_id": "plain_results_present",
+      "status": "PASS",
+      "detail": "plain result table has rows"
+    },
+    {
+      "check_id": "significance_results_present",
+      "status": "PASS",
+      "detail": "significance table has rows"
+    },
+    {
+      "check_id": "grain_is_explicit",
+      "status": "PASS",
+      "detail": "all plain rows carry a grain"
+    },
+    {
+      "check_id": "aoi_row_scene_trial_distinction",
+      "status": "PASS",
+      "detail": "retained fusion has 453 scene trials and 1130 AOI-expanded rows; report both separately"
+    },
+    {
+      "check_id": "fallback_rows_are_flagged",
+      "status": "PASS",
+      "detail": "fallback rows flagged: 81"
+    },
+    {
+      "check_id": "warning_rows_are_flagged",
+      "status": "PASS",
+      "detail": "warning rows flagged: 151"
+    },
+    {
+      "check_id": "significance_has_interpretation_notes",
+      "status": "PASS",
+      "detail": "each significance row has a plain-language note"
+    },
+    {
+      "check_id": "figure_qa",
+      "status": "PASS",
+      "detail": "non-pass figure QA rows: 0"
+    },
+    {
+      "check_id": "data_availability_placeholders_explicit",
+      "status": "WARN",
+      "detail": "AUTHOR_INPUT_NEEDED dataset rows: 5"
+    },
+    {
+      "check_id": "smoke_scope_marked",
+      "status": "INFO",
+      "detail": "full or historical result package; not marked as smoke"
+    }
+  ]
+}

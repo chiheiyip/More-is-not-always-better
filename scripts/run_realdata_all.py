@@ -82,6 +82,8 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
     if args.dry_run:
         return {
             "status": "dry_run",
+            "run_scope": _run_scope(args),
+            "is_smoke_run": _is_smoke_args(args),
             "outputs_root": str(outputs_root),
             "scratch_dir": str(scratch_dir),
             "selected_participants": selected,
@@ -196,6 +198,7 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
         "fusion_run": True,
         "fusion_pre_qc_rows": _row_count(fusion["analysis_master_long_pre_qc"]),
         "fusion_kept_rows": _row_count(fusion["analysis_master_long"]),
+        **_fusion_scene_counts(fusion),
         "models_run": stats is not None,
         "diagnostics_run": diagnostics is not None,
         "reporting_run": reporting is not None,
@@ -278,6 +281,8 @@ def _summary_base(
     eye: dict[str, Path],
 ) -> dict[str, Any]:
     return {
+        "run_scope": _run_scope(args),
+        "is_smoke_run": _is_smoke_args(args),
         "outputs_root": str(outputs_root),
         "participants": int(len(participants)),
         "participant_ids": participants["participant_id"].astype(str).tolist(),
@@ -358,6 +363,60 @@ def _row_count(path: str | Path) -> int:
         return int(pd.read_csv(path, encoding="utf-8-sig").shape[0])
     except pd.errors.EmptyDataError:
         return 0
+
+
+def _fusion_scene_counts(fusion: dict[str, Path]) -> dict[str, Any]:
+    qc = _read_csv_or_empty(fusion.get("analysis_qc_exclusions"))
+    master = _read_csv_or_empty(fusion.get("analysis_master_long"))
+    pre = _read_csv_or_empty(fusion.get("analysis_master_long_pre_qc"))
+    out: dict[str, Any] = {
+        "analysis_scene_trials_total": _unique_trials(qc) or _unique_trials(pre),
+        "analysis_scene_trials_kept": _unique_trials(master),
+        "fusion_kept_scene_trials": _unique_trials(master),
+        "fusion_kept_participants": _unique_subjects(master),
+    }
+    if not qc.empty and "excluded_from_analysis" in qc.columns:
+        excluded = int(qc["excluded_from_analysis"].astype(str).str.lower().isin({"true", "1", "yes", "y"}).sum())
+        out["analysis_scene_trials_excluded"] = excluded
+        reason_cols = [c for c in ["bad_eeg_quality", "duration_mismatch", "missing_questionnaire", "missing_eye", "missing_eeg", "scene_count_mismatch"] if c in qc.columns]
+        out["analysis_exclusion_counts"] = {
+            col: int(qc[col].astype(str).str.lower().isin({"true", "1", "yes", "y"}).sum())
+            for col in reason_cols
+        }
+    return out
+
+
+def _read_csv_or_empty(path: str | Path | None) -> pd.DataFrame:
+    if path is None:
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(path, encoding="utf-8-sig")
+    except (FileNotFoundError, pd.errors.EmptyDataError):
+        return pd.DataFrame()
+
+
+def _unique_trials(df: pd.DataFrame) -> int:
+    if {"participant_id", "scene_id"}.issubset(df.columns) and not df.empty:
+        return int(df[["participant_id", "scene_id"]].drop_duplicates().shape[0])
+    return 0
+
+
+def _unique_subjects(df: pd.DataFrame) -> int:
+    if "participant_id" in df.columns and not df.empty:
+        return int(df["participant_id"].astype(str).nunique())
+    return 0
+
+
+def _run_scope(args: argparse.Namespace) -> str:
+    if args.max_participants is not None:
+        return f"smoke_max_participants_{args.max_participants}"
+    if _parse_participants(args.participants):
+        return "selected_participants"
+    return "full_trimodal"
+
+
+def _is_smoke_args(args: argparse.Namespace) -> bool:
+    return args.max_participants is not None or bool(_parse_participants(args.participants))
 
 
 def _stringify_outputs(groups: dict[str, dict[str, Path]]) -> dict[str, dict[str, str]]:

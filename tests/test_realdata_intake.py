@@ -284,6 +284,10 @@ def test_run_realdata_all_with_existing_eeg_scene_csv(tmp_path: Path) -> None:
     assert not (outputs / "_raw_intake").exists()
     summary = pd.read_json(outputs / "realdata_run_summary.json", typ="series")
     assert summary["participants"] == 2
+    assert summary["run_scope"] == "selected_participants"
+    assert summary["is_smoke_run"] is True
+    assert summary["eeg_trial_rows"] == 4
+    assert summary["analysis_scene_trials_total"] == 4
     assert summary["fusion_run"] is True
     assert (outputs / "05_multimodal_fusion" / "analysis_master_long.csv").exists()
     assert (outputs / "04_eeg" / "eeg_trial_long.csv").exists()
@@ -395,11 +399,13 @@ def _write_realdata_all_fixture(questionnaire: Path, eye_root: Path, eeg_root: P
         _write_eye_csv(eye_root / "1-C0W15" / f"raw_{subject}_260530201640_0617145623.csv")
         _write_eye_csv(eye_root / "1-C0W45" / f"raw_{subject}_260530201640_0617150451.csv")
 
-    pd.DataFrame([
+    eeg_rows = [
         {"subject_id": subject, "scene_id": scene_id, "view_start_s": 0.0, "view_end_s": 3.0, "view_dur_s": 3.0, "O_theta": value, "F_theta": value + 0.1, "O_alpha": value + 0.2, "hf_ratio_20_40Hz": 0.1, "rms_mean_uV": 10.0, "peak_to_peak_uV": 50.0, "nan_fraction": 0.0, "flat_fraction": 0.0, "segment_valid_duration": True}
         for subject, value in [("张三", 1.0), ("李四", 1.2)]
         for scene_id in [1, 2]
-    ]).to_csv(eeg_scene, index=False, encoding="utf-8-sig")
+    ]
+    eeg_rows.append({"subject_id": "额外被试", "scene_id": 1, "view_start_s": 0.0, "view_end_s": 3.0, "view_dur_s": 3.0, "O_theta": 9.9, "F_theta": 9.9, "O_alpha": 9.9, "hf_ratio_20_40Hz": 0.1, "rms_mean_uV": 10.0, "peak_to_peak_uV": 50.0, "nan_fraction": 0.0, "flat_fraction": 0.0, "segment_valid_duration": True})
+    pd.DataFrame(eeg_rows).to_csv(eeg_scene, index=False, encoding="utf-8-sig")
 
 
 def _write_minimal_xlsx(path: Path, rows: list[list[object]]) -> None:
