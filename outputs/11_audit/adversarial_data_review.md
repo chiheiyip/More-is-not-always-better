@@ -13,6 +13,12 @@ Overall status: **pass_with_warnings**
 | fallback_rows_are_flagged | PASS | fallback rows flagged: 81 |
 | warning_rows_are_flagged | PASS | warning rows flagged: 151 |
 | significance_has_interpretation_notes | PASS | each significance row has a plain-language note |
+| fdr_columns_present | PASS | significance table includes BH-FDR columns |
+| datebatch_adjusted_models_present | PASS | 06_robustness/datebatch_adjusted_core_models.csv exists |
+| experience_split_present | PASS | 06_robustness/experience_split_questionnaire.csv exists |
+| effect_size_summary_present | PASS | 06_robustness/effect_size_summary.csv exists |
+| main_claim_evidence_chain_present | PASS | 07_paper_tables/main_claim_evidence_chain.csv exists |
+| analysis_strengthening_report_present | PASS | 07_paper_tables/analysis_strengthening_report.md exists |
 | figure_qa | PASS | non-pass figure QA rows: 0 |
 | data_availability_placeholders_explicit | WARN | AUTHOR_INPUT_NEEDED dataset rows: 5 |
 | smoke_scope_marked | INFO | full or historical result package; not marked as smoke |

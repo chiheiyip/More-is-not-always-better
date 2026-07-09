@@ -39,6 +39,36 @@
       "detail": "each significance row has a plain-language note"
     },
     {
+      "check_id": "fdr_columns_present",
+      "status": "PASS",
+      "detail": "significance table includes BH-FDR columns"
+    },
+    {
+      "check_id": "datebatch_adjusted_models_present",
+      "status": "PASS",
+      "detail": "06_robustness/datebatch_adjusted_core_models.csv exists"
+    },
+    {
+      "check_id": "experience_split_present",
+      "status": "PASS",
+      "detail": "06_robustness/experience_split_questionnaire.csv exists"
+    },
+    {
+      "check_id": "effect_size_summary_present",
+      "status": "PASS",
+      "detail": "06_robustness/effect_size_summary.csv exists"
+    },
+    {
+      "check_id": "main_claim_evidence_chain_present",
+      "status": "PASS",
+      "detail": "07_paper_tables/main_claim_evidence_chain.csv exists"
+    },
+    {
+      "check_id": "analysis_strengthening_report_present",
+      "status": "PASS",
+      "detail": "07_paper_tables/analysis_strengthening_report.md exists"
+    },
+    {
       "check_id": "figure_qa",
       "status": "PASS",
       "detail": "non-pass figure QA rows: 0"

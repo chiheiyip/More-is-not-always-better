@@ -127,6 +127,9 @@ def test_full_pipeline_builds_paper_outputs(tmp_path: Path) -> None:
     assert pd.read_csv(stats["eeg_peak_index"]).shape[0] > 0
     assert pd.read_csv(stats["eeg_trial_index_models"]).shape[0] > 0
     assert pd.read_csv(diagnostics["nonlinear_wwr_sensitivity"]).shape[0] > 0
+    assert pd.read_csv(diagnostics["datebatch_adjusted_core_models"]).shape[0] > 0
+    assert pd.read_csv(diagnostics["experience_split_questionnaire"]).shape[0] > 0
+    assert pd.read_csv(diagnostics["effect_size_summary"]).shape[0] > 0
     assert pd.read_csv(reporting["claim_strength_table"]).shape[0] > 0
     assert {"figure_id", "source_data", "review_risk"}.issubset(pd.read_csv(reporting["figure_contracts_index"]).columns)
     assert {"figure_id", "source_file"}.issubset(pd.read_csv(reporting["source_data_index"]).columns)
@@ -139,6 +142,9 @@ def test_full_pipeline_builds_paper_outputs(tmp_path: Path) -> None:
     assert plain["grain"].astype(str).str.len().gt(0).all()
     assert plain["factor"].isin(["DateBatch", "DateBatch:WWR", "DateBatch:ExperienceGroup"]).any()
     assert {"outcome", "term", "p_value", "model_type", "fallback_flag", "warning_flag", "interpretation_note"}.issubset(significance.columns)
+    assert {"p_fdr_bh_all", "p_fdr_bh_family", "significant_fdr_bh_family_0_05"}.issubset(significance.columns)
+    assert reporting["main_claim_evidence_chain"].exists()
+    assert reporting["analysis_strengthening_report"].exists()
     assert reporting["teacher_data_brief"].exists()
     assert reporting["interpretation_reference"].exists()
     assert reporting["adversarial_data_review"].exists()

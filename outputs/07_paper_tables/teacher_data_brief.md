@@ -31,6 +31,13 @@
 - S4：First_before_2026-05-01: 最高 WWR=15(5.52)，最低 WWR=45(4.88)；Second_2026-05-01_or_later: 最高 WWR=75(5.51)，最低 WWR=45(5.15)。
 - S5：First_before_2026-05-01: 最高 WWR=15(6.77)，最低 WWR=45(6.1)；Second_2026-05-01_or_later: 最高 WWR=15(6.8)，最低 WWR=45(6.38)。
 
+## 补强分析读数
+
+- DateBatch 控制模型：fit rows=70, WWR p<0.05 rows=12, DateBatch-related p<0.05 rows=2.
+- 经验组拆分：Low leaders q_S1:WWR15.0, q_S2:WWR15.0, q_S3:WWR15.0, q_S4:WWR15.0, q_S5:WWR15.0; High leaders q_S1:WWR15.0, q_S2:WWR15.0, q_S3:WWR45.0, q_S4:WWR15.0, q_S5:WWR15.0
+- 效应量：WWR effect-size rows=5, median |standardized diff|=0.145, max=0.283.
+- 多重比较：raw p<0.05=99; BH-FDR all<0.05=88; BH-FDR family<0.05=88.
+
 ## 问卷结果
 
 - S1 按 WWR：最高为 WWR=15，均值 5.54；最低为 WWR=45，均值 5.26；差值约 0.277。
@@ -68,7 +75,7 @@
 
 ## 显著性结果怎么看
 
-- p<0.05 的模型/对比项：71 行。
+- p<0.05 的模型/对比项：99 行。
 - OLS fallback 行：81 行。
 - 带模型警告或不稳定标记行：151 行。
 - 显著性只说明该比较或模型项显著；是否写成机制、最优或规律，需要老师结合实验设计和模型稳定性判断。

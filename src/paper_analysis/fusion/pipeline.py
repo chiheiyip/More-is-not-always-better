@@ -458,7 +458,23 @@ def _load_scene_for_fusion(
 
 def _trial_base(trial: pd.Series) -> dict:
     out = {key: trial[key] for key in KEYS}
-    for col in ["condition_id", "WWR", "WWR_numeric", "Cond", "Complexity", "block", "position", "round", "participant_order", "order_scheme", "order_code", "eye_csv_path", "aoi_json_path"]:
+    for col in [
+        "condition_id",
+        "WWR",
+        "WWR_numeric",
+        "Cond",
+        "Complexity",
+        "block",
+        "position",
+        "round",
+        "participant_order",
+        "order_scheme",
+        "order_code",
+        "collection_date",
+        "DateBatch",
+        "eye_csv_path",
+        "aoi_json_path",
+    ]:
         if col in trial.index:
             out[col] = trial[col]
     return out

@@ -18,4 +18,4 @@
 
 ## WWR 显著性参考
 
-- WWR 相关 p<0.05 行数：8。请优先回看 `experiment_significance_results.csv` 的 estimate、CI、model_type 和 warning_flag。
+- WWR 相关 p<0.05 行数：20。请优先回看 `experiment_significance_results.csv` 的 estimate、CI、model_type 和 warning_flag。

@@ -84,15 +84,19 @@ def build_experiment_result_package(
 
     plain = experiment_plain_results(outputs_root)
     significance = experiment_significance_results(outputs_root)
+    evidence_chain = main_claim_evidence_chain(outputs_root, plain, significance)
     teacher_brief = teacher_data_brief(outputs_root, plain, significance)
     interpretation = interpretation_reference(outputs_root, plain, significance)
+    strengthening = analysis_strengthening_report(outputs_root, plain, significance, evidence_chain)
     audit_md, audit_summary = adversarial_data_review(outputs_root, plain, significance)
 
     paths = {
         "experiment_plain_results": write_table(plain, outdir / "experiment_plain_results.csv"),
         "experiment_significance_results": write_table(significance, outdir / "experiment_significance_results.csv"),
+        "main_claim_evidence_chain": write_table(evidence_chain, outdir / "main_claim_evidence_chain.csv"),
         "teacher_data_brief": write_text(teacher_brief, outdir / "teacher_data_brief.md"),
         "interpretation_reference": write_text(interpretation, outdir / "interpretation_reference.md"),
+        "analysis_strengthening_report": write_text(strengthening, outdir / "analysis_strengthening_report.md"),
         "adversarial_data_review": write_text(audit_md, audit_dir / "adversarial_data_review.md"),
         "audit_summary": write_text(json.dumps(audit_summary, ensure_ascii=False, indent=2), audit_dir / "audit_summary.json"),
     }
@@ -194,12 +198,16 @@ def experiment_significance_results(outputs_root: Path) -> pd.DataFrame:
     for path, source in [
         (outputs_root / "06_models" / "emmeans_contrasts.csv", "06_models/emmeans_contrasts.csv"),
         (outputs_root / "02_questionnaire" / "questionnaire_wwr_polynomial_contrasts.csv", "02_questionnaire/questionnaire_wwr_polynomial_contrasts.csv"),
+        (outputs_root / "06_robustness" / "datebatch_adjusted_core_models.csv", "06_robustness/datebatch_adjusted_core_models.csv"),
     ]:
         contrasts = _read_optional(path)
         for row in contrasts.to_dict("records"):
             outcome = str(row.get("outcome", ""))
             term = str(row.get("term") or row.get("contrast") or "")
             p_value = _to_float(row.get("p_value"))
+            model_type = str(row.get("model_type", "planned_or_descriptive_contrast"))
+            fallback = "fallback" in model_type.lower()
+            warning = fallback or _unstable_interval(_first_float(row, ["std_error", "se_contrast"]), _to_float(row.get("ci_low")), _to_float(row.get("ci_high")))
             rows.append({
                 "source": source,
                 "result_family": _result_family(outcome),
@@ -210,14 +218,14 @@ def experiment_significance_results(outputs_root: Path) -> pd.DataFrame:
                 "p_value": p_value,
                 "ci_low": _to_float(row.get("ci_low")),
                 "ci_high": _to_float(row.get("ci_high")),
-                "model_type": str(row.get("model_type", "planned_or_descriptive_contrast")),
+                "model_type": model_type,
                 "n": _first_float(row, ["n", "n_subjects"]),
-                "fallback_flag": False,
-                "warning_flag": False,
+                "fallback_flag": bool(fallback),
+                "warning_flag": bool(warning),
                 "significance_label": _p_label(p_value),
-                "interpretation_note": _interpretation_note(outcome, term, p_value, False, False),
+                "interpretation_note": str(row.get("interpretation_note") or _interpretation_note(outcome, term, p_value, fallback, warning)),
             })
-    return pd.DataFrame(rows)
+    return _add_fdr_columns(pd.DataFrame(rows))
 
 
 def write_plain_results_xlsx(plain: pd.DataFrame, path: str | Path) -> Path:
@@ -241,6 +249,153 @@ def plain_results_markdown(plain: pd.DataFrame) -> str:
         preview = sub[[c for c in keep if c in sub.columns]].copy()
         lines.append(dataframe_to_markdown(preview))
         lines.append("")
+    return "\n".join(lines)
+
+
+def main_claim_evidence_chain(outputs_root: Path, plain: pd.DataFrame, significance: pd.DataFrame) -> pd.DataFrame:
+    effect_sizes = _read_optional(outputs_root / "06_robustness" / "effect_size_summary.csv")
+    datebatch_models = _read_optional(outputs_root / "06_robustness" / "datebatch_adjusted_core_models.csv")
+    experience_split = _read_optional(outputs_root / "06_robustness" / "experience_split_questionnaire.csv")
+    rows = [
+        {
+            "research_question": "RQ1_WWR_subjective",
+            "analysis_direction": "WWR effects on S1-S5 questionnaire outcomes",
+            "primary_tables": "experiment_plain_results.csv;experiment_significance_results.csv;effect_size_summary.csv",
+            "grain": "scene_trial",
+            "key_data_result": _wwr_subjective_summary(plain),
+            "model_or_sensitivity_result": _term_summary(significance, ["WWR"], outcomes=["q_S1", "q_S2", "q_S3", "q_S4", "q_S5"]),
+            "effect_size_result": _effect_summary(effect_sizes, factor="WWR", outcomes=["q_S1", "q_S2", "q_S3", "q_S4", "q_S5"]),
+            "claim_strength": "moderate_for_three_tested_levels",
+            "caveat": "WWR has only 15/45/75 levels; do not claim a continuous optimum.",
+            "recommended_use": "Primary result, with trend/three-level wording.",
+        },
+        {
+            "research_question": "RQ2_supplement_batch",
+            "analysis_direction": "Whether second-batch samples changed the overall result",
+            "primary_tables": "teacher_data_brief.md;experiment_plain_results.csv;datebatch_adjusted_core_models.csv",
+            "grain": "scene_trial",
+            "key_data_result": _datebatch_wwr_summary(plain),
+            "model_or_sensitivity_result": _datebatch_model_summary(datebatch_models),
+            "effect_size_result": _effect_summary(effect_sizes, factor="DateBatch", outcomes=["q_S1", "q_S2", "q_S3", "q_S4", "q_S5"]),
+            "claim_strength": "sensitivity_evidence",
+            "caveat": "DateBatch is confounded with ExperienceGroup balance; interpret as sensitivity, not causal batch effect.",
+            "recommended_use": "Use to state that supplementation attenuated but did not overturn the overall WWR pattern.",
+        },
+        {
+            "research_question": "RQ3_experience_group",
+            "analysis_direction": "ExperienceGroup differences and WWR pattern by experience",
+            "primary_tables": "experience_split_questionnaire.csv;experiment_plain_results.csv;experiment_significance_results.csv",
+            "grain": "scene_trial",
+            "key_data_result": _experience_summary(experience_split),
+            "model_or_sensitivity_result": _term_summary(significance, ["ExperienceGroup"], outcomes=["q_S1", "q_S2", "q_S3", "q_S4", "q_S5"]),
+            "effect_size_result": _effect_summary(effect_sizes, factor="ExperienceGroup", outcomes=["q_S1", "q_S2", "q_S3", "q_S4", "q_S5"]),
+            "claim_strength": "exploratory_moderation",
+            "caveat": "ExperienceGroup and DateBatch are imbalanced; interaction language requires caution.",
+            "recommended_use": "Use as subgroup exploration, not as a settled mechanism.",
+        },
+        {
+            "research_question": "RQ4_complexity",
+            "analysis_direction": "Complexity effects across subjective and multimodal indicators",
+            "primary_tables": "experiment_plain_results.csv;experiment_significance_results.csv;effect_size_summary.csv",
+            "grain": "scene_trial_or_aoi_expanded",
+            "key_data_result": _complexity_summary(plain),
+            "model_or_sensitivity_result": _term_summary(significance, ["Complexity"], outcomes=["q_S1", "q_S2", "q_S3", "q_S4", "q_S5"]),
+            "effect_size_result": _effect_summary(effect_sizes, factor="Complexity", outcomes=["q_S1", "q_S2", "q_S3", "q_S4", "q_S5"]),
+            "claim_strength": "cautious_moderate",
+            "caveat": "Raw questionnaire differences are small and batch-dependent; mechanisms need multimodal convergence.",
+            "recommended_use": "Secondary result with bounded wording.",
+        },
+        {
+            "research_question": "RQ5_eye_tracking",
+            "analysis_direction": "AOI attention allocation under WWR and Complexity",
+            "primary_tables": "experiment_plain_results.csv;experiment_significance_results.csv",
+            "grain": "aoi_expanded_row",
+            "key_data_result": _eye_summary(plain),
+            "model_or_sensitivity_result": _term_summary(significance, ["WWR", "Complexity"], outcomes=["visited", "FCR", "TFD_ms", "TTFF_ms", "attention_share"]),
+            "effect_size_result": _effect_summary(effect_sizes, factor="WWR", outcomes=["visited", "FCR", "TFD_ms", "TTFF_ms", "attention_share"]),
+            "claim_strength": "auxiliary_partial",
+            "caveat": "AOI-expanded rows are not scene trials; several continuous eye models need stability checks.",
+            "recommended_use": "Auxiliary evidence for attention allocation.",
+        },
+        {
+            "research_question": "RQ6_EEG",
+            "analysis_direction": "ROI-band EEG response under design factors",
+            "primary_tables": "experiment_plain_results.csv;experiment_significance_results.csv;eeg_qc_summary.csv",
+            "grain": "scene_trial",
+            "key_data_result": _eeg_summary(plain),
+            "model_or_sensitivity_result": _term_summary(significance, ["WWR", "Complexity", "ExperienceGroup"], outcomes=[]),
+            "effect_size_result": _effect_summary(effect_sizes, factor="WWR", outcomes=["eeg_F_theta", "eeg_O_theta", "eeg_O_alpha"]),
+            "claim_strength": "bounded_auxiliary",
+            "caveat": "EEG exclusions and model warnings prevent standalone cognitive-mechanism claims.",
+            "recommended_use": "Use only after QC and convergence caveats.",
+        },
+        {
+            "research_question": "RQ7_reporting_integrity",
+            "analysis_direction": "Grain, model warning, FDR, and audit transparency",
+            "primary_tables": "experiment_significance_results.csv;adversarial_data_review.md;audit_summary.json",
+            "grain": "reporting_audit",
+            "key_data_result": _fdr_summary(significance),
+            "model_or_sensitivity_result": _warning_summary(significance),
+            "effect_size_result": "Effect sizes exported in 06_robustness/effect_size_summary.csv.",
+            "claim_strength": "audit_ready_with_warnings",
+            "caveat": "Data Availability placeholders remain author input; FDR should be read with model-warning flags.",
+            "recommended_use": "Use for teacher/reviewer-facing transparency.",
+        },
+    ]
+    return pd.DataFrame(rows)
+
+
+def analysis_strengthening_report(outputs_root: Path, plain: pd.DataFrame, significance: pd.DataFrame, evidence_chain: pd.DataFrame) -> str:
+    outputs = [
+        "06_robustness/datebatch_adjusted_core_models.csv",
+        "06_robustness/experience_split_questionnaire.csv",
+        "06_robustness/effect_size_summary.csv",
+        "07_paper_tables/main_claim_evidence_chain.csv",
+        "07_paper_tables/analysis_strengthening_report.md",
+    ]
+    lines = [
+        "# Analysis Strengthening Report",
+        "",
+        "本报告记录本轮补强分析是否覆盖前次审查指出的缺口。",
+        "",
+        "## 新增补强输出",
+        "",
+    ]
+    generated_now = {
+        "07_paper_tables/main_claim_evidence_chain.csv",
+        "07_paper_tables/analysis_strengthening_report.md",
+    }
+    for output in outputs:
+        status = "present" if (outputs_root / output).exists() or output in generated_now else "missing"
+        lines.append(f"- {output}: {status}")
+    lines.extend([
+        "",
+        "## 关键读数",
+        "",
+        f"- DateBatch 控制模型：{_datebatch_model_summary(_read_optional(outputs_root / '06_robustness' / 'datebatch_adjusted_core_models.csv'))}",
+        f"- 经验组拆分：{_experience_summary(_read_optional(outputs_root / '06_robustness' / 'experience_split_questionnaire.csv'))}",
+        f"- FDR 修正：{_fdr_summary(significance)}",
+        f"- 模型警告：{_warning_summary(significance)}",
+        "",
+        "## 研究问题证据链",
+        "",
+        dataframe_to_markdown(evidence_chain[[
+            "research_question",
+            "key_data_result",
+            "model_or_sensitivity_result",
+            "claim_strength",
+            "caveat",
+            "recommended_use",
+        ]]) if not evidence_chain.empty else "No evidence-chain rows available.",
+        "",
+        "## 仍需谨慎",
+        "",
+        "- DateBatch 与 ExperienceGroup 结构不均衡，批次差异不能直接写成补样因果效应。",
+        "- WWR 只有 15/45/75 三档，不能写连续最优点。",
+        "- EEG 和部分眼动模型仍需与 QC、fallback/warning 标记一起解读。",
+        "- FDR 后未显著的结果只能作为方向性或探索性材料。",
+        "",
+    ])
     return "\n".join(lines)
 
 
@@ -301,6 +456,13 @@ def teacher_data_brief(outputs_root: Path, plain: pd.DataFrame, significance: pd
         lines.extend(["## 第一批/第二批补样对比", ""])
         lines.extend(batch_lines)
         lines.append("")
+
+    lines.extend(["## 补强分析读数", ""])
+    lines.append(f"- DateBatch 控制模型：{_datebatch_model_summary(_read_optional(outputs_root / '06_robustness' / 'datebatch_adjusted_core_models.csv'))}")
+    lines.append(f"- 经验组拆分：{_experience_summary(_read_optional(outputs_root / '06_robustness' / 'experience_split_questionnaire.csv'))}")
+    lines.append(f"- 效应量：{_effect_summary(_read_optional(outputs_root / '06_robustness' / 'effect_size_summary.csv'), factor='WWR', outcomes=['q_S1', 'q_S2', 'q_S3', 'q_S4', 'q_S5'])}")
+    lines.append(f"- 多重比较：{_fdr_summary(significance)}")
+    lines.append("")
 
     for module, title, metrics in [
         ("questionnaire", "问卷结果", ["S1", "S2", "S3", "S4", "S5"]),
@@ -387,6 +549,18 @@ def adversarial_data_review(outputs_root: Path, plain: pd.DataFrame, significanc
         _add_check(checks, "fallback_rows_are_flagged", True, f"fallback rows flagged: {fallback_count}")
         _add_check(checks, "warning_rows_are_flagged", True, f"warning rows flagged: {warning_count}")
         _add_check(checks, "significance_has_interpretation_notes", bool(noted), "each significance row has a plain-language note")
+        has_fdr = {"p_fdr_bh_all", "p_fdr_bh_family", "significant_fdr_bh_family_0_05"}.issubset(significance.columns)
+        _add_check(checks, "fdr_columns_present", has_fdr, "significance table includes BH-FDR columns")
+
+    for check_id, rel_path in [
+        ("datebatch_adjusted_models_present", "06_robustness/datebatch_adjusted_core_models.csv"),
+        ("experience_split_present", "06_robustness/experience_split_questionnaire.csv"),
+        ("effect_size_summary_present", "06_robustness/effect_size_summary.csv"),
+        ("main_claim_evidence_chain_present", "07_paper_tables/main_claim_evidence_chain.csv"),
+        ("analysis_strengthening_report_present", "07_paper_tables/analysis_strengthening_report.md"),
+    ]:
+        path = outputs_root / rel_path
+        _add_check(checks, check_id, path.exists(), f"{rel_path} {'exists' if path.exists() else 'is missing'}")
 
     if not figure_qa.empty and "qa_status" in figure_qa.columns:
         nonpass = figure_qa.loc[~figure_qa["qa_status"].astype(str).eq("pass")]
@@ -765,6 +939,167 @@ def _date_batch_questionnaire_lines(plain: pd.DataFrame) -> list[str]:
     return lines
 
 
+def _wwr_subjective_summary(plain: pd.DataFrame) -> str:
+    sub = _plain_subset(plain, module="questionnaire", factor="WWR", metrics=["S1", "S2", "S3", "S4", "S5"])
+    if sub.empty:
+        return "No questionnaire WWR rows available."
+    leaders = []
+    for metric, metric_df in sub.groupby("metric", sort=False):
+        top = metric_df.sort_values("_mean", ascending=False).iloc[0]
+        leaders.append(f"{metric}:{_level_value(top['level'], 'WWR')}={top['_mean']:.3g}")
+    wwr15_count = sum("WWR=15" in str(row["level"]) for _, row in sub.sort_values("_mean", ascending=False).groupby("metric").head(1).iterrows())
+    return f"WWR15 is highest for {wwr15_count}/5 S items; leaders: " + "; ".join(leaders)
+
+
+def _datebatch_wwr_summary(plain: pd.DataFrame) -> str:
+    sub = _plain_subset(plain, module="questionnaire", factor="DateBatch:WWR", metrics=["S1", "S2", "S3", "S4", "S5"])
+    if sub.empty:
+        return "No DateBatch x WWR rows available."
+    parts = []
+    for batch in [FIRST_DATE_BATCH, SECOND_DATE_BATCH]:
+        batch_rows = sub.loc[sub["level"].astype(str).str.contains(f"DateBatch={batch}", regex=False)]
+        leaders = []
+        for metric, metric_df in batch_rows.groupby("metric", sort=False):
+            if metric_df.empty:
+                continue
+            top = metric_df.sort_values("_mean", ascending=False).iloc[0]
+            leaders.append(f"{metric}:WWR{_level_value(top['level'], 'WWR')}")
+        parts.append(f"{batch}: " + ", ".join(leaders))
+    return "; ".join(parts)
+
+
+def _experience_summary(experience_split: pd.DataFrame) -> str:
+    if experience_split.empty:
+        return "No ExperienceGroup split table available."
+    sub = experience_split.loc[
+        experience_split["factor"].eq("WWR:ExperienceGroup")
+        & experience_split["outcome"].isin(["q_S1", "q_S2", "q_S3", "q_S4", "q_S5"])
+    ].copy()
+    if sub.empty:
+        return "No WWR x ExperienceGroup questionnaire split rows available."
+    sub["mean"] = pd.to_numeric(sub["mean"], errors="coerce")
+    group_patterns = []
+    for group in ["Low", "High"]:
+        leaders = []
+        for outcome, metric_df in sub.loc[sub["ExperienceGroup"].astype(str).eq(group)].groupby("outcome", sort=False):
+            if metric_df.empty:
+                continue
+            top = metric_df.sort_values("mean", ascending=False).iloc[0]
+            leaders.append(f"{outcome}:WWR{top.get('WWR')}")
+        group_patterns.append(f"{group} leaders " + ", ".join(leaders))
+    return "; ".join(group_patterns)
+
+
+def _complexity_summary(plain: pd.DataFrame) -> str:
+    sub = _plain_subset(plain, module="questionnaire", factor="Complexity", metrics=["S1", "S2", "S3", "S4", "S5"])
+    if sub.empty:
+        return "No questionnaire Complexity rows available."
+    diffs = []
+    for metric, metric_df in sub.groupby("metric", sort=False):
+        means = {_level_value(row["level"], "Complexity"): row["_mean"] for _, row in metric_df.iterrows()}
+        if "1" in means and "0" in means:
+            diffs.append(f"{metric}:C1-C0={means['1'] - means['0']:.3g}")
+    return "; ".join(diffs) if diffs else "Complexity rows available but standard 1-vs-0 contrast was not found."
+
+
+def _eye_summary(plain: pd.DataFrame) -> str:
+    sub = _plain_subset(plain, module="eye_tracking", factor="WWR", metrics=["visited", "FCR", "TFD_ms", "TTFF_ms", "attention_share"])
+    if sub.empty:
+        return "No eye-tracking WWR rows available."
+    leaders = []
+    for metric, metric_df in sub.groupby("metric", sort=False):
+        top = metric_df.sort_values("_mean", ascending=False).iloc[0]
+        leaders.append(f"{metric}:WWR{_level_value(top['level'], 'WWR')}")
+    return "; ".join(leaders)
+
+
+def _eeg_summary(plain: pd.DataFrame) -> str:
+    sub = _plain_subset(plain, module="eeg", factor="WWR", metrics=["F_theta", "O_theta", "O_alpha"])
+    if sub.empty:
+        return "No EEG WWR rows available."
+    leaders = []
+    for metric, metric_df in sub.groupby("metric", sort=False):
+        top = metric_df.sort_values("_mean", ascending=False).iloc[0]
+        leaders.append(f"{metric}:WWR{_level_value(top['level'], 'WWR')}")
+    return "; ".join(leaders)
+
+
+def _datebatch_model_summary(datebatch_models: pd.DataFrame) -> str:
+    if datebatch_models.empty:
+        return "No DateBatch-adjusted model rows available."
+    fit = datebatch_models.loc[datebatch_models.get("status", "").astype(str).eq("fit")].copy() if "status" in datebatch_models.columns else datebatch_models.copy()
+    if fit.empty:
+        return "DateBatch-adjusted models were attempted but did not fit."
+    fit["p_value"] = pd.to_numeric(fit["p_value"], errors="coerce")
+    wwr = fit.loc[fit["term"].astype(str).str.contains("WWR", case=False, na=False)]
+    date = fit.loc[fit["term"].astype(str).str.contains("DateBatch", case=False, na=False)]
+    return f"fit rows={len(fit)}, WWR p<0.05 rows={int(wwr['p_value'].lt(0.05).sum())}, DateBatch-related p<0.05 rows={int(date['p_value'].lt(0.05).sum())}."
+
+
+def _term_summary(significance: pd.DataFrame, term_fragments: list[str], outcomes: list[str]) -> str:
+    if significance.empty:
+        return "No significance rows available."
+    sub = significance.copy()
+    if outcomes:
+        sub = sub.loc[sub["outcome"].isin(outcomes)]
+    term_mask = pd.Series(False, index=sub.index)
+    for fragment in term_fragments:
+        term_mask |= sub["term"].astype(str).str.contains(fragment, case=False, regex=False, na=False)
+    sub = sub.loc[term_mask].copy()
+    if sub.empty:
+        return "No matching model terms."
+    p = pd.to_numeric(sub["p_value"], errors="coerce")
+    fdr = pd.to_numeric(sub.get("p_fdr_bh_family", pd.Series(np.nan, index=sub.index)), errors="coerce")
+    warnings = int(sub.get("warning_flag", pd.Series(False, index=sub.index)).fillna(False).sum())
+    return f"rows={len(sub)}, p<0.05={int(p.lt(0.05).sum())}, FDR-family<0.05={int(fdr.lt(0.05).sum())}, warning={warnings}."
+
+
+def _effect_summary(effect_sizes: pd.DataFrame, factor: str, outcomes: list[str]) -> str:
+    if effect_sizes.empty:
+        return "No effect-size rows available."
+    sub = effect_sizes.loc[effect_sizes["factor"].astype(str).eq(factor)].copy()
+    if outcomes:
+        sub = sub.loc[sub["outcome"].isin(outcomes)]
+    if sub.empty:
+        return f"No effect-size rows for {factor}."
+    planned = sub.loc[~sub["contrast"].astype(str).eq("leader_minus_lowest")]
+    target = planned if not planned.empty else sub
+    target["standardized_difference"] = pd.to_numeric(target["standardized_difference"], errors="coerce").abs()
+    median = target["standardized_difference"].median()
+    maxv = target["standardized_difference"].max()
+    return f"{factor} effect-size rows={len(target)}, median |standardized diff|={median:.3g}, max={maxv:.3g}."
+
+
+def _fdr_summary(significance: pd.DataFrame) -> str:
+    if significance.empty or "p_value" not in significance.columns:
+        return "No p-values available for FDR."
+    p = pd.to_numeric(significance["p_value"], errors="coerce")
+    fdr_all = pd.to_numeric(significance.get("p_fdr_bh_all", pd.Series(np.nan, index=significance.index)), errors="coerce")
+    fdr_family = pd.to_numeric(significance.get("p_fdr_bh_family", pd.Series(np.nan, index=significance.index)), errors="coerce")
+    return f"raw p<0.05={int(p.lt(0.05).sum())}; BH-FDR all<0.05={int(fdr_all.lt(0.05).sum())}; BH-FDR family<0.05={int(fdr_family.lt(0.05).sum())}."
+
+
+def _warning_summary(significance: pd.DataFrame) -> str:
+    if significance.empty:
+        return "No significance rows available."
+    fallback = int(significance.get("fallback_flag", pd.Series(False, index=significance.index)).fillna(False).sum())
+    warning = int(significance.get("warning_flag", pd.Series(False, index=significance.index)).fillna(False).sum())
+    return f"fallback rows={fallback}; warning rows={warning}; read p-values with these flags."
+
+
+def _plain_subset(plain: pd.DataFrame, module: str, factor: str, metrics: list[str]) -> pd.DataFrame:
+    sub = plain.loc[plain["module"].eq(module) & plain["factor"].eq(factor) & plain["metric"].isin(metrics)].copy() if not plain.empty else pd.DataFrame()
+    if sub.empty:
+        return sub
+    sub["_mean"] = pd.to_numeric(sub["mean"], errors="coerce")
+    return sub.loc[sub["_mean"].notna()].copy()
+
+
+def _level_value(level: Any, key: str) -> str:
+    parsed = _parse_level(level)
+    return str(parsed.get(key, "")).replace(".0", "")
+
+
 def _parse_level(value: Any) -> dict[str, str]:
     out: dict[str, str] = {}
     for part in str(value or "").split(";"):
@@ -845,6 +1180,39 @@ def _p_label(p_value: float) -> str:
     if not np.isfinite(p_value):
         return "p_not_available"
     return "p<0.05" if p_value < 0.05 else "p>=0.05"
+
+
+def _add_fdr_columns(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "p_value" not in df.columns:
+        return df
+    out = df.copy()
+    p = pd.to_numeric(out["p_value"], errors="coerce")
+    out["p_fdr_bh_all"] = _bh_fdr(p)
+    out["significant_fdr_bh_all_0_05"] = pd.to_numeric(out["p_fdr_bh_all"], errors="coerce").lt(0.05)
+    out["p_fdr_bh_family"] = np.nan
+    if "result_family" in out.columns:
+        for _, idx in out.groupby("result_family", dropna=False).groups.items():
+            idx_list = list(idx)
+            out.loc[idx_list, "p_fdr_bh_family"] = _bh_fdr(p.loc[idx_list]).to_numpy()
+    else:
+        out["p_fdr_bh_family"] = out["p_fdr_bh_all"]
+    out["significant_fdr_bh_family_0_05"] = pd.to_numeric(out["p_fdr_bh_family"], errors="coerce").lt(0.05)
+    return out
+
+
+def _bh_fdr(p_values: pd.Series) -> pd.Series:
+    p = pd.to_numeric(p_values, errors="coerce")
+    out = pd.Series(np.nan, index=p.index, dtype="float64")
+    valid = p.dropna()
+    if valid.empty:
+        return out
+    ordered = valid.sort_values()
+    m = len(ordered)
+    adjusted = ordered.to_numpy(dtype=float) * m / np.arange(1, m + 1)
+    adjusted = np.minimum.accumulate(adjusted[::-1])[::-1]
+    adjusted = np.clip(adjusted, 0, 1)
+    out.loc[ordered.index] = adjusted
+    return out
 
 
 def _result_family(outcome: str) -> str:

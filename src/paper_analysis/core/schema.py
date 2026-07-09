@@ -14,6 +14,8 @@ DESIGN_COLUMNS = [
     "participant_order",
     "order_scheme",
     "order_code",
+    "collection_date",
+    "DateBatch",
 ]
 
 PARTICIPANT_COLUMNS = [

@@ -1,0 +1,4 @@
+﻿grouping,level,n,interpretation
+ExperienceGroup,Low,30,
+ExperienceGroup,High,26,
+ExperienceGroup,min_group_n,26,interaction_power_limited_if_small
