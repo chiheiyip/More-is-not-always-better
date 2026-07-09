@@ -17,8 +17,13 @@
 
 | Field | Meaning |
 |---|---|
-| `ExperienceRaw` | Original questionnaire response for sports/table-tennis experience. |
-| `ExperienceGroup` | Two-by-two frequency grouping derived from `ExperienceRaw`: `Low` = never/rarely or occasional (monthly <1 or 1-2 times); `High` = sometimes/often (monthly 3-4 or >=5 times). |
+| `ExperienceRaw` | Original Q1.4 table-tennis-experience response used for experience grouping. |
+| `ExperienceGroup` | Latest two-by-two Q1.4 experience grouping: `Low` = never/rarely or occasional (monthly <1 or 1-2 times); `High` = sometimes/often (monthly 3-4 or >=5 times). This is not derived from `SportFreq` unless Q1.4 experience is unavailable. |
+| `ExperienceGroupInput` | Optional audit copy of any pre-existing `ExperienceGroup` column before recomputing the latest two-by-two grouping. |
+| `ExperienceGroupSource` | Source column used to recompute `ExperienceGroup`, normally `Experience` from Q1.4. |
+| `ExperienceGroupRule` | Experience grouping rule identifier, normally `q1_4_table_tennis_experience_2_by_2`. |
+| `DateBatch` | Collection-date batch inferred from `eye_record_id`: before 2026-05-01 = first batch; 2026-05-01 or later = second/supplement batch. |
+| `collection_date` | Parsed collection date from the leading YYMMDD portion of `eye_record_id`. |
 | `Gender` | Participant gender, included as a model covariate. |
 | `Age` | Participant age, included as a model covariate when available. |
 | `RecruitmentBatch` | Original or supplementary recruitment batch. |

@@ -7,6 +7,9 @@ import numpy as np
 import pandas as pd
 
 
+EXPERIENCE_GROUP_RULE = "q1_4_table_tennis_experience_2_by_2"
+EXPERIENCE_SOURCE_PRIORITY = ["Experience", "ExperienceRaw", "ExperienceGroup", "SportFreq"]
+
 LOW_EXPERIENCE_PATTERNS = [
     "never",
     "rare",
@@ -61,10 +64,13 @@ def standardize_participants(participants: pd.DataFrame) -> pd.DataFrame:
     out = participants.copy()
     if "exclude" not in out.columns:
         out["exclude"] = False
-    if "ExperienceRaw" not in out.columns:
-        out["ExperienceRaw"] = out["Experience"] if "Experience" in out.columns else ""
-    if "ExperienceGroup" not in out.columns:
-        out["ExperienceGroup"] = out["ExperienceRaw"].map(experience_group)
+    source_col, raw = _experience_source(out)
+    if "ExperienceGroup" in out.columns and "ExperienceGroupInput" not in out.columns:
+        out["ExperienceGroupInput"] = out["ExperienceGroup"]
+    out["ExperienceRaw"] = raw
+    out["ExperienceGroup"] = out["ExperienceRaw"].map(experience_group)
+    out["ExperienceGroupSource"] = source_col
+    out["ExperienceGroupRule"] = EXPERIENCE_GROUP_RULE
     if "RecruitmentBatch" not in out.columns:
         out["RecruitmentBatch"] = "Original"
     if "SupplementFlag" not in out.columns:
@@ -83,6 +89,17 @@ def standardize_participants(participants: pd.DataFrame) -> pd.DataFrame:
         out["Age"] = np.nan
     out["Age"] = pd.to_numeric(out["Age"], errors="coerce")
     return out
+
+
+def _experience_source(participants: pd.DataFrame) -> tuple[str, pd.Series]:
+    for col in EXPERIENCE_SOURCE_PRIORITY:
+        if col not in participants.columns:
+            continue
+        series = participants[col].fillna("").astype(str)
+        nonempty = ~series.str.strip().str.lower().isin({"", "nan", "none", "unknown"})
+        if nonempty.any():
+            return col, series
+    return "", pd.Series("", index=participants.index, dtype="object")
 
 
 def experience_group(value: Any) -> str:

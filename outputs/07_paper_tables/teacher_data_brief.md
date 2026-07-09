@@ -8,6 +8,12 @@
 - 场景试次：总计 672，主分析保留 453，排除 219
 - AOI 展开行：1130。这个数字不是场景试次数，不能和 453 个保留场景试次混用。
 
+- 经验组口径：统一使用 Q1.4 乒乓球经验四档的 2/2 分组，Low=前两档，High=后两档；当前 Low=30，High=26。
+- 采集日期批次 First_before_2026-05-01：31 人，372 个场景试次。
+- 采集日期批次 Second_2026-05-01_or_later：25 人，300 个场景试次。
+- 日期批次 × 经验组结构：First_before_2026-05-01/High=7；First_before_2026-05-01/Low=24；Second_2026-05-01_or_later/High=19；Second_2026-05-01_or_later/Low=6。
+- 批次和经验组结构存在混杂，不能把日期批次差异直接解释为补样本身导致。
+
 主要排除原因：
 - bad_eeg_quality: 201
 - duration_mismatch: 23
@@ -15,6 +21,15 @@
 - missing_eye: 0
 - missing_eeg: 0
 - scene_count_mismatch: 0
+
+## 第一批/第二批补样对比
+
+- 日期批次规则：2026-05-01 之前为第一批，2026-05-01 及以后为第二批。
+- S1：First_before_2026-05-01: 最高 WWR=15(5.5)，最低 WWR=45(5.07)；Second_2026-05-01_or_later: 最高 WWR=75(5.71)，最低 WWR=45(5.49)。
+- S2：First_before_2026-05-01: 最高 WWR=15(5.73)，最低 WWR=45(5.19)；Second_2026-05-01_or_later: 最高 WWR=15(5.84)，最低 WWR=45(5.5)。
+- S3：First_before_2026-05-01: 最高 WWR=15(5.44)，最低 WWR=75(4.88)；Second_2026-05-01_or_later: 最高 WWR=45(5.55)，最低 WWR=75(5.33)。
+- S4：First_before_2026-05-01: 最高 WWR=15(5.52)，最低 WWR=45(4.88)；Second_2026-05-01_or_later: 最高 WWR=75(5.51)，最低 WWR=45(5.15)。
+- S5：First_before_2026-05-01: 最高 WWR=15(6.77)，最低 WWR=45(6.1)；Second_2026-05-01_or_later: 最高 WWR=15(6.8)，最低 WWR=45(6.38)。
 
 ## 问卷结果
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import math
+import re
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -54,7 +56,21 @@ PRIMARY_EEG = [
     "eeg_O_alpha",
     "eeg_O_beta",
 ]
-DEFAULT_FACTORS = ["overall", "WWR", "Complexity", "ExperienceGroup", "WWR:Complexity", "WWR:ExperienceGroup"]
+DATE_BATCH_CUTOFF = date(2026, 5, 1)
+FIRST_DATE_BATCH = f"First_before_{DATE_BATCH_CUTOFF.isoformat()}"
+SECOND_DATE_BATCH = f"Second_{DATE_BATCH_CUTOFF.isoformat()}_or_later"
+DEFAULT_FACTORS = [
+    "overall",
+    "WWR",
+    "Complexity",
+    "ExperienceGroup",
+    "DateBatch",
+    "WWR:Complexity",
+    "WWR:ExperienceGroup",
+    "DateBatch:WWR",
+    "DateBatch:Complexity",
+    "DateBatch:ExperienceGroup",
+]
 
 
 def build_experiment_result_package(
@@ -89,8 +105,9 @@ def experiment_plain_results(outputs_root: Path) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     summary = _read_json(outputs_root / "realdata_run_summary.json")
     rows.extend(_sample_rows(outputs_root, summary))
+    scene_batch = _scene_date_batch(outputs_root)
 
-    questionnaire = _read_optional(outputs_root / "02_questionnaire" / "questionnaire_long.csv")
+    questionnaire = _attach_date_batch(_read_optional(outputs_root / "02_questionnaire" / "questionnaire_long.csv"), scene_batch)
     rows.extend(_summaries(
         questionnaire,
         module="questionnaire",
@@ -100,7 +117,7 @@ def experiment_plain_results(outputs_root: Path) -> pd.DataFrame:
         note="Questionnaire scene-level descriptive result; IPQ_mean is participant-level information repeated on scene rows.",
     ))
 
-    eye = _read_optional(outputs_root / "03_eye_tracking" / "eye_aoi_trial_long.csv")
+    eye = _attach_date_batch(_read_optional(outputs_root / "03_eye_tracking" / "eye_aoi_trial_long.csv"), scene_batch)
     rows.extend(_summaries(
         eye,
         module="eye_tracking",
@@ -110,7 +127,7 @@ def experiment_plain_results(outputs_root: Path) -> pd.DataFrame:
         note="Eye-tracking AOI-expanded descriptive result; n_trials is the participant-scene count, n_rows is AOI-expanded rows.",
     ))
 
-    eeg = _read_optional(outputs_root / "04_eeg" / "eeg_trial_long.csv")
+    eeg = _attach_date_batch(_read_optional(outputs_root / "04_eeg" / "eeg_trial_long.csv"), scene_batch)
     eeg_metrics = [m for m in PRIMARY_EEG if m in eeg.columns and not m.startswith("eeg_")]
     rows.extend(_summaries(
         eeg,
@@ -122,7 +139,7 @@ def experiment_plain_results(outputs_root: Path) -> pd.DataFrame:
     ))
     rows.extend(_eeg_qc_rows(outputs_root))
 
-    master = _read_optional(outputs_root / "05_multimodal_fusion" / "analysis_master_long.csv")
+    master = _attach_date_batch(_read_optional(outputs_root / "05_multimodal_fusion" / "analysis_master_long.csv"), scene_batch)
     fusion_metrics = [m for m in PRIMARY_QUESTIONNAIRE if f"q_{m}" in master.columns]
     fusion_metrics = [f"q_{m}" for m in fusion_metrics] + [m for m in PRIMARY_EYE if m in master.columns] + [m for m in PRIMARY_EEG if m in master.columns and m.startswith("eeg_")]
     rows.extend(_summaries(
@@ -229,8 +246,10 @@ def plain_results_markdown(plain: pd.DataFrame) -> str:
 
 def teacher_data_brief(outputs_root: Path, plain: pd.DataFrame, significance: pd.DataFrame) -> str:
     summary = _read_json(outputs_root / "realdata_run_summary.json")
+    participants = _read_optional(outputs_root / "01_sample_qc" / "participants_standardized.csv")
     qc = _read_optional(outputs_root / "05_multimodal_fusion" / "analysis_qc_exclusions.csv")
     master = _read_optional(outputs_root / "05_multimodal_fusion" / "analysis_master_long.csv")
+    scene_batch = _scene_date_batch(outputs_root)
     scene_trials = _unique_trials(master)
     aoi_rows = int(len(master)) if not master.empty else int(summary.get("fusion_kept_rows", 0) or 0)
     total_trials = int(summary.get("analysis_scene_trials_total") or _unique_trials(qc) or summary.get("scene_rows", 0) or 0)
@@ -249,6 +268,26 @@ def teacher_data_brief(outputs_root: Path, plain: pd.DataFrame, significance: pd
         f"- AOI 展开行：{aoi_rows}。这个数字不是场景试次数，不能和 {kept_trials} 个保留场景试次混用。",
         "",
     ]
+    if not participants.empty and "ExperienceGroup" in participants.columns:
+        counts = participants["ExperienceGroup"].fillna("Unknown").astype(str).value_counts().to_dict()
+        low = int(counts.get("Low", 0))
+        high = int(counts.get("High", 0))
+        lines.append(f"- 经验组口径：统一使用 Q1.4 乒乓球经验四档的 2/2 分组，Low=前两档，High=后两档；当前 Low={low}，High={high}。")
+    if not scene_batch.empty and "DateBatch" in scene_batch.columns:
+        valid_batch = scene_batch.loc[scene_batch["DateBatch"].astype(str).str.len().gt(0)].copy()
+        for batch, sub in valid_batch.groupby("DateBatch", dropna=False, sort=True):
+            lines.append(f"- 采集日期批次 {batch}：{_unique_subjects(sub)} 人，{_unique_trials(sub)} 个场景试次。")
+        if not participants.empty and "ExperienceGroup" in participants.columns:
+            participant_batch = valid_batch[["participant_id", "DateBatch"]].drop_duplicates()
+            participant_batch = participant_batch.merge(participants[["participant_id", "ExperienceGroup"]], on="participant_id", how="left")
+            parts = []
+            for keys, sub in participant_batch.groupby(["DateBatch", "ExperienceGroup"], dropna=False, sort=True):
+                batch, group = keys
+                parts.append(f"{batch}/{group}={_unique_subjects(sub)}")
+            if parts:
+                lines.append("- 日期批次 × 经验组结构：" + "；".join(parts) + "。")
+                lines.append("- 批次和经验组结构存在混杂，不能把日期批次差异直接解释为补样本身导致。")
+        lines.append("")
     if not qc.empty:
         reason_cols = [c for c in ["bad_eeg_quality", "duration_mismatch", "missing_questionnaire", "missing_eye", "missing_eeg", "scene_count_mismatch"] if c in qc.columns]
         if reason_cols:
@@ -256,6 +295,12 @@ def teacher_data_brief(outputs_root: Path, plain: pd.DataFrame, significance: pd
             for col in reason_cols:
                 lines.append(f"- {col}: {_truth_count(qc[col])}")
             lines.append("")
+
+    batch_lines = _date_batch_questionnaire_lines(plain)
+    if batch_lines:
+        lines.extend(["## 第一批/第二批补样对比", ""])
+        lines.extend(batch_lines)
+        lines.append("")
 
     for module, title, metrics in [
         ("questionnaire", "问卷结果", ["S1", "S2", "S3", "S4", "S5"]),
@@ -394,6 +439,7 @@ def _sample_rows(outputs_root: Path, summary: dict[str, Any]) -> list[dict[str, 
     rows: list[dict[str, Any]] = []
     participants = _read_optional(outputs_root / "01_sample_qc" / "participants_standardized.csv")
     qc = _read_optional(outputs_root / "05_multimodal_fusion" / "analysis_qc_exclusions.csv")
+    scene_batch = _scene_date_batch(outputs_root)
     rows.append(_plain_row(
         module="sample_qc",
         source_table="realdata_run_summary.json",
@@ -407,6 +453,40 @@ def _sample_rows(outputs_root: Path, summary: dict[str, Any]) -> list[dict[str, 
         mean=np.nan,
         note="Participant count from run summary or participants table.",
     ))
+    if not scene_batch.empty and "DateBatch" in scene_batch.columns:
+        valid_batch = scene_batch.loc[scene_batch["DateBatch"].astype(str).str.len().gt(0)].copy()
+        for batch, sub in valid_batch.groupby("DateBatch", dropna=False, sort=True):
+            rows.append(_plain_row(
+                module="sample_qc",
+                source_table="01_sample_qc/scene_manifest_standardized.csv",
+                grain="scene_trial",
+                metric="participants_by_DateBatch",
+                factor="DateBatch",
+                level=str(batch),
+                n_subjects=_unique_subjects(sub),
+                n_trials=_unique_trials(sub),
+                n_rows=len(sub),
+                mean=np.nan,
+                note=f"DateBatch is inferred from eye_record_id with cutoff {DATE_BATCH_CUTOFF.isoformat()}.",
+            ))
+        if not participants.empty and "ExperienceGroup" in participants.columns:
+            participant_batch = valid_batch[["participant_id", "DateBatch"]].drop_duplicates()
+            participant_batch = participant_batch.merge(participants[["participant_id", "ExperienceGroup"]], on="participant_id", how="left")
+            for keys, sub in participant_batch.groupby(["DateBatch", "ExperienceGroup"], dropna=False, sort=True):
+                batch, group = keys
+                rows.append(_plain_row(
+                    module="sample_qc",
+                    source_table="01_sample_qc/participants_standardized.csv;01_sample_qc/scene_manifest_standardized.csv",
+                    grain="participant",
+                    metric="participants_by_DateBatch_ExperienceGroup",
+                    factor="DateBatch:ExperienceGroup",
+                    level=f"DateBatch={batch};ExperienceGroup={group}",
+                    n_subjects=_unique_subjects(sub),
+                    n_trials=0,
+                    n_rows=len(sub),
+                    mean=np.nan,
+                    note="ExperienceGroup uses the Q1.4 table-tennis-experience 2/2 split; DateBatch is inferred from eye_record_id.",
+                ))
     if not qc.empty and "excluded_from_analysis" in qc.columns:
         excluded = _truth_count(qc["excluded_from_analysis"])
         total = len(qc)
@@ -571,6 +651,55 @@ def _robustness_rows(outputs_root: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _scene_date_batch(outputs_root: Path) -> pd.DataFrame:
+    scene = _read_optional(outputs_root / "01_sample_qc" / "scene_manifest_standardized.csv")
+    needed = ["participant_id", "scene_id"]
+    if scene.empty or any(col not in scene.columns for col in needed):
+        return pd.DataFrame(columns=needed + ["collection_date", "DateBatch"])
+    cols = needed + [c for c in ["collection_date", "DateBatch", "eye_record_id"] if c in scene.columns]
+    out = scene[cols].copy()
+    if "collection_date" not in out.columns:
+        out["collection_date"] = ""
+    if "DateBatch" not in out.columns:
+        out["DateBatch"] = ""
+    if "eye_record_id" in out.columns:
+        parsed_dates = out["eye_record_id"].map(_date_from_eye_record_id)
+        missing_date = out["collection_date"].astype(str).str.strip().isin({"", "nan", "NaT"})
+        out.loc[missing_date, "collection_date"] = parsed_dates.loc[missing_date].map(lambda value: value.isoformat() if value is not None else "")
+        missing_batch = out["DateBatch"].astype(str).str.strip().isin({"", "nan", "none"})
+        out.loc[missing_batch, "DateBatch"] = parsed_dates.loc[missing_batch].map(_date_batch)
+    return out.drop_duplicates(["participant_id", "scene_id"])
+
+
+def _attach_date_batch(df: pd.DataFrame, scene_batch: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or scene_batch.empty or "DateBatch" in df.columns:
+        return df
+    if not {"participant_id", "scene_id"}.issubset(df.columns):
+        return df
+    keys = ["participant_id", "scene_id"]
+    keep = keys + [c for c in ["collection_date", "DateBatch"] if c in scene_batch.columns]
+    if "DateBatch" not in keep:
+        return df
+    return df.merge(scene_batch[keep].drop_duplicates(keys), on=keys, how="left")
+
+
+def _date_from_eye_record_id(value: Any) -> date | None:
+    match = re.match(r"(\d{6})", str(value or "").strip())
+    if not match:
+        return None
+    text = match.group(1)
+    try:
+        return date(2000 + int(text[:2]), int(text[2:4]), int(text[4:6]))
+    except ValueError:
+        return None
+
+
+def _date_batch(value: date | None) -> str:
+    if value is None:
+        return ""
+    return SECOND_DATE_BATCH if value >= DATE_BATCH_CUTOFF else FIRST_DATE_BATCH
+
+
 def _plain_row(**kwargs: Any) -> dict[str, Any]:
     row = {col: np.nan for col in PLAIN_COLUMNS}
     row.update(kwargs)
@@ -596,6 +725,54 @@ def _factor_leader_lines(plain: pd.DataFrame, module: str, factor: str, metrics:
             f"- {metric} 按 {label}：最高为 {top['level']}，均值 {top['_mean']:.3g}；最低为 {low['level']}，均值 {low['_mean']:.3g}；差值约 {diff:.3g}。"
         )
     return lines or [f"- {label}: 没有可汇总结果。"]
+
+
+def _date_batch_questionnaire_lines(plain: pd.DataFrame) -> list[str]:
+    if plain.empty:
+        return []
+    metrics = ["S1", "S2", "S3", "S4", "S5"]
+    sub = plain.loc[
+        plain["module"].eq("questionnaire")
+        & plain["factor"].eq("DateBatch:WWR")
+        & plain["metric"].isin(metrics)
+    ].copy()
+    if sub.empty:
+        return []
+    sub["_mean"] = pd.to_numeric(sub["mean"], errors="coerce")
+    sub = sub.loc[sub["_mean"].notna()].copy()
+    if sub.empty:
+        return []
+    parsed = sub["level"].map(_parse_level)
+    sub["DateBatch"] = parsed.map(lambda value: value.get("DateBatch", ""))
+    sub["WWR"] = parsed.map(lambda value: value.get("WWR", ""))
+    lines = [
+        f"- 日期批次规则：{DATE_BATCH_CUTOFF.isoformat()} 之前为第一批，{DATE_BATCH_CUTOFF.isoformat()} 及以后为第二批。",
+    ]
+    for metric in metrics:
+        metric_rows = sub.loc[sub["metric"].eq(metric)]
+        if metric_rows.empty:
+            continue
+        chunks = []
+        for batch in [FIRST_DATE_BATCH, SECOND_DATE_BATCH]:
+            batch_rows = metric_rows.loc[metric_rows["DateBatch"].eq(batch)]
+            if batch_rows.empty:
+                continue
+            top = batch_rows.sort_values("_mean", ascending=False).iloc[0]
+            low = batch_rows.sort_values("_mean", ascending=True).iloc[0]
+            chunks.append(f"{batch}: 最高 WWR={top['WWR']}({top['_mean']:.3g})，最低 WWR={low['WWR']}({low['_mean']:.3g})")
+        if chunks:
+            lines.append(f"- {metric}：" + "；".join(chunks) + "。")
+    return lines
+
+
+def _parse_level(value: Any) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for part in str(value or "").split(";"):
+        if "=" not in part:
+            continue
+        key, raw = part.split("=", 1)
+        out[key.strip()] = raw.strip()
+    return out
 
 
 def _read_optional(path: Path) -> pd.DataFrame:

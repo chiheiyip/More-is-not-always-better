@@ -14,7 +14,7 @@ from paper_analysis.intake.pipeline import build_manifests
 from paper_analysis.questionnaire.pipeline import run_questionnaire_pipeline
 from paper_analysis.reporting.pipeline import build_paper_outputs
 from paper_analysis.stats.models import run_statistical_models
-from paper_analysis.utils.coding import experience_group
+from paper_analysis.utils.coding import experience_group, standardize_participants
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "paper"
@@ -25,6 +25,20 @@ def test_experience_group_uses_two_by_two_frequency_split() -> None:
     assert experience_group("偶尔（每月1–2次）") == "Low"
     assert experience_group("有时（每月3-4次）") == "High"
     assert experience_group("经常（每月≥5次）") == "High"
+
+
+def test_standardize_participants_recomputes_experience_group_from_q1_4() -> None:
+    participants = pd.DataFrame({
+        "participant_id": ["P01", "P02"],
+        "Experience": ["有时（每月3-4次）", "偶尔（每月1–2次）"],
+        "SportFreq": ["偶尔（每月1–2次）", "经常（每月≥5次）"],
+        "ExperienceGroup": ["Low", "High"],
+    })
+    out = standardize_participants(participants)
+    assert out["ExperienceGroup"].tolist() == ["High", "Low"]
+    assert out["ExperienceGroupInput"].tolist() == ["Low", "High"]
+    assert out["ExperienceGroupSource"].eq("Experience").all()
+    assert out["ExperienceGroupRule"].eq("q1_4_table_tennis_experience_2_by_2").all()
 
 
 def test_eeg_model_config_covers_roi_band_grid() -> None:
@@ -123,6 +137,7 @@ def test_full_pipeline_builds_paper_outputs(tmp_path: Path) -> None:
     significance = pd.read_csv(reporting["experiment_significance_results"])
     assert {"module", "metric", "factor", "grain", "n_subjects", "n_trials", "mean", "ci95_low", "ci95_high"}.issubset(plain.columns)
     assert plain["grain"].astype(str).str.len().gt(0).all()
+    assert plain["factor"].isin(["DateBatch", "DateBatch:WWR", "DateBatch:ExperienceGroup"]).any()
     assert {"outcome", "term", "p_value", "model_type", "fallback_flag", "warning_flag", "interpretation_note"}.issubset(significance.columns)
     assert reporting["teacher_data_brief"].exists()
     assert reporting["interpretation_reference"].exists()

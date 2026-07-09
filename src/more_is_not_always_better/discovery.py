@@ -31,6 +31,7 @@ GENERIC_EYE_SUBJECTS = {"user", "user1", "user2", "test", "pilot", "practice"}
 SUFFIX_NOTE_RE = re.compile(r"^(?P<name>.+?)-\d+-\d+$")
 ETHNIC_NAME_SEPARATOR_RE = re.compile(r"[·•]")
 NEW_ORDER2_START_DATE = date(2026, 5, 1)
+SECOND_BATCH_START_DATE = date(2026, 5, 1)
 NEW_ORDER2_BY_BLOCK = {
     1: {
         "C0W75": ("1", 1),
@@ -292,6 +293,7 @@ def build_scene_manifest_from_eye_root(
         order = order_map.get(participant_id, default_order)
         order_scheme, order_code, block, position, scene_id = _resolve_order_position(row, order)
         order_missing = _order_is_missing(participants, participant_id)
+        collection_date = _experiment_date_from_eye_record_id(row.get("eye_record_id"))
         rows.append({
             "participant_id": participant_id,
             "scene_id": scene_id,
@@ -312,6 +314,8 @@ def build_scene_manifest_from_eye_root(
             "order_code_2": row.get("order_code_2", ""),
             "source_folder": row.get("source_folder", ""),
             "eye_record_id": row.get("eye_record_id", ""),
+            "collection_date": collection_date.isoformat() if collection_date is not None else "",
+            "DateBatch": _date_batch_from_eye_record_id(row.get("eye_record_id")),
             "eye_split_id": row.get("eye_split_id", ""),
             "raw_eye_subject_id": row.get("raw_eye_subject_id", ""),
             "eye_subject_alias": row.get("eye_subject_alias", ""),
@@ -662,6 +666,15 @@ def _resolve_order_position(row: pd.Series, order: int) -> tuple[str, object, in
 def _uses_neworder2(eye_record_id: object) -> bool:
     experiment_date = _experiment_date_from_eye_record_id(eye_record_id)
     return experiment_date is not None and experiment_date >= NEW_ORDER2_START_DATE
+
+
+def _date_batch_from_eye_record_id(value: object) -> str:
+    experiment_date = _experiment_date_from_eye_record_id(value)
+    if experiment_date is None:
+        return ""
+    if experiment_date >= SECOND_BATCH_START_DATE:
+        return f"Second_{SECOND_BATCH_START_DATE.isoformat()}_or_later"
+    return f"First_before_{SECOND_BATCH_START_DATE.isoformat()}"
 
 
 def _experiment_date_from_eye_record_id(value: object) -> Optional[date]:
