@@ -41,6 +41,7 @@ def run_fusion_pipeline(
     eye_screen_h: int | None = None,
     eye_validity_accepted: tuple[str, ...] | None = None,
     eye_timestamp_gap_ms: float = 5000.0,
+    aligned_timebin_source_csv: str | Path | None = None,
 ) -> dict[str, Path]:
     questionnaire = read_table(questionnaire_long)
     eye = read_table(eye_aoi_trial_long)
@@ -50,16 +51,19 @@ def run_fusion_pipeline(
     trial_index = build_trial_index(participants, scene, active_only=True)
 
     aligned_scene = build_aligned_scene_table(trial_index, eye, eeg)
-    aligned_timebin = build_aligned_timebin_table(
-        trial_index=trial_index,
-        eeg=eeg,
-        bin_size_ms=bin_size_ms,
-        point_source=eye_point_source,
-        screen_w=eye_screen_w,
-        screen_h=eye_screen_h,
-        validity_accepted=eye_validity_accepted,
-        timestamp_gap_ms=eye_timestamp_gap_ms,
-    )
+    if aligned_timebin_source_csv:
+        aligned_timebin = load_reused_aligned_timebin(aligned_timebin_source_csv, trial_index)
+    else:
+        aligned_timebin = build_aligned_timebin_table(
+            trial_index=trial_index,
+            eeg=eeg,
+            bin_size_ms=bin_size_ms,
+            point_source=eye_point_source,
+            screen_w=eye_screen_w,
+            screen_h=eye_screen_h,
+            validity_accepted=eye_validity_accepted,
+            timestamp_gap_ms=eye_timestamp_gap_ms,
+        )
     sync_qc = build_sync_qc(
         trial_index=trial_index,
         eeg=eeg,
@@ -105,6 +109,19 @@ def run_fusion_pipeline(
         "modality_convergence_table": write_table(convergence, outdir / "modality_convergence_table.csv"),
         "claim_support_matrix": write_table(claim_support, outdir / "claim_support_matrix.csv"),
     }
+
+
+def load_reused_aligned_timebin(path: str | Path, trial_index: pd.DataFrame) -> pd.DataFrame:
+    out = read_table(path)
+    if set(KEYS).issubset(out.columns):
+        keys = trial_index[KEYS].drop_duplicates().copy()
+        keys["participant_id"] = keys["participant_id"].astype(str)
+        keys["scene_id"] = pd.to_numeric(keys["scene_id"], errors="coerce").astype("Int64")
+        out = out.copy()
+        out["participant_id"] = out["participant_id"].astype(str)
+        out["scene_id"] = pd.to_numeric(out["scene_id"], errors="coerce").astype("Int64")
+        out = out.merge(keys, on=KEYS, how="inner")
+    return canonical_columns_first(out.reset_index(drop=True))
 
 
 def build_aligned_scene_table(trial_index: pd.DataFrame, eye: pd.DataFrame, eeg: pd.DataFrame) -> pd.DataFrame:

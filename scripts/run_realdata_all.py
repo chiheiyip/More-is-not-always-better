@@ -27,6 +27,7 @@ from paper_analysis.figures import run_figure_pipeline  # noqa: E402
 from paper_analysis.fusion.pipeline import run_fusion_pipeline  # noqa: E402
 from paper_analysis.intake.pipeline import build_manifests  # noqa: E402
 from paper_analysis.questionnaire.pipeline import run_questionnaire_pipeline  # noqa: E402
+from paper_analysis.reporting.experiment_results import build_experiment_result_package  # noqa: E402
 from paper_analysis.reporting.pipeline import build_paper_outputs  # noqa: E402
 from paper_analysis.stats.models import run_statistical_models  # noqa: E402
 
@@ -54,6 +55,7 @@ def main() -> None:
     parser.add_argument("--expected-scenes-per-subject", type=int, default=12)
     parser.add_argument("--bin-size-ms", type=int, default=2000)
     parser.add_argument("--duration-tolerance-s", type=float, default=10.0)
+    parser.add_argument("--aligned_timebin_csv", default=None, help="Reuse an existing aligned_timebin_table.csv instead of recomputing time-bin eye metrics.")
     parser.add_argument("--model-config", default="configs/model_families.json")
     parser.add_argument("--eeg-qc-config", default="configs/eeg_qc.json")
     parser.add_argument("--figure-contracts", default="configs/figure_contracts.json")
@@ -167,6 +169,7 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
         expected_scenes_per_subject=args.expected_scenes_per_subject,
         bin_size_ms=args.bin_size_ms,
         duration_tolerance_s=args.duration_tolerance_s,
+        aligned_timebin_source_csv=args.aligned_timebin_csv,
     )
 
     stats = None
@@ -188,6 +191,8 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
         )
     if not args.skip_figures:
         figures = run_figure_pipeline(outputs_root=outputs_root, figure_contracts_config=args.figure_contracts, outdir=outputs_root / "10_figures")
+        if reporting is not None:
+            reporting.update(build_experiment_result_package(outputs_root=outputs_root, outdir=outputs_root / "07_paper_tables", audit_dir=outputs_root / "11_audit"))
 
     summary = _summary_base(args, outputs_root, preflight, participants, scene, questionnaire, eye)
     summary.update({
@@ -198,6 +203,8 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
         "fusion_run": True,
         "fusion_pre_qc_rows": _row_count(fusion["analysis_master_long_pre_qc"]),
         "fusion_kept_rows": _row_count(fusion["analysis_master_long"]),
+        "aligned_timebin_reused": bool(args.aligned_timebin_csv),
+        "aligned_timebin_reuse_source": str(args.aligned_timebin_csv or ""),
         **_fusion_scene_counts(fusion),
         "models_run": stats is not None,
         "diagnostics_run": diagnostics is not None,
@@ -294,6 +301,7 @@ def _summary_base(
             "questionnaire_xlsx": str(args.questionnaire_xlsx),
             "eye_root": str(args.eye_root),
             "eeg_root": str(args.eeg_root),
+            "aligned_timebin_csv": str(args.aligned_timebin_csv or ""),
         },
         "raw_inputs_read_only": True,
     }
@@ -347,6 +355,8 @@ def _planned_steps(args: argparse.Namespace) -> list[str]:
         steps.append("stop_before_eeg")
     else:
         steps.extend(["matlab_eeg_export", "validate_eeg_scene_csv", "eeg", "fusion"])
+    if args.aligned_timebin_csv:
+        steps.append("reuse_aligned_timebin")
     if not args.skip_models:
         steps.append("models")
     if not args.skip_diagnostics:

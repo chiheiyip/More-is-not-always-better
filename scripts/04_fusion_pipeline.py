@@ -26,6 +26,7 @@ def main() -> None:
     parser.add_argument("--eye_screen_h", type=int, default=None)
     parser.add_argument("--eye_validity_accepted", default=None, help="Comma-separated accepted validity values for time-bin eye metrics; omitted means audit only.")
     parser.add_argument("--eye_timestamp_gap_ms", type=float, default=5000.0)
+    parser.add_argument("--aligned_timebin_csv", default=None, help="Reuse an existing aligned_timebin_table.csv instead of recomputing time-bin eye metrics.")
     args = parser.parse_args()
     eye_validity_accepted = tuple(v.strip() for v in args.eye_validity_accepted.split(",") if v.strip()) if args.eye_validity_accepted else None
     for name, path in run_fusion_pipeline(
@@ -43,6 +44,7 @@ def main() -> None:
         eye_screen_h=args.eye_screen_h,
         eye_validity_accepted=eye_validity_accepted,
         eye_timestamp_gap_ms=args.eye_timestamp_gap_ms,
+        aligned_timebin_source_csv=args.aligned_timebin_csv,
     ).items():
         print(f"{name}: {path}")
 
