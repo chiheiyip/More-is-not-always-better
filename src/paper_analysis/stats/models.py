@@ -114,6 +114,9 @@ def eeg_outcomes_from_config(config: dict, master: pd.DataFrame) -> list[str]:
 
 
 def eeg_core_lmm(df: pd.DataFrame, outcomes: list[str]) -> list[dict]:
+    # EEG is a scene-level signal.  The fusion master is AOI-expanded, so using
+    # it directly would repeat the identical EEG value once per AOI and inflate n.
+    df = _scene_level(df)
     rows: list[dict] = []
     for outcome in outcomes:
         formula = f"{outcome} ~ " + " + ".join(_eeg_core_terms(df))
@@ -123,6 +126,7 @@ def eeg_core_lmm(df: pd.DataFrame, outcomes: list[str]) -> list[dict]:
 
 
 def eeg_peak_index_models(df: pd.DataFrame, outcomes: list[str]) -> list[dict]:
+    df = _scene_level(df)
     rows: list[dict] = []
     if "WWR" not in df.columns or "participant_id" not in df.columns:
         return [{"model": "eeg_peak_index", "status": "missing_WWR_or_participant_id"}]
@@ -169,6 +173,7 @@ def eeg_peak_index_models(df: pd.DataFrame, outcomes: list[str]) -> list[dict]:
 
 
 def eeg_trial_index_models(df: pd.DataFrame, outcomes: list[str]) -> list[dict]:
+    df = _scene_level(df)
     rows: list[dict] = []
     if "participant_id" not in df.columns:
         return [{"model": "eeg_trial_index", "status": "missing_participant_id"}]
@@ -228,6 +233,12 @@ def _fit_formula_rows(df: pd.DataFrame, outcome: str, formula: str, model_label:
             "status": "fit",
         })
     return rows
+
+
+def _scene_level(df: pd.DataFrame) -> pd.DataFrame:
+    if {"participant_id", "scene_id"}.issubset(df.columns):
+        return df.drop_duplicates(["participant_id", "scene_id"]).copy()
+    return df.copy()
 
 
 def _eeg_core_terms(df: pd.DataFrame) -> list[str]:
