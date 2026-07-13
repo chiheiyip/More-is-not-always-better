@@ -121,6 +121,15 @@ def main() -> None:
                 outdir=outdir / "05_multimodal_fusion",
                 expected_scenes_per_subject=12,
             )
+            q = run_questionnaire_pipeline(
+                participants_csv=intake["participants_standardized"],
+                scene_manifest_csv=intake["scene_manifest_standardized"],
+                questionnaire_long=q_long_csv,
+                outdir=outdir / "02_questionnaire",
+                with_significance=False,
+                skip_reliability=True,
+                analysis_qc_csv=fusion_outputs["analysis_qc_exclusions"],
+            )
 
         summary = _build_summary(participants, scene, q, eye, eeg_outputs, fusion_outputs, eeg_contract)
         summary_json.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -142,12 +151,17 @@ def main() -> None:
 
 def _build_summary(participants: pd.DataFrame, scene: pd.DataFrame, questionnaire: dict, eye: dict, eeg: dict | None, fusion: dict | None, eeg_contract: dict | None) -> dict:
     q_rows = len(pd.read_csv(questionnaire["questionnaire_long"]))
+    q_analysis = pd.read_csv(questionnaire["questionnaire_analysis_long"])
+    q_sample = pd.read_csv(questionnaire["questionnaire_analysis_sample"])
     eye_rows = len(pd.read_csv(eye["eye_aoi_trial_long"]))
     summary = {
         "participants": int(len(participants)),
         "participant_ids": ",".join(participants["participant_id"].astype(str).tolist()),
         "scene_rows": int(len(scene)),
         "questionnaire_rows": int(q_rows),
+        "questionnaire_analysis_rows": int(q_analysis[["participant_id", "scene_id"]].drop_duplicates().shape[0]),
+        "questionnaire_analysis_participants": int(q_analysis["participant_id"].nunique()),
+        "questionnaire_analysis_policy": str(q_sample.loc[0, "analysis_policy"]),
         "eye_metric_rows": int(eye_rows),
         "eeg_raw_present_all": bool(participants.get("has_eeg_raw", pd.Series(False, index=participants.index)).fillna(False).all()),
         "eeg_scene_csv_available": eeg is not None,

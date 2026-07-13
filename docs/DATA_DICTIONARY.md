@@ -5,11 +5,11 @@
 | Field | Meaning |
 |---|---|
 | `participant_id` | Canonical participant identifier across questionnaire, eye, and EEG data. |
-| `scene_id` | Trial/scene identifier within participant. |
+| `scene_id` | Presentation slot 1–12 within participant, resolved from questionnaire Order, collection batch, block, and condition; see `EXPERIMENT_DESIGN.md`. |
 | `condition_id` | Combined condition label, usually derived from WWR and Complexity. |
 | `WWR` | Window-to-wall ratio condition. |
-| `Complexity` | Visual complexity condition. |
-| `block` | Experimental block or round block. |
+| `Complexity` | Visual complexity parsed only from the condition label: `C0=0` (low), `C1=1` (high). |
+| `block` | Experimental block (1 or 2); the numeric prefix in a simple eye folder is block, not Order. |
 | `position` | Within-block presentation position; used for order/fatigue diagnostics. |
 | `round` | Viewing round when available. |
 
@@ -37,6 +37,9 @@
 
 | Field or file | Meaning |
 |---|---|
+| `questionnaire_long.csv` | Complete prepared questionnaire trial table retained for audit and as an input to fusion; it is not the final analysis sample. |
+| `questionnaire_analysis_long.csv` | Questionnaire trials retained by the shared trimodal `participant_id + scene_id` analysis-QC keep set; all final questionnaire summaries and models use this table. |
+| `questionnaire_analysis_sample.csv` | Audit row recording the raw, retained, and excluded questionnaire trial/participant counts and the applied QC policy. |
 | `questionnaire_descriptives.csv` | Item/composite descriptives with observation count, subject count, mean, SD, median, range, 95% CI, skewness, kurtosis, and Shapiro diagnostic p value when estimable. |
 | `questionnaire_reliability.csv` | Cronbach alpha diagnostics for configured scales such as `S1`-`S4`, `S1`-`S5`, `B1`-`B3`, and `IPQ1`-`IPQ6`; statuses distinguish acceptable, check, insufficient rows, and missing items. |
 | `questionnaire_scale_qc.csv` | Scale and composite warnings, including `S5` scale conversion notes and composite interpretation limits. |

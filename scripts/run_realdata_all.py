@@ -131,7 +131,7 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
         scene_manifest_csv=intake["scene_manifest_standardized"],
         questionnaire_long=questionnaire_long_csv,
         outdir=outputs_root / "02_questionnaire",
-        with_significance=not args.skip_questionnaire_significance,
+        with_significance=False,
         skip_reliability=args.skip_questionnaire_reliability,
     )
     eye = run_eye_pipeline(
@@ -170,6 +170,15 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
         bin_size_ms=args.bin_size_ms,
         duration_tolerance_s=args.duration_tolerance_s,
         aligned_timebin_source_csv=args.aligned_timebin_csv,
+    )
+    questionnaire = run_questionnaire_pipeline(
+        participants_csv=intake["participants_standardized"],
+        scene_manifest_csv=intake["scene_manifest_standardized"],
+        questionnaire_long=questionnaire_long_csv,
+        outdir=outputs_root / "02_questionnaire",
+        with_significance=not args.skip_questionnaire_significance,
+        skip_reliability=args.skip_questionnaire_reliability,
+        analysis_qc_csv=fusion["analysis_qc_exclusions"],
     )
 
     stats = None
@@ -287,6 +296,9 @@ def _summary_base(
     questionnaire: dict[str, Path],
     eye: dict[str, Path],
 ) -> dict[str, Any]:
+    questionnaire_analysis = _read_csv_or_empty(questionnaire.get("questionnaire_analysis_long"))
+    questionnaire_sample = _read_csv_or_empty(questionnaire.get("questionnaire_analysis_sample"))
+    questionnaire_policy = str(questionnaire_sample.iloc[0].get("analysis_policy", "")) if not questionnaire_sample.empty else ""
     return {
         "run_scope": _run_scope(args),
         "is_smoke_run": _is_smoke_args(args),
@@ -295,6 +307,9 @@ def _summary_base(
         "participant_ids": participants["participant_id"].astype(str).tolist(),
         "scene_rows": int(len(scene)),
         "questionnaire_rows": _row_count(questionnaire["questionnaire_long"]),
+        "questionnaire_analysis_rows": _unique_trials(questionnaire_analysis),
+        "questionnaire_analysis_participants": _unique_subjects(questionnaire_analysis),
+        "questionnaire_analysis_policy": questionnaire_policy,
         "eye_metric_rows": _row_count(eye["eye_aoi_trial_long"]),
         "preflight": preflight,
         "raw_inputs": {

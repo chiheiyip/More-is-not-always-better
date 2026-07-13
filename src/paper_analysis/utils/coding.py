@@ -116,7 +116,11 @@ def experience_group(value: Any) -> str:
 
 def condition_id(row: pd.Series) -> str:
     wwr = int(float(row["WWR"])) if pd.notna(row.get("WWR")) and str(row.get("WWR")).strip() else "NA"
-    complexity = str(row.get("Complexity") or row.get("Cond") or "NA").strip()
+    raw_complexity = row.get("Complexity")
+    if pd.notna(raw_complexity) and str(raw_complexity).strip():
+        complexity = str(int(float(raw_complexity)))
+    else:
+        complexity = re.sub(r"^C", "", str(row.get("Cond") or "NA").strip(), flags=re.IGNORECASE)
     return f"C{complexity}_W{wwr}"
 
 

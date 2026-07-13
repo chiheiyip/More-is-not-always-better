@@ -4,6 +4,8 @@
 
 底层统一使用 `participant_id + scene_id` 作为 canonical trial index。问卷、眼动、EEG、同步 QC、time-bin 融合、统计模型和审稿回应索引都从这张统一试次表派生，避免各脚本各自拼表造成口径不一致。
 
+order1/order2/neworder2 的权威场景顺序、简化眼动文件夹语义、`C0/C1` 复杂度编码及问卷跨模态共同剔除规则，统一见 [`docs/EXPERIMENT_DESIGN.md`](docs/EXPERIMENT_DESIGN.md)。
+
 ## 一键运行
 
 ```bash

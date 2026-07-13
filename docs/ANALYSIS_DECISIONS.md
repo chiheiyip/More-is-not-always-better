@@ -8,15 +8,16 @@
 6. Eye-tracking uses a two-part analysis policy: AOI visited first, then continuous AOI metrics conditionally.
 7. EEG primary ROI-band outcomes symmetrically cover F/P/O x theta/alpha/beta: `F_theta`, `F_alpha`, `F_beta`, `P_theta`, `P_alpha`, `P_beta`, `O_theta`, `O_alpha`, and `O_beta`. Recovery contrasts such as `delta_O_alpha` are supplementary.
 8. Gender, age, block, position, and recruitment batch are included in model registries when available.
-9. WWR45 local-optimum evidence is evaluated within the tested levels using planned contrasts such as WWR45 minus the mean of WWR15 and WWR75; do not extrapolate to untested WWR values.
-10. Claim strength is produced explicitly so the manuscript discussion can be aligned with the evidence.
-11. Every reviewer concern must map to an evidence output or an explicit `AUTHOR_INPUT_NEEDED` placeholder.
-12. Figure claims must have source-data contracts before final artwork is produced.
-13. Data Availability separates raw, processed, source-data, and restricted-access materials.
-14. Repository-generated scientific figures use Python/matplotlib only, with editable SVG, vector PDF, high-resolution TIFF, QA PNG, panel source CSV, and a figure QA table.
-15. EEG raw/preprocessed `.set` files are converted upstream by MATLAB/EEGLAB into scene-level tables; Python remains the primary analysis and fusion stack.
-16. EEG quality filtering uses configurable robust thresholds by default. The legacy high-frequency ratio threshold from the upstream EEG repository is retained as an audit/sensitivity flag, not as a universal exclusion standard.
-17. High-beta and low-gamma EEG metrics are exploratory because scalp high-frequency activity is more sensitive to muscle artifacts.
-18. AOI hit testing accepts `gaze` or `fixation` coordinates, but formal AOI analyses should use fixation points when exported by the eye tracker; `auto` records the actual source used.
-19. Eye-tracking validity, screen-bounds, timestamp-segment, image-size, and AOI-overlap checks are audit outputs by default. Hard exclusions must be configured explicitly and re-run, because validity codes and screen/image geometry are device/export-specific.
-20. Eye metric expansion follows a bounded hierarchy: `visited`, `FCR`/`FC_rate`, `TFD_ms`, `TTFF_ms`, and `attention_share` remain primary; `FFD_ms`, `MFD_ms`, `RFF`, and `MPD` are exploratory unless pre-registered for a specific manuscript claim.
+9. Final questionnaire descriptives and inferential outputs use the same retained `participant_id + scene_id` keep set as the trimodal analysis. The complete questionnaire table is preserved only for audit and fusion construction.
+10. WWR45 local-optimum evidence is evaluated within the tested levels using planned contrasts such as WWR45 minus the mean of WWR15 and WWR75; do not extrapolate to untested WWR values.
+11. Claim strength is produced explicitly so the manuscript discussion can be aligned with the evidence.
+12. Every reviewer concern must map to an evidence output or an explicit `AUTHOR_INPUT_NEEDED` placeholder.
+13. Figure claims must have source-data contracts before final artwork is produced.
+14. Data Availability separates raw, processed, source-data, and restricted-access materials.
+15. Repository-generated scientific figures use Python/matplotlib only, with editable SVG, vector PDF, high-resolution TIFF, QA PNG, panel source CSV, and a figure QA table.
+16. EEG raw/preprocessed `.set` files are converted upstream by MATLAB/EEGLAB into scene-level tables; Python remains the primary analysis and fusion stack.
+17. EEG quality filtering uses configurable robust thresholds by default. The legacy high-frequency ratio threshold from the upstream EEG repository is retained as an audit/sensitivity flag, not as a universal exclusion standard.
+18. High-beta and low-gamma EEG metrics are exploratory because scalp high-frequency activity is more sensitive to muscle artifacts.
+19. AOI hit testing accepts `gaze` or `fixation` coordinates, but formal AOI analyses should use fixation points when exported by the eye tracker; `auto` records the actual source used.
+20. Eye-tracking validity, screen-bounds, timestamp-segment, image-size, and AOI-overlap checks are audit outputs by default. Hard exclusions must be configured explicitly and re-run, because validity codes and screen/image geometry are device/export-specific.
+21. Eye metric expansion follows a bounded hierarchy: `visited`, `FCR`/`FC_rate`, `TFD_ms`, `TTFF_ms`, and `attention_share` remain primary; `FFD_ms`, `MFD_ms`, `RFF`, and `MPD` are exploratory unless pre-registered for a specific manuscript claim.

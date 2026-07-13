@@ -4,6 +4,8 @@ This repository is the root-level reconstruction of `More-is-not-always-better` 
 
 The repository is intentionally organized around a canonical trial-level data model. Questionnaire, eye-tracking, EEG, synchronization QC, time-bin fusion, paper statistics, and reviewer-response outputs all derive from the same `participant_id + scene_id` trial index.
 
+The authoritative order1/order2/neworder2 sequences, simple eye-folder semantics, `C0/C1` complexity coding, and shared cross-modal questionnaire exclusion policy are documented in [`docs/EXPERIMENT_DESIGN.md`](docs/EXPERIMENT_DESIGN.md).
+
 ## Core Workflow
 
 ```bash

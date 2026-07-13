@@ -21,6 +21,11 @@ def main() -> None:
     parser.add_argument("--afford4-min-items", type=int, default=3)
     parser.add_argument("--wwr-levels", default="15,45,75", help="Comma-separated WWR levels for linear/quadratic trend contrasts.")
     parser.add_argument("--skip-reliability", action="store_true")
+    parser.add_argument(
+        "--analysis-qc",
+        default=None,
+        help="Fusion analysis_qc_exclusions.csv; when supplied, all questionnaire analysis outputs use the shared retained trial set.",
+    )
     args = parser.parse_args()
     wwr_levels = tuple(float(v.strip()) for v in args.wwr_levels.split(",") if v.strip())
     if len(wwr_levels) != 3:
@@ -35,6 +40,7 @@ def main() -> None:
         afford4_min_items=args.afford4_min_items,
         wwr_levels=wwr_levels,
         skip_reliability=args.skip_reliability,
+        analysis_qc_csv=args.analysis_qc,
     ).items():
         print(f"{name}: {path}")
 

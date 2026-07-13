@@ -37,7 +37,7 @@ def main() -> None:
         questionnaire_wide=config.get("questionnaire_wide"),
         questionnaire_long=config.get("questionnaire_long"),
         outdir=outputs / "02_questionnaire",
-        with_significance=config.get("questionnaire_significance", True),
+        with_significance=False,
         afford4_min_items=config.get("afford4_min_items", 3),
         wwr_levels=tuple(config.get("wwr_levels", [15.0, 45.0, 75.0])),
         skip_reliability=config.get("skip_questionnaire_reliability", False),
@@ -64,6 +64,18 @@ def main() -> None:
         expected_scenes_per_subject=config.get("expected_scenes_per_subject", 12),
         bin_size_ms=config.get("bin_size_ms", 2000),
         duration_tolerance_s=config.get("duration_tolerance_s", 10.0),
+    )
+    questionnaire = run_questionnaire_pipeline(
+        participants_csv=intake["participants_standardized"],
+        scene_manifest_csv=intake["scene_manifest_standardized"],
+        questionnaire_wide=config.get("questionnaire_wide"),
+        questionnaire_long=config.get("questionnaire_long"),
+        outdir=outputs / "02_questionnaire",
+        with_significance=config.get("questionnaire_significance", True),
+        afford4_min_items=config.get("afford4_min_items", 3),
+        wwr_levels=tuple(config.get("wwr_levels", [15.0, 45.0, 75.0])),
+        skip_reliability=config.get("skip_questionnaire_reliability", False),
+        analysis_qc_csv=fusion["analysis_qc_exclusions"],
     )
     stats = run_statistical_models(
         master_csv=fusion["analysis_master_long"],

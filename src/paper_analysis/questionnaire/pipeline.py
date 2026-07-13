@@ -35,6 +35,7 @@ def run_questionnaire_pipeline(
     afford4_min_items: int = 3,
     wwr_levels: tuple[float, float, float] = (15.0, 45.0, 75.0),
     skip_reliability: bool = False,
+    analysis_qc_csv: str | Path | None = None,
 ) -> dict[str, Path]:
     if questionnaire_wide is None and questionnaire_long is None:
         raise ValueError("Provide questionnaire_wide or questionnaire_long")
@@ -48,18 +49,21 @@ def run_questionnaire_pipeline(
     long = standardize_questionnaire_long(long)
     merged = attach_scene_and_participants(long, scene, participants)
     merged = add_questionnaire_composites(merged, afford4_min_items=afford4_min_items)
-    qc = questionnaire_qc(merged)
-    scale_qc = questionnaire_scale_qc(merged)
-    b_qc = b_item_c1_qc(merged)
-    reliability = questionnaire_reliability(merged) if not skip_reliability else pd.DataFrame([{"scale": "all", "status": "skipped"}])
-    s_desc = item_descriptives(merged, S_ITEMS + [c for c in ["S5_7", "Afford4"] if c in merged.columns])
-    b_desc = item_descriptives(merged, B_ITEMS + [c for c in ["Bmean"] if c in merged.columns])
-    ipq_desc = ipq_descriptives(merged)
+    analysis, sample = apply_shared_analysis_qc(merged, analysis_qc_csv)
+    qc = questionnaire_qc(analysis)
+    scale_qc = questionnaire_scale_qc(analysis)
+    b_qc = b_item_c1_qc(analysis)
+    reliability = questionnaire_reliability(analysis) if not skip_reliability else pd.DataFrame([{"scale": "all", "status": "skipped"}])
+    s_desc = item_descriptives(analysis, S_ITEMS + [c for c in ["S5_7", "Afford4"] if c in analysis.columns])
+    b_desc = item_descriptives(analysis, B_ITEMS + [c for c in ["Bmean"] if c in analysis.columns])
+    ipq_desc = ipq_descriptives(analysis)
     paper_md = questionnaire_markdown(s_desc, b_desc, reliability, scale_qc, b_qc, ipq_desc)
 
     outdir = Path(outdir)
     outputs: dict[str, Path] = {
         "questionnaire_long": write_table(merged, outdir / "questionnaire_long.csv"),
+        "questionnaire_analysis_long": write_table(analysis, outdir / "questionnaire_analysis_long.csv"),
+        "questionnaire_analysis_sample": write_table(sample, outdir / "questionnaire_analysis_sample.csv"),
         "questionnaire_qc": write_table(qc, outdir / "questionnaire_qc.csv"),
         "questionnaire_scale_qc": write_table(scale_qc, outdir / "questionnaire_scale_qc.csv"),
         "questionnaire_b_item_qc": write_table(b_qc, outdir / "questionnaire_b_item_qc.csv"),
@@ -70,17 +74,54 @@ def run_questionnaire_pipeline(
         "questionnaire_paper_tables": write_text(paper_md, outdir / "questionnaire_paper_tables.md"),
     }
     if with_significance:
-        model_results, model_diagnostics, marginal_means = item_level_lmm(merged)
+        model_results, model_diagnostics, marginal_means = item_level_lmm(analysis)
         outputs.update({
             "questionnaire_item_model_results": write_table(model_results, outdir / "questionnaire_item_model_results.csv"),
             "questionnaire_item_model_diagnostics": write_table(model_diagnostics, outdir / "questionnaire_item_model_diagnostics.csv"),
             "questionnaire_item_pairwise_or_marginal_means": write_table(marginal_means, outdir / "questionnaire_item_pairwise_or_marginal_means.csv"),
-            "questionnaire_wwr_polynomial_contrasts": write_table(wwr_polynomial_contrasts(merged, levels=wwr_levels), outdir / "questionnaire_wwr_polynomial_contrasts.csv"),
+            "questionnaire_wwr_polynomial_contrasts": write_table(wwr_polynomial_contrasts(analysis, levels=wwr_levels), outdir / "questionnaire_wwr_polynomial_contrasts.csv"),
         })
-        ipq_outputs = ipq_subject_level_outputs(merged)
+        ipq_outputs = ipq_subject_level_outputs(analysis)
         for name, df in ipq_outputs.items():
             outputs[name] = write_table(df, outdir / f"{name}.csv")
     return outputs
+
+
+def apply_shared_analysis_qc(df: pd.DataFrame, analysis_qc_csv: str | Path | None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Use the same participant-scene keep set as the trimodal main analysis.
+
+    ``questionnaire_long.csv`` remains the complete, auditable prepared table;
+    every questionnaire descriptive/inferential output uses the returned
+    analysis table when fusion QC is supplied.
+    """
+    raw_trials = int(df[["participant_id", "scene_id"]].drop_duplicates().shape[0])
+    raw_participants = int(df["participant_id"].nunique())
+    if analysis_qc_csv is None:
+        analysis = df.copy()
+        policy = "unfiltered_no_shared_analysis_qc"
+    else:
+        analysis_qc = read_table(analysis_qc_csv)
+        require_columns(analysis_qc, ["participant_id", "scene_id", "excluded_from_analysis"], "analysis QC table")
+        analysis_qc = analysis_qc.copy()
+        analysis_qc["participant_id"] = analysis_qc["participant_id"].astype(str).str.strip()
+        analysis_qc["scene_id"] = pd.to_numeric(analysis_qc["scene_id"], errors="coerce").astype("Int64")
+        assert_unique(analysis_qc, ["participant_id", "scene_id"], "analysis QC table")
+        excluded = analysis_qc["excluded_from_analysis"].astype(str).str.strip().str.lower().isin({"true", "1", "yes", "y"})
+        keep = analysis_qc.loc[~excluded, ["participant_id", "scene_id"]]
+        analysis = df.merge(keep, on=["participant_id", "scene_id"], how="inner")
+        policy = "shared_trimodal_analysis_qc"
+    analysis = analysis.sort_values(["participant_id", "scene_id"]).reset_index(drop=True)
+    kept_trials = int(analysis[["participant_id", "scene_id"]].drop_duplicates().shape[0])
+    sample = pd.DataFrame([{
+        "analysis_policy": policy,
+        "trial_key": "participant_id + scene_id",
+        "raw_questionnaire_trials": raw_trials,
+        "analysis_questionnaire_trials": kept_trials,
+        "excluded_questionnaire_trials": raw_trials - kept_trials,
+        "raw_questionnaire_participants": raw_participants,
+        "analysis_questionnaire_participants": int(analysis["participant_id"].nunique()),
+    }])
+    return analysis, sample
 
 
 def wide_to_long(wide: pd.DataFrame) -> pd.DataFrame:

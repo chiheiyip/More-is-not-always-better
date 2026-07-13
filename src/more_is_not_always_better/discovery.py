@@ -19,13 +19,20 @@ SCENE_DIR_RE = re.compile(
     r"(?P<scene_group>\u7ec4\d+)-C(?P<cond>\d+)W(?P<wwr>\d+)$"
 )
 SIMPLE_SCENE_DIR_RE = re.compile(r"^(?P<block>\d+)-C(?P<cond>\d+)W(?P<wwr>\d+)$", re.IGNORECASE)
-SIMPLE_CONDITION_POSITION = {
-    "C0W15": 1,
-    "C0W45": 2,
-    "C0W75": 3,
-    "C1W15": 4,
-    "C1W45": 5,
-    "C1W75": 6,
+# Canonical presentation sequences.  The numeric prefix in a simple folder
+# (for example ``1-C0W15``) is the block, not the participant's order and not
+# the within-block position.  Position therefore has to be resolved from the
+# participant's questionnaire Order, collection batch, and the condition
+# encoded by C/W.  Both legacy order2 and neworder2 are recorded as Order=2.
+SCENE_ORDER_BY_BLOCK = {
+    1: {
+        1: ("C1W45", "C0W15", "C1W75", "C0W45", "C1W15", "C0W75"),
+        2: ("C0W45", "C1W45", "C0W75", "C1W75", "C0W15", "C1W15"),
+    },
+    2: {
+        1: ("C1W45", "C0W15", "C1W75", "C0W75", "C1W15", "C0W45"),
+        2: ("C0W15", "C1W15", "C1W45", "C0W75", "C0W45", "C1W75"),
+    },
 }
 GENERIC_EYE_SUBJECTS = {"user", "user1", "user2", "test", "pilot", "practice"}
 SUFFIX_NOTE_RE = re.compile(r"^(?P<name>.+?)-\d+-\d+$")
@@ -291,8 +298,13 @@ def build_scene_manifest_from_eye_root(
     for _, row in eye.iterrows():
         participant_id = str(row["participant_id"])
         order = order_map.get(participant_id, default_order)
-        order_scheme, order_code, block, position, scene_id = _resolve_order_position(row, order)
         order_missing = _order_is_missing(participants, participant_id)
+        if str(row.get("folder_order_scheme") or "") == "simple_condition_folder" and order_missing:
+            raise ValueError(
+                f"Participant {participant_id!r} has simple block-condition folders but no questionnaire Order; "
+                "the folder prefix identifies only block, so presentation position cannot be inferred."
+            )
+        order_scheme, order_code, block, position, scene_id = _resolve_order_position(row, order)
         collection_date = _experiment_date_from_eye_record_id(row.get("eye_record_id"))
         rows.append({
             "participant_id": participant_id,
@@ -344,8 +356,6 @@ def parse_scene_folder(folder_name: str) -> Optional[SceneFolderMeta]:
         cond = simple.group("cond")
         wwr = int(simple.group("wwr"))
         condition_code = f"C{cond}W{wwr}"
-        position = SIMPLE_CONDITION_POSITION.get(condition_code.upper())
-        scene_id = (block - 1) * 6 + position if position is not None else None
         return SceneFolderMeta(
             folder_name=folder_name,
             code_order1="",
@@ -356,13 +366,11 @@ def parse_scene_folder(folder_name: str) -> Optional[SceneFolderMeta]:
             condition_code=condition_code,
             complexity=int(cond),
             block=block,
-            position=position,
-            scene_id=scene_id,
+            position=None,
+            scene_id=None,
             order_scheme="simple_condition_folder",
         )
     scene_group = match.group("scene_group")
-    group_number_match = re.search(r"\d+", scene_group)
-    complexity = int(group_number_match.group(0)) if group_number_match else 0
     cond = match.group("cond")
     wwr = int(match.group("wwr"))
     return SceneFolderMeta(
@@ -373,7 +381,7 @@ def parse_scene_folder(folder_name: str) -> Optional[SceneFolderMeta]:
         cond=cond,
         wwr=wwr,
         condition_code=f"C{cond}W{wwr}",
-        complexity=complexity,
+        complexity=int(cond),
     )
 
 
@@ -641,6 +649,29 @@ def _scene_position_from_order_code(order_code: object) -> tuple[int, int, int]:
 
 
 def _resolve_order_position(row: pd.Series, order: int) -> tuple[str, object, int, int, int]:
+    if str(row.get("folder_order_scheme") or "") == "simple_condition_folder":
+        block = int(row.get("folder_block"))
+        condition = _condition_key(row)
+        if order == 2 and _uses_neworder2(row.get("eye_record_id")):
+            try:
+                label, position = NEW_ORDER2_BY_BLOCK[block][condition]
+            except KeyError as exc:
+                raise ValueError(
+                    f"Cannot map condition {condition!r} for neworder2, block {block}; "
+                    f"folder={row.get('source_folder', '')!r}"
+                ) from exc
+            scene_id = (block - 1) * 6 + position
+            return "neworder2_simple_condition_folder", label, block, position, scene_id
+        try:
+            sequence = SCENE_ORDER_BY_BLOCK[int(order)][block]
+            position = sequence.index(condition) + 1
+        except (KeyError, ValueError) as exc:
+            raise ValueError(
+                f"Cannot map condition {condition!r} for Order {order}, block {block}; "
+                f"folder={row.get('source_folder', '')!r}"
+            ) from exc
+        scene_id = (block - 1) * 6 + position
+        return f"order{order}_simple_condition_folder", condition, block, position, scene_id
     folder_scene_id = row.get("folder_scene_id")
     if pd.notna(folder_scene_id) and str(folder_scene_id).strip():
         block = int(row.get("folder_block"))

@@ -111,14 +111,17 @@ def experiment_plain_results(outputs_root: Path) -> pd.DataFrame:
     rows.extend(_sample_rows(outputs_root, summary))
     scene_batch = _scene_date_batch(outputs_root)
 
-    questionnaire = _attach_date_batch(_read_optional(outputs_root / "02_questionnaire" / "questionnaire_long.csv"), scene_batch)
+    questionnaire_source = outputs_root / "02_questionnaire" / "questionnaire_analysis_long.csv"
+    if not questionnaire_source.exists():
+        questionnaire_source = outputs_root / "02_questionnaire" / "questionnaire_long.csv"
+    questionnaire = _attach_date_batch(_read_optional(questionnaire_source), scene_batch)
     rows.extend(_summaries(
         questionnaire,
         module="questionnaire",
-        source_table="02_questionnaire/questionnaire_long.csv",
+        source_table=f"02_questionnaire/{questionnaire_source.name}",
         grain="scene_trial",
         metrics=[m for m in PRIMARY_QUESTIONNAIRE if m in questionnaire.columns],
-        note="Questionnaire scene-level descriptive result; IPQ_mean is participant-level information repeated on scene rows.",
+        note="Questionnaire result on the shared trimodal-QC retained scene set; IPQ_mean is participant-level information repeated on retained scene rows.",
     ))
 
     eye = _attach_date_batch(_read_optional(outputs_root / "03_eye_tracking" / "eye_aoi_trial_long.csv"), scene_batch)

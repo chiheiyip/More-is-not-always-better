@@ -8,6 +8,7 @@ from xml.sax.saxutils import escape
 import zipfile
 
 import pandas as pd
+import pytest
 
 from more_is_not_always_better.discovery import (
     apply_eye_aliases,
@@ -30,8 +31,8 @@ def test_simple_eye_folder_manifest_and_aoi_json(tmp_path: Path) -> None:
     meta = parse_scene_folder("1-C0W15")
     assert meta is not None
     assert meta.block == 1
-    assert meta.position == 1
-    assert meta.scene_id == 1
+    assert meta.position is None
+    assert meta.scene_id is None
     assert meta.complexity == 0
 
     eye = scan_eye_raw(eye_root)
@@ -40,15 +41,67 @@ def test_simple_eye_folder_manifest_and_aoi_json(tmp_path: Path) -> None:
 
     participants_csv = tmp_path / "participants.csv"
     participants = build_participants_from_roots(eye_root, eeg_root, out_csv=participants_csv)
+    participants["Order"] = 1
+    participants.to_csv(participants_csv, index=False, encoding="utf-8-sig")
     scene = build_scene_manifest_from_eye_root(eye_root, participants_csv)
 
     assert bool(participants.loc[0, "exclude"]) is False
-    assert scene.loc[0, "scene_id"] == 1
+    assert scene.loc[0, "scene_id"] == 2
     assert scene.loc[0, "block"] == 1
-    assert scene.loc[0, "position"] == 1
+    assert scene.loc[0, "position"] == 2
     assert scene.loc[0, "Cond"] == "C0"
     assert scene.loc[0, "WWR"] == 15
     assert scene.loc[0, "aoi_json_path"].endswith("1-C0W15.json")
+
+
+def test_simple_folders_resolve_order1_order2_and_neworder2(tmp_path: Path) -> None:
+    eye_root = tmp_path / "eye"
+    conditions = ["C0W15", "C0W45", "C0W75", "C1W15", "C1W45", "C1W75"]
+    for block in (1, 2):
+        for condition in conditions:
+            folder = eye_root / f"{block}-{condition}"
+            _write_eye_csv(folder / "raw_Order1_260430201640_0617145623.csv")
+            _write_eye_csv(folder / "raw_Order2_260430201641_0617145624.csv")
+            _write_eye_csv(folder / "raw_NewOrder2_260501201642_0617145625.csv")
+    participants_csv = tmp_path / "participants.csv"
+    participants_csv.write_text(
+        "participant_id,Order,exclude\nOrder1,1,false\nOrder2,2,false\nNewOrder2,2,false\n",
+        encoding="utf-8",
+    )
+
+    scene = build_scene_manifest_from_eye_root(eye_root, participants_csv)
+    expected = {
+        "Order1": ["C1W45", "C0W15", "C1W75", "C0W45", "C1W15", "C0W75", "C0W45", "C1W45", "C0W75", "C1W75", "C0W15", "C1W15"],
+        "Order2": ["C1W45", "C0W15", "C1W75", "C0W75", "C1W15", "C0W45", "C0W15", "C1W15", "C1W45", "C0W75", "C0W45", "C1W75"],
+        "NewOrder2": ["C0W75", "C1W15", "C0W45", "C1W75", "C0W15", "C1W45", "C1W15", "C0W15", "C1W75", "C0W75", "C1W45", "C0W45"],
+    }
+    for participant_id, sequence in expected.items():
+        actual = scene.loc[scene["participant_id"].eq(participant_id)].sort_values("scene_id")
+        assert actual["scene_name"].tolist() == sequence
+        assert actual["scene_id"].tolist() == list(range(1, 13))
+        assert actual["position"].tolist() == list(range(1, 7)) * 2
+        assert actual["Complexity"].astype(int).tolist() == [int(value[1]) for value in sequence]
+    assert scene.loc[scene["participant_id"].eq("Order2"), "order_scheme"].eq("order2_simple_condition_folder").all()
+    assert scene.loc[scene["participant_id"].eq("NewOrder2"), "order_scheme"].eq("neworder2_simple_condition_folder").all()
+
+
+def test_simple_folders_require_questionnaire_order(tmp_path: Path) -> None:
+    eye_root = tmp_path / "eye"
+    _write_eye_csv(eye_root / "1-C1W45" / "raw_P01_260530201640_0617145623.csv")
+    participants_csv = tmp_path / "participants.csv"
+    participants_csv.write_text("participant_id,exclude\nP01,false\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="no questionnaire Order"):
+        build_scene_manifest_from_eye_root(eye_root, participants_csv)
+
+
+def test_complexity_always_comes_from_c_code() -> None:
+    meta = parse_scene_folder("(1-1-1、2-1-1) 组1-C0W45")
+    assert meta is not None
+    assert meta.complexity == 0
+    meta = parse_scene_folder("(1-1-1、2-1-1) 组1-C1W45")
+    assert meta is not None
+    assert meta.complexity == 1
 
 
 def test_wjx_questionnaire_long_parser_scores_chinese_points(tmp_path: Path) -> None:
@@ -287,6 +340,9 @@ def test_run_realdata_all_with_existing_eeg_scene_csv(tmp_path: Path) -> None:
     assert summary["run_scope"] == "selected_participants"
     assert summary["is_smoke_run"] is True
     assert summary["eeg_trial_rows"] == 4
+    assert summary["questionnaire_analysis_rows"] == 4
+    assert summary["questionnaire_analysis_participants"] == 2
+    assert summary["questionnaire_analysis_policy"] == "shared_trimodal_analysis_qc"
     assert summary["analysis_scene_trials_total"] == 4
     assert summary["fusion_run"] is True
     assert (outputs / "05_multimodal_fusion" / "analysis_master_long.csv").exists()
@@ -392,12 +448,12 @@ def _write_realdata_all_fixture(questionnaire: Path, eye_root: Path, eeg_root: P
     _write_minimal_xlsx(questionnaire, rows)
 
     aoi = '{"aoi_classes":{"table":[{"points":[[0,0],[100,0],[100,100],[0,100]]}],"window":[{"points":[[100,0],[200,0],[200,100],[100,100]]}]}}'
-    for folder in ["1-C0W15", "1-C0W45"]:
+    for folder in ["1-C1W45", "1-C0W15"]:
         (eye_root / folder).mkdir(parents=True, exist_ok=True)
         (eye_root / folder / f"{folder}.json").write_text(aoi, encoding="utf-8")
     for subject in ["张三", "李四"]:
-        _write_eye_csv(eye_root / "1-C0W15" / f"raw_{subject}_260530201640_0617145623.csv")
-        _write_eye_csv(eye_root / "1-C0W45" / f"raw_{subject}_260530201640_0617150451.csv")
+        _write_eye_csv(eye_root / "1-C1W45" / f"raw_{subject}_260530201640_0617145623.csv")
+        _write_eye_csv(eye_root / "1-C0W15" / f"raw_{subject}_260530201640_0617150451.csv")
 
     eeg_rows = [
         {"subject_id": subject, "scene_id": scene_id, "view_start_s": 0.0, "view_end_s": 3.0, "view_dur_s": 3.0, "O_theta": value, "F_theta": value + 0.1, "O_alpha": value + 0.2, "hf_ratio_20_40Hz": 0.1, "rms_mean_uV": 10.0, "peak_to_peak_uV": 50.0, "nan_fraction": 0.0, "flat_fraction": 0.0, "segment_valid_duration": True}

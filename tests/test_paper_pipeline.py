@@ -14,7 +14,7 @@ from paper_analysis.intake.pipeline import build_manifests
 from paper_analysis.questionnaire.pipeline import run_questionnaire_pipeline
 from paper_analysis.reporting.pipeline import build_paper_outputs
 from paper_analysis.stats.models import run_statistical_models
-from paper_analysis.utils.coding import experience_group, standardize_participants
+from paper_analysis.utils.coding import condition_id, experience_group, standardize_participants
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "paper"
@@ -39,6 +39,11 @@ def test_standardize_participants_recomputes_experience_group_from_q1_4() -> Non
     assert out["ExperienceGroupInput"].tolist() == ["Low", "High"]
     assert out["ExperienceGroupSource"].eq("Experience").all()
     assert out["ExperienceGroupRule"].eq("q1_4_table_tennis_experience_2_by_2").all()
+
+
+def test_condition_id_uses_c0_c1_without_double_prefix() -> None:
+    assert condition_id(pd.Series({"WWR": 15, "Complexity": 0, "Cond": "C0"})) == "C0_W15"
+    assert condition_id(pd.Series({"WWR": 45, "Complexity": 1, "Cond": "C1"})) == "C1_W45"
 
 
 def test_eeg_model_config_covers_roi_band_grid() -> None:
@@ -182,6 +187,35 @@ def test_questionnaire_wide_to_long_keeps_design_columns(tmp_path: Path) -> None
     assert poly["contrast"].isin(["Linear", "Quadratic"]).any()
     assert set(q["Gender"].dropna()) == {"Female", "Male"}
     assert q[["participant_id", "scene_id"]].duplicated().sum() == 0
+
+
+def test_questionnaire_outputs_use_shared_trimodal_qc_keep_set(tmp_path: Path) -> None:
+    qc = tmp_path / "analysis_qc_exclusions.csv"
+    qc.write_text(
+        "participant_id,scene_id,excluded_from_analysis,analysis_exclusion_reasons\n"
+        "P01,1,false,\nP01,2,true,bad_eeg_quality\nP01,3,false,\n"
+        "P02,1,true,duration_mismatch\nP02,2,false,\nP02,3,false,\n",
+        encoding="utf-8",
+    )
+    out = run_questionnaire_pipeline(
+        participants_csv=FIXTURES / "participants.csv",
+        scene_manifest_csv=FIXTURES / "scene_manifest.csv",
+        questionnaire_wide=FIXTURES / "questionnaire" / "questionnaire_wide.csv",
+        outdir=tmp_path / "questionnaire_qc_filtered",
+        analysis_qc_csv=qc,
+    )
+
+    raw = pd.read_csv(out["questionnaire_long"])
+    analysis = pd.read_csv(out["questionnaire_analysis_long"])
+    sample = pd.read_csv(out["questionnaire_analysis_sample"])
+    assert len(raw) == 6
+    assert set(zip(analysis["participant_id"], analysis["scene_id"])) == {
+        ("P01", 1), ("P01", 3), ("P02", 2), ("P02", 3)
+    }
+    assert sample.loc[0, "analysis_policy"] == "shared_trimodal_analysis_qc"
+    assert int(sample.loc[0, "excluded_questionnaire_trials"]) == 2
+    q_qc = pd.read_csv(out["questionnaire_qc"])
+    assert int(q_qc.loc[q_qc["item"].eq("S1"), "n_observations"].iloc[0]) == 4
 
 
 def test_questionnaire_enhanced_outputs_handle_ipq_b_items_and_s5_scale(tmp_path: Path) -> None:

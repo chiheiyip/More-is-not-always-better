@@ -27,6 +27,7 @@ All later tables must preserve these keys.
 | Step | Output | Provenance role |
 |---|---|---|
 | Questionnaire | `outputs/02_questionnaire/questionnaire_long.csv` | Subjective outcomes attached to trial index. |
+| Questionnaire analysis | `outputs/02_questionnaire/questionnaire_analysis_long.csv` | Questionnaire rows retained by the shared trimodal `participant_id + scene_id` QC keep set; source for questionnaire statistics and paper summaries. |
 | Eye tracking | `outputs/03_eye_tracking/eye_aoi_trial_long.csv` | AOI metrics attached to trial index. |
 | EEG | `outputs/04_eeg/eeg_trial_long.csv` | EEG scene metrics attached to trial index. |
 
