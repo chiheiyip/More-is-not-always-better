@@ -59,7 +59,7 @@ def run_canonical_analysis(
 ) -> dict[str, Path]:
     """Fit the single authoritative model package and supporting sample audits."""
     participants = read_table(participants_csv)
-    questionnaire = _attach_participants(read_table(questionnaire_csv), participants)
+    questionnaire = _attach_participants(_normalize_questionnaire(read_table(questionnaire_csv)), participants)
     eye_aoi = _attach_participants(read_table(eye_aoi_csv), participants)
     eye_dynamic = _attach_participants(read_table(eye_dynamic_csv), participants)
     if set(KEYS).issubset(eye_aoi.columns) and set(KEYS + ["valid_eye_duration_s"]).issubset(eye_dynamic.columns):
@@ -295,9 +295,15 @@ def _formula(data: pd.DataFrame, response: str, aoi: bool, sensitivity: bool) ->
         if _varying(data, "WWR"):
             terms.append("C(WWR):C(class_name)")
     if sensitivity:
-        for name in ("Gender", "RecruitmentBatch", "DateBatch"):
+        for name in ("Gender",):
             if _varying(data, name):
                 terms.append(f"C({name})")
+        # RecruitmentBatch and the date-derived DateBatch are often the same
+        # partition.  Never include both in one sensitivity model because that
+        # produces an exactly singular design matrix.
+        batch = "RecruitmentBatch" if _varying(data, "RecruitmentBatch") else "DateBatch" if _varying(data, "DateBatch") else None
+        if batch:
+            terms.append(f"C({batch})")
         if "Age" in data and pd.to_numeric(data["Age"], errors="coerce").notna().sum() > 0:
             terms.append("Age")
     return f"{response} ~ " + (" + ".join(dict.fromkeys(terms)) if terms else "1")
@@ -453,6 +459,17 @@ def _attach_participants(data: pd.DataFrame, participants: pd.DataFrame) -> pd.D
     demographic = [c for c in ("participant_id", "ExperienceGroup", "Gender", "Age", "RecruitmentBatch", "DateBatch") if c in participants]
     base = data.drop(columns=[c for c in demographic if c != "participant_id" and c in data], errors="ignore")
     return base.merge(participants[demographic].drop_duplicates("participant_id"), on="participant_id", how="left")
+
+
+def _normalize_questionnaire(data: pd.DataFrame) -> pd.DataFrame:
+    """Expose prepared S1-S5 columns under the canonical q_S1-q_S5 names."""
+    out = data.copy()
+    for index in range(1, 6):
+        canonical = f"q_S{index}"
+        source = f"S{index}"
+        if canonical not in out and source in out:
+            out[canonical] = out[source]
+    return out
 
 
 def _eye_threshold_subset(data: pd.DataFrame, qc: pd.DataFrame, threshold: float) -> pd.DataFrame:

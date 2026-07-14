@@ -15,6 +15,7 @@ def test_canonical_models_use_modality_specific_samples_clustered_gee_and_fdr(tm
         "Gender": ["Female", "Male"] * 4,
         "Age": np.arange(21, 29),
         "DateBatch": ["Initial"] * 4 + ["Supplement"] * 4,
+        "RecruitmentBatch": ["Original"] * 4 + ["Supplement"] * 4,
     })
     q_rows, dynamic_rows, aoi_rows, eeg_rows, eye_qc_rows, eeg_qc_rows = [], [], [], [], [], []
     rng = np.random.default_rng(7)
@@ -27,7 +28,7 @@ def test_canonical_models_use_modality_specific_samples_clustered_gee_and_fdr(tm
                 "Complexity": complexity, "block": 1 + (scene_id > 4),
                 "position": (scene_id - 1) % 4 + 1,
             }
-            q_rows.append({**base, **{f"q_S{i}": 4 + .2 * complexity + .01 * wwr + rng.normal(0, .2) for i in range(1, 6)}})
+            q_rows.append({**base, **{f"S{i}": 4 + .2 * complexity + .01 * wwr + rng.normal(0, .2) for i in range(1, 6)}})
             duration = 20 + rng.uniform(0, 2)
             dynamic_rows.append({
                 **base, "valid_eye_duration_s": duration,
@@ -90,6 +91,12 @@ def test_canonical_models_use_modality_specific_samples_clustered_gee_and_fdr(tm
     assert models["scope"].astype(str).str.startswith("eye_valid_coordinates_ge_").any()
     assert models["hypothesis_block"].isin(["H1_complexity_exploration", "H2_wwr_window_direction", "H3_experience_moderation", "H4_fatigue_order"]).any()
     assert {"grain", "family", "scope", "n_subjects", "n_trials", "formula", "p_fdr_bh"}.issubset(models.columns)
+    questionnaire_diagnostics = diagnostics.loc[diagnostics["family"].eq("questionnaire")]
+    assert set(questionnaire_diagnostics["outcome"]) == {"q_S1", "q_S2", "q_S3", "q_S4", "q_S5"}
+    assert not questionnaire_diagnostics["status"].eq("missing_outcome").any()
+    sensitivity_formulas = models.loc[models["scope"].eq("demographic_sensitivity"), "formula"].astype(str)
+    assert sensitivity_formulas.str.contains("RecruitmentBatch", regex=False).any()
+    assert not sensitivity_formulas.str.contains("DateBatch", regex=False).any()
     pupil = models.loc[models["outcome"].eq("pupil_post_early_delta_mm")]
     assert pupil["interpretation_tier"].eq("exploratory").all()
     assert not (tmp_path / "models" / "legacy").exists()
