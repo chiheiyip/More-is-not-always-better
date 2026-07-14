@@ -13,10 +13,13 @@ from paper_analysis.stats.optimized import run_optimized_analysis
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run data-first optimized analyses and adversarial audit.")
+    parser = argparse.ArgumentParser(description="Run the deprecated pre-canonical optimized analysis for compatibility only.")
     parser.add_argument("--base-results", required=True, help="Freshly rebuilt current-code result directory.")
     parser.add_argument("--outdir", required=True, help="Independent directory for optimized outputs.")
+    parser.add_argument("--legacy-optimized", action="store_true", help="Required acknowledgement that this is not the canonical analysis.")
     args = parser.parse_args()
+    if not args.legacy_optimized:
+        parser.error("This compatibility entry is disabled by default; pass --legacy-optimized explicitly.")
     base = Path(args.base_results)
     outputs = run_optimized_analysis(
         pre_qc_master_csv=base / "05_multimodal_fusion" / "analysis_master_long_pre_qc.csv",

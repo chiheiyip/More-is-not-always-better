@@ -29,6 +29,7 @@ from paper_analysis.intake.pipeline import build_manifests  # noqa: E402
 from paper_analysis.questionnaire.pipeline import run_questionnaire_pipeline  # noqa: E402
 from paper_analysis.reporting.experiment_results import build_experiment_result_package  # noqa: E402
 from paper_analysis.reporting.pipeline import build_paper_outputs  # noqa: E402
+from paper_analysis.stats.canonical import run_canonical_analysis  # noqa: E402
 from paper_analysis.stats.models import run_statistical_models  # noqa: E402
 
 
@@ -58,11 +59,14 @@ def main() -> None:
     parser.add_argument("--aligned_timebin_csv", default=None, help="Reuse an existing aligned_timebin_table.csv instead of recomputing time-bin eye metrics.")
     parser.add_argument("--model-config", default="configs/model_families.json")
     parser.add_argument("--eeg-qc-config", default="configs/eeg_qc.json")
+    parser.add_argument("--eye-qc-config", default="configs/eye_qc.json")
     parser.add_argument("--figure-contracts", default="configs/figure_contracts.json")
     parser.add_argument("--reviewer-map", default="configs/reviewer_response_map.json")
     parser.add_argument("--skip-questionnaire-significance", action="store_true")
     parser.add_argument("--skip-questionnaire-reliability", action="store_true")
     parser.add_argument("--skip-models", action="store_true")
+    parser.add_argument("--legacy-models", action="store_true", help="Also write superseded models to 06_models/legacy/.")
+    parser.add_argument("--mde-simulations", type=int, default=1000)
     parser.add_argument("--skip-diagnostics", action="store_true")
     parser.add_argument("--skip-reporting", action="store_true")
     parser.add_argument("--skip-figures", action="store_true")
@@ -138,6 +142,7 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
         participants_csv=intake["participants_standardized"],
         scene_manifest_csv=intake["scene_manifest_standardized"],
         outdir=outputs_root / "03_eye_tracking",
+        eye_qc_config=args.eye_qc_config,
     )
 
     eeg_scene_csv = _prepare_eeg_scene_csv(args, outputs_root)
@@ -186,7 +191,20 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
     reporting = None
     figures = None
     if not args.skip_models:
-        stats = run_statistical_models(fusion["analysis_master_long"], args.model_config, outputs_root / "06_models")
+        stats = run_canonical_analysis(
+            questionnaire_csv=questionnaire["questionnaire_long"],
+            eye_aoi_csv=eye["eye_aoi_trial_long"],
+            eye_dynamic_csv=eye["eye_trial_dynamic_metrics"],
+            eye_qc_csv=eye["eye_qc"],
+            eeg_csv=eeg["eeg_trial_long"],
+            eeg_scene_qc_csv=eeg["eeg_scene_qc"],
+            participants_csv=intake["participants_standardized"],
+            outdir=outputs_root / "06_models",
+            mde_simulations=args.mde_simulations,
+        )
+        if args.legacy_models:
+            legacy = run_statistical_models(fusion["analysis_master_long"], args.model_config, outputs_root / "06_models" / "legacy")
+            stats.update({f"legacy_{name}": path for name, path in legacy.items()})
     if not args.skip_diagnostics:
         diagnostics = run_diagnostics(fusion["analysis_master_long"], intake["participants_standardized"], outputs_root / "06_robustness")
     if not args.skip_reporting:

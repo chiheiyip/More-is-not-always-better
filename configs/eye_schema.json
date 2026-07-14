@@ -16,9 +16,23 @@
     "Pupil Diameter Right[mm]",
     "Pupil Diameter Left[px]",
     "Pupil Diameter Right[px]"
+    ,"Saccade Index"
+    ,"Saccade Amplitude[px]"
+    ,"Saccade Velocity Average[px/ms]"
+    ,"Saccade Velocity Peak[px/ms]"
+    ,"Blink Index"
+    ,"Blink Duration[ms]"
+    ,"Gaze Direction Left X"
+    ,"Gaze Direction Left Y"
+    ,"Gaze Direction Left Z"
+    ,"Gaze Direction Right X"
+    ,"Gaze Direction Right Y"
+    ,"Gaze Direction Right Z"
   ],
-  "primary_metrics": ["visited", "FCR", "FC", "FC_share", "FC_rate", "TFD_ms", "TTFF_ms", "attention_share", "share_pct"],
-  "exploratory_metrics": ["FFD_ms", "MFD_ms", "RFF", "MPD"],
-  "qc_outputs": ["eye_qc.csv", "aoi_validation_summary.csv", "aoi_overlap_summary.csv"],
-  "aoi_policy": "Report AOI area, visited rate, per-AOI sample coverage, AOI overlap, point source used, timestamp segments, and validity/screen ratios. Trial exclusion is configurable and not applied by default."
+  "primary_metrics": ["visited", "FCR", "FC", "FC_share", "FC_rate", "TFD_ms", "TTFF_ms", "attention_share", "share_pct", "aoi_transition_count", "aoi_transition_rate_per_min", "transition_entropy_normalized", "angular_scanpath_deg_per_s", "saccade_rate_per_min", "first_window_fixation_latency_ms", "window_entry_count", "window_directed_transition_rate_per_min"],
+  "exploratory_metrics": ["FFD_ms", "MFD_ms", "RFF", "MPD", "saccade_amplitude_median_px", "saccade_velocity_average_median_px_per_ms", "saccade_velocity_peak_median_px_per_ms", "blink_rate_per_min", "pupil_post_early_delta_mm", "pupil_slope_mm_per_s"],
+  "event_outputs": ["eye_fixation_sequence_long.csv", "eye_transition_long.csv", "eye_transition_matrix.csv", "eye_trial_dynamic_metrics.csv"],
+  "qc_outputs": ["eye_qc.csv", "eye_qc_sensitivity.csv", "eye_metric_availability.csv", "aoi_validation_summary.csv", "aoi_overlap_summary.csv"],
+  "aoi_policy": "Report AOI area, canvas fraction, availability, overlap/ambiguity, coordinate contract, point source, timestamp segments, and validity/screen ratios. Overlaps choose the smaller total-area AOI. Outside is retained in state transitions and omitted in named-AOI transitions. No primary hard validity threshold is applied.",
+  "pupil_policy": "Mask blink +/-100 ms, reject trial outliers at 3.5 MAD, interpolate only gaps <=200 ms, and use the first 2 seconds as a scene-early reference. This is not a pre-stimulus baseline and remains exploratory/luminance-confounded."
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,8 +19,14 @@ class PolygonAOI:
 
 
 def load_aoi_json(path: str | Path) -> list[PolygonAOI]:
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    aois, _ = load_aoi_document(path)
+    return aois
+
+
+def load_aoi_document(path: str | Path) -> tuple[list[PolygonAOI], dict]:
+    path = Path(path)
+    raw_bytes = path.read_bytes()
+    data = json.loads(raw_bytes.decode("utf-8"))
     aois: list[PolygonAOI] = []
     raw = data.get("aoi_classes") or data.get("classes")
     if isinstance(raw, dict):
@@ -38,7 +45,26 @@ def load_aoi_json(path: str | Path) -> list[PolygonAOI]:
                 aois.append(PolygonAOI(class_name, counts[class_name], points))
     if not aois:
         raise ValueError(f"Unsupported or empty AOI JSON: {path}")
-    return aois
+    image = data.get("image") if isinstance(data.get("image"), dict) else {}
+    tool = data.get("tool") if isinstance(data.get("tool"), dict) else {}
+    metadata = {
+        "aoi_image_width_px": _number_or_none(image.get("width")),
+        "aoi_image_height_px": _number_or_none(image.get("height")),
+        "aoi_image_filename": image.get("filename", ""),
+        "aoi_tool_name": tool.get("name", ""),
+        "aoi_tool_version": tool.get("version", ""),
+        "aoi_exported_at": tool.get("exported_at", ""),
+        "aoi_sha256": hashlib.sha256(raw_bytes).hexdigest(),
+    }
+    return aois, metadata
+
+
+def _number_or_none(value: object) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if np.isfinite(number) else None
 
 
 def compute_aoi_metrics(

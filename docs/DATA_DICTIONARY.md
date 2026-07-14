@@ -37,8 +37,8 @@
 
 | Field or file | Meaning |
 |---|---|
-| `questionnaire_long.csv` | Complete prepared questionnaire trial table retained for audit and as an input to fusion; it is not the final analysis sample. |
-| `questionnaire_analysis_long.csv` | Questionnaire trials retained by the shared trimodal `participant_id + scene_id` analysis-QC keep set; all final questionnaire summaries and models use this table. |
+| `questionnaire_long.csv` | Complete prepared questionnaire trial table and canonical questionnaire-specific analysis source. EEG QC is not applied to it. |
+| `questionnaire_analysis_long.csv` | Legacy/shared-intersection compatibility view. It is not the canonical questionnaire model source. |
 | `questionnaire_analysis_sample.csv` | Audit row recording the raw, retained, and excluded questionnaire trial/participant counts and the applied QC policy. |
 | `questionnaire_descriptives.csv` | Item/composite descriptives with observation count, subject count, mean, SD, median, range, 95% CI, skewness, kurtosis, and Shapiro diagnostic p value when estimable. |
 | `questionnaire_reliability.csv` | Cronbach alpha diagnostics for configured scales such as `S1`-`S4`, `S1`-`S5`, `B1`-`B3`, and `IPQ1`-`IPQ6`; statuses distinguish acceptable, check, insufficient rows, and missing items. |
@@ -71,6 +71,16 @@
 | `time_segment_count` | Number of timestamp segments detected after resets or large gaps. |
 | `timestamp_gap_count` | Number of timestamp gaps above the configured threshold. |
 | `aoi_overlap_summary.csv` | Per-trial overlap of AOI class hit masks. Non-zero overlap means AOI shares can legitimately sum above 1 and should be interpreted with care. |
+| `eye_fixation_sequence_long.csv` | One row per unique fixation, including time segment, centroid, binocular mean gaze direction, assigned AOI, all candidate AOIs, ambiguity, and canvas status. |
+| `eye_transition_long.csv` | One row per compressed transition, with `state` scope including `outside` and `named_aoi` scope omitting outside while recording `passed_outside`. |
+| `eye_transition_matrix.csv` | Directed transition counts and conditional probabilities by from-AOI, to-AOI, and transition scope. |
+| `eye_trial_dynamic_metrics.csv` | One row per participant-scene containing transitions, entropy, 2D/angular scanpath, vendor-event saccades/blinks, and scene-early pupil change. |
+| `transition_entropy_normalized` | Transition entropy divided by the maximum implied by the number of AOIs available in that scene. |
+| `angular_scanpath_deg_per_s` | Sum of angles between adjacent binocular mean unit gaze vectors, divided by valid scene duration; timestamp gaps >5 s are not bridged. |
+| `median_revisit_latency_ms` | Median time between leaving and subsequently revisiting an AOI, calculated within timestamp segments. |
+| `pupil_post_early_delta_mm` | Median post-2-second pupil diameter minus the first-2-second scene-early reference. Not a pre-stimulus baseline; exploratory and luminance-confounded. |
+| `coordinate_contract_status` | Whether source/target canvases were explicitly verified, explicitly scaled, incomplete, or unverified. |
+| `eye_qc_sensitivity.csv` | Retained trial/subject counts and condition balance at 50%, 60%, 70%, and 80% valid-coordinate thresholds. |
 
 ## Fusion And Synchronization Fields
 
@@ -107,6 +117,8 @@ EEG columns follow ROI + band naming such as `F_theta`, `P_alpha`, and `O_beta`.
 | `eeg_subject_quality_exclusion` | Whether the participant crossed the configured bad-scene fraction threshold. |
 
 ## Reporting And Nature-Style Metadata
+
+The authoritative inferential table is `outputs/06_models/model_results.csv`. It records grain, GEE family, scope, sample counts, formula, effect scale, confidence interval, raw p value, four-block BH-FDR result, and fit status. Compatibility models, when explicitly requested, live under `outputs/06_models/legacy/` and are excluded from the report evidence chain.
 
 | Field | Meaning |
 |---|---|

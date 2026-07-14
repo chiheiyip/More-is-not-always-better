@@ -10,6 +10,7 @@ from more_is_not_always_better.aoi import PolygonAOI as LegacyAOI
 from more_is_not_always_better.aoi import compute_metrics as compute_legacy_metrics
 from paper_analysis.eye_tracking.aoi import PolygonAOI, compute_aoi_metrics, point_in_poly
 from paper_analysis.eye_tracking.pipeline import run_eye_pipeline
+from paper_analysis.eye_tracking.qc import EyeQCPolicy, valid_eye_mask
 
 
 def test_paper_aoi_metrics_prefer_fixation_points_and_report_qc() -> None:
@@ -97,6 +98,47 @@ def test_aoi_boundary_points_are_counted_inside_for_reproducibility() -> None:
     poly = [(0, 0), (100, 0), (100, 100), (0, 100)]
     result = point_in_poly(np.array([100.0, 101.0]), np.array([50.0, 50.0]), poly)
     assert result.tolist() == [True, False]
+
+
+def test_unconfigured_screen_and_validity_are_not_reported_as_100_percent_valid() -> None:
+    frame = pd.DataFrame({"x": [1, 2], "y": [1, 2]})
+    _, qc = valid_eye_mask(frame, "x", "y", EyeQCPolicy())
+    assert qc["screen_check_applied"] is False
+    assert qc["validity_check_applied"] is False
+    assert qc["screen_check_status"] == "not_configured"
+    assert qc["validity_check_status"] == "not_configured"
+    assert np.isnan(qc["screen_valid_ratio"])
+    assert np.isnan(qc["validity_valid_ratio"])
+
+
+def test_pipeline_scales_only_from_explicit_manifest_canvas(tmp_path: Path) -> None:
+    participants = tmp_path / "participants.csv"
+    scene = tmp_path / "scene.csv"
+    eye = tmp_path / "eye.csv"
+    aoi = tmp_path / "aoi.json"
+    participants.write_text("participant_id,exclude\nP01,false\n", encoding="utf-8")
+    pd.DataFrame({
+        "Recording Time Stamp[ms]": [0, 100], "Fixation Index": [1, 2],
+        "Fixation Point X[px]": [25, 75], "Fixation Point Y[px]": [25, 75],
+        "Gaze Point X[px]": [25, 75], "Gaze Point Y[px]": [25, 75],
+        "Fixation Duration[ms]": [50, 50],
+    }).to_csv(eye, index=False)
+    aoi.write_text(json.dumps({
+        "image": {"width": 200, "height": 200},
+        "tool": {"name": "fixture", "version": "1", "exported_at": "2026-01-01"},
+        "aoi_classes": {"window": [{"points": [[0, 0], [100, 0], [100, 100], [0, 100]]}]},
+    }), encoding="utf-8")
+    scene.write_text(
+        "participant_id,scene_id,eye_csv_path,aoi_json_path,source_canvas_width_px,source_canvas_height_px\n"
+        f"P01,1,{eye.as_posix()},{aoi.as_posix()},100,100\n",
+        encoding="utf-8",
+    )
+    out = run_eye_pipeline(participants, scene, tmp_path / "out")
+    qc = pd.read_csv(out["eye_qc"])
+    fixations = pd.read_csv(out["eye_fixation_sequence_long"])
+    assert qc.loc[0, "coordinate_contract_status"] == "scaled_from_explicit_manifest_canvas"
+    assert qc.loc[0, "coordinate_scale_x"] == 2
+    assert fixations["fixation_x_px"].tolist() == [50, 150]
 
 
 def test_legacy_aoi_metrics_support_explicit_gaze_or_fixation_point_source() -> None:

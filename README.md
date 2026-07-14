@@ -2,7 +2,7 @@
 
 This repository is the root-level reconstruction of `More-is-not-always-better` into a paper-aligned multimodal analysis repository. It consolidates questionnaire, eye-tracking, EEG, EEG-eye fusion, robustness diagnostics, Nature-style data availability, figure source-data contracts, and reviewer-response evidence into one reproducible pipeline.
 
-The repository is intentionally organized around a canonical trial-level data model. Questionnaire, eye-tracking, EEG, synchronization QC, time-bin fusion, paper statistics, and reviewer-response outputs all derive from the same `participant_id + scene_id` trial index.
+The repository is organized around explicit grains. Questionnaire, eye-tracking, and EEG use their own metric-eligible samples; `participant_id + scene_id` is the scene-trial key, AOI models add `class_name`, and the trimodal intersection is reserved for synchronized fusion rather than imposed on unimodal inference.
 
 The authoritative order1/order2/neworder2 sequences, simple eye-folder semantics, `C0/C1` complexity coding, and shared cross-modal questionnaire exclusion policy are documented in [`docs/EXPERIMENT_DESIGN.md`](docs/EXPERIMENT_DESIGN.md).
 
@@ -18,10 +18,10 @@ For real data, copy `configs/paths.example.json` to `configs/paths.local.json` a
 
 - `outputs/01_sample_qc/`: participant flow, group balance, scene/design balance.
 - `outputs/02_questionnaire/`: S1-S5, B1-B3, IPQ long tables, extended descriptives, reliability diagnostics, C1-only B-item QC, subject-level IPQ summaries, item-level LMM diagnostics, and WWR trend contrasts.
-- `outputs/03_eye_tracking/`: AOI visited, FCR, TFD, TTFF, attention share, AOI validation.
+- `outputs/03_eye_tracking/`: fixation sequences, two-scope AOI transitions and matrices, dynamic scanpath/saccade/pupil/blink metrics, AOI metrics, structural validation, and 50%–80% QC sensitivity flow.
 - `outputs/04_eeg/`: EEG trial-level table and frequency-band QC.
 - `outputs/05_multimodal_fusion/`: canonical analysis master table, original-style EEG-eye aligned scene table, time-bin table, sync QC, precise alignment QC, and multimodal claim support.
-- `outputs/06_models/`: registered model results and WWR planned contrasts.
+- `outputs/06_models/`: the canonical participant-clustered GEE result table, fit diagnostics, modality sample flow, QC sensitivity models, metric availability, and Monte Carlo MDE. Superseded models are written only with `--legacy-models`, under `outputs/06_models/legacy/`.
 - `outputs/06_robustness/`: order/fatigue, gender, batch, nonlinear WWR, power sensitivity.
 - `outputs/07_paper_tables/`: paper-facing tables, claim strength table, result summary.
 - `outputs/08_reviewer_response/`: reviewer issue to evidence index and reviewer issue matrix.
@@ -41,6 +41,8 @@ The corrections are deliberate: S1-S5 stay as primary item-level outcomes; `Affo
 - Three WWR levels are treated as supporting trend or planned-contrast language only; the pipeline does not encode a strong optimality claim.
 - EEG interpretations are claim-gated through multimodal convergence with questionnaire and/or eye-tracking evidence.
 - AOI validity is documented via AOI area, visited rate, and per-AOI sample coverage.
+- Eye-tracking does not inherit EEG QC exclusions. Coordinate-validity thresholds are sensitivity analyses, not primary hard gates.
+- Pupil change is referenced to the first two seconds of the already-presented scene, not a pre-stimulus baseline, and is labelled exploratory/luminance-confounded.
 
 ## Integrated EEG + Eye Fusion
 

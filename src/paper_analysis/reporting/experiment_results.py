@@ -111,9 +111,7 @@ def experiment_plain_results(outputs_root: Path) -> pd.DataFrame:
     rows.extend(_sample_rows(outputs_root, summary))
     scene_batch = _scene_date_batch(outputs_root)
 
-    questionnaire_source = outputs_root / "02_questionnaire" / "questionnaire_analysis_long.csv"
-    if not questionnaire_source.exists():
-        questionnaire_source = outputs_root / "02_questionnaire" / "questionnaire_long.csv"
+    questionnaire_source = outputs_root / "02_questionnaire" / "questionnaire_long.csv"
     questionnaire = _attach_date_batch(_read_optional(questionnaire_source), scene_batch)
     rows.extend(_summaries(
         questionnaire,
@@ -121,7 +119,7 @@ def experiment_plain_results(outputs_root: Path) -> pd.DataFrame:
         source_table=f"02_questionnaire/{questionnaire_source.name}",
         grain="scene_trial",
         metrics=[m for m in PRIMARY_QUESTIONNAIRE if m in questionnaire.columns],
-        note="Questionnaire result on the shared trimodal-QC retained scene set; IPQ_mean is participant-level information repeated on retained scene rows.",
+        note="Questionnaire-specific available scene set; EEG QC is not used to exclude questionnaire observations. IPQ_mean is participant-level information repeated on scene rows.",
     ))
 
     eye = _attach_date_batch(_read_optional(outputs_root / "03_eye_tracking" / "eye_aoi_trial_long.csv"), scene_batch)
@@ -132,6 +130,20 @@ def experiment_plain_results(outputs_root: Path) -> pd.DataFrame:
         grain="aoi_expanded_row",
         metrics=[m for m in PRIMARY_EYE if m in eye.columns],
         note="Eye-tracking AOI-expanded descriptive result; n_trials is the participant-scene count, n_rows is AOI-expanded rows.",
+    ))
+    eye_dynamic = _attach_date_batch(_read_optional(outputs_root / "03_eye_tracking" / "eye_trial_dynamic_metrics.csv"), scene_batch)
+    dynamic_metrics = [c for c in [
+        "aoi_transition_rate_per_min", "transition_entropy_normalized", "angular_scanpath_deg_per_s",
+        "saccade_rate_per_min", "first_window_fixation_latency_ms", "window_entry_count",
+        "window_directed_transition_rate_per_min", "blink_rate_per_min", "pupil_post_early_delta_mm",
+    ] if c in eye_dynamic.columns]
+    rows.extend(_summaries(
+        eye_dynamic,
+        module="eye_tracking_dynamic",
+        source_table="03_eye_tracking/eye_trial_dynamic_metrics.csv",
+        grain="scene_trial",
+        metrics=dynamic_metrics,
+        note="Eye-specific available scene trials; no EEG exclusion. Pupil uses a scene-early reference and is exploratory/luminance-confounded.",
     ))
 
     eeg = _attach_date_batch(_read_optional(outputs_root / "04_eeg" / "eeg_trial_long.csv"), scene_batch)
@@ -188,46 +200,18 @@ def experiment_significance_results(outputs_root: Path) -> pd.DataFrame:
             "estimate": _to_float(row.get("estimate")),
             "std_error": std_error,
             "p_value": p_value,
+            "p_fdr_bh_family": _first_float(row, ["p_fdr_bh", "p_fdr_bh_family"]),
+            "p_fdr_bh_all": _to_float(row.get("p_fdr_bh_all")),
             "ci_low": ci_low,
             "ci_high": ci_high,
             "model_type": model_type,
-            "n": _to_float(row.get("n")),
+            "n": _first_float(row, ["n_obs", "n"]),
             "fallback_flag": bool(fallback),
             "warning_flag": bool(warning),
             "significance_label": _p_label(p_value),
             "interpretation_note": _interpretation_note(outcome, str(row.get("term", "")), p_value, fallback, warning),
         })
 
-    for path, source in [
-        (outputs_root / "06_models" / "emmeans_contrasts.csv", "06_models/emmeans_contrasts.csv"),
-        (outputs_root / "02_questionnaire" / "questionnaire_wwr_polynomial_contrasts.csv", "02_questionnaire/questionnaire_wwr_polynomial_contrasts.csv"),
-        (outputs_root / "06_robustness" / "datebatch_adjusted_core_models.csv", "06_robustness/datebatch_adjusted_core_models.csv"),
-    ]:
-        contrasts = _read_optional(path)
-        for row in contrasts.to_dict("records"):
-            outcome = str(row.get("outcome", ""))
-            term = str(row.get("term") or row.get("contrast") or "")
-            p_value = _to_float(row.get("p_value"))
-            model_type = str(row.get("model_type", "planned_or_descriptive_contrast"))
-            fallback = "fallback" in model_type.lower()
-            warning = fallback or _unstable_interval(_first_float(row, ["std_error", "se_contrast"]), _to_float(row.get("ci_low")), _to_float(row.get("ci_high")))
-            rows.append({
-                "source": source,
-                "result_family": _result_family(outcome),
-                "outcome": outcome,
-                "term": term,
-                "estimate": _first_float(row, ["estimate", "mean_contrast", "wwr45_peak_index"]),
-                "std_error": _first_float(row, ["std_error", "se_contrast"]),
-                "p_value": p_value,
-                "ci_low": _to_float(row.get("ci_low")),
-                "ci_high": _to_float(row.get("ci_high")),
-                "model_type": model_type,
-                "n": _first_float(row, ["n", "n_subjects"]),
-                "fallback_flag": bool(fallback),
-                "warning_flag": bool(warning),
-                "significance_label": _p_label(p_value),
-                "interpretation_note": str(row.get("interpretation_note") or _interpretation_note(outcome, term, p_value, fallback, warning)),
-            })
     return _add_fdr_columns(pd.DataFrame(rows))
 
 
@@ -1190,15 +1174,18 @@ def _add_fdr_columns(df: pd.DataFrame) -> pd.DataFrame:
         return df
     out = df.copy()
     p = pd.to_numeric(out["p_value"], errors="coerce")
-    out["p_fdr_bh_all"] = _bh_fdr(p)
+    if "p_fdr_bh_all" not in out or pd.to_numeric(out["p_fdr_bh_all"], errors="coerce").notna().sum() == 0:
+        out["p_fdr_bh_all"] = _bh_fdr(p)
     out["significant_fdr_bh_all_0_05"] = pd.to_numeric(out["p_fdr_bh_all"], errors="coerce").lt(0.05)
-    out["p_fdr_bh_family"] = np.nan
-    if "result_family" in out.columns:
-        for _, idx in out.groupby("result_family", dropna=False).groups.items():
-            idx_list = list(idx)
-            out.loc[idx_list, "p_fdr_bh_family"] = _bh_fdr(p.loc[idx_list]).to_numpy()
-    else:
-        out["p_fdr_bh_family"] = out["p_fdr_bh_all"]
+    if "p_fdr_bh_family" not in out:
+        out["p_fdr_bh_family"] = np.nan
+    if pd.to_numeric(out["p_fdr_bh_family"], errors="coerce").notna().sum() == 0:
+        if "result_family" in out.columns:
+            for _, idx in out.groupby("result_family", dropna=False).groups.items():
+                idx_list = list(idx)
+                out.loc[idx_list, "p_fdr_bh_family"] = _bh_fdr(p.loc[idx_list]).to_numpy()
+        else:
+            out["p_fdr_bh_family"] = out["p_fdr_bh_all"]
     out["significant_fdr_bh_family_0_05"] = pd.to_numeric(out["p_fdr_bh_family"], errors="coerce").lt(0.05)
     return out
 

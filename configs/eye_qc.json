@@ -2,12 +2,20 @@
   "mode": "audit",
   "point_source": "auto",
   "timestamp_gap_ms": 5000,
+  "pupil_blink_padding_ms": 100,
+  "pupil_outlier_mad_multiplier": 3.5,
+  "pupil_max_interpolation_gap_ms": 200,
+  "pupil_early_reference_window_ms": 2000,
+  "sensitivity_valid_coordinate_thresholds": [0.5, 0.6, 0.7, 0.8],
+  "primary_trial_gate": "metric_specific_availability_only",
   "screen_w": null,
   "screen_h": null,
   "validity_accepted": null,
   "notes": [
     "Audit mode reports finite coordinate, screen-bound, validity, AOI-overlap, and timestamp-segment fields without excluding trials.",
     "Set validity_accepted explicitly for a device/export-specific validity filter; do not assume one universal validity code across vendors.",
-    "Use point_source=fixation for formal AOI analyses only when fixation point columns are available; otherwise auto falls back to gaze and records the fallback."
+    "Use point_source=fixation for formal AOI analyses only when fixation point columns are available; otherwise auto falls back to gaze and records the fallback.",
+    "Coordinate scaling is applied only when source canvas width and height are explicitly present in the scene manifest; otherwise the coordinate contract is marked unverified.",
+    "The first 2 seconds are a scene-early reference, not a pre-stimulus baseline; pupil results are exploratory and luminance-confounded."
   ]
 }

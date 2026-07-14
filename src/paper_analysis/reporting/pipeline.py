@@ -19,6 +19,7 @@ def build_paper_outputs(
     outdir: str | Path = "outputs/07_paper_tables",
 ) -> dict[str, Path]:
     models = read_table(model_results_csv)
+    model_dir = Path(model_results_csv).parent
     diagnostics_dir = Path(diagnostics_dir)
     outdir = Path(outdir)
     response_dir = outdir.parent / "08_reviewer_response"
@@ -31,13 +32,18 @@ def build_paper_outputs(
     source_data = source_data_index(figure_contracts)
     data_availability = data_availability_index(data_availability_config)
     data_statement = data_availability_statement(data_availability)
-    summary = paper_summary_markdown(paper_tables, claim_strength, figure_contracts, data_availability)
+    sample_flow = _read_optional(model_dir / "modality_sample_flow.csv")
+    metric_samples = _read_optional(model_dir / "metric_sample_summary.csv")
+    summary = paper_summary_markdown(paper_tables, claim_strength, figure_contracts, data_availability, sample_flow, metric_samples)
     outputs = {
         "table_model_results": write_table(paper_tables, outdir / "table_model_results.csv"),
         "claim_strength_table": write_table(claim_strength, outdir / "claim_strength_table.csv"),
         "figure_contracts_index": write_table(figure_contracts, outdir / "figure_contracts_index.csv"),
         "source_data_index": write_table(source_data, outdir / "source_data_index.csv"),
         "paper_results_summary": write_text(summary, outdir / "paper_results_summary.md"),
+        "modality_sample_flow": write_table(sample_flow, outdir / "modality_sample_flow.csv"),
+        "eye_metric_sample_summary": write_table(metric_samples.loc[metric_samples.get("grain", pd.Series(dtype=str)).astype(str).str.startswith("eye")].copy() if not metric_samples.empty else metric_samples, outdir / "eye_metric_sample_summary.csv"),
+        "eye_analysis_scope_note": write_text(_eye_scope_note(sample_flow), outdir / "eye_analysis_scope_note.md"),
         "response_evidence_index": write_table(reviewer_index, response_dir / "response_evidence_index.csv"),
         "reviewer_issue_matrix": write_table(reviewer_matrix, response_dir / "reviewer_issue_matrix.csv"),
         "data_availability_index": write_table(data_availability, data_package_dir / "data_availability_index.csv"),
@@ -48,7 +54,12 @@ def build_paper_outputs(
 
 
 def build_model_table(models: pd.DataFrame) -> pd.DataFrame:
-    keep = [c for c in ["outcome", "term", "estimate", "std_error", "p_value", "ci_low", "ci_high", "model_type", "n"] if c in models.columns]
+    keep = [c for c in [
+        "grain", "family", "scope", "hypothesis_block", "interpretation_tier",
+        "outcome", "term", "estimate", "std_error", "effect_scale", "p_value",
+        "p_fdr_bh", "ci_low", "ci_high", "model_type", "n_obs", "n_subjects",
+        "n_trials", "formula", "status",
+    ] if c in models.columns]
     return models[keep].copy() if keep else pd.DataFrame()
 
 
@@ -178,12 +189,22 @@ def paper_summary_markdown(
     claim_strength: pd.DataFrame,
     figure_contracts: pd.DataFrame | None = None,
     data_availability: pd.DataFrame | None = None,
+    sample_flow: pd.DataFrame | None = None,
+    metric_samples: pd.DataFrame | None = None,
 ) -> str:
     return "\n".join([
         "# Paper Results Summary",
         "",
         "## Model Results",
         dataframe_to_markdown(table) if not table.empty else "No model results available.",
+        "",
+        "## Modality-specific samples",
+        dataframe_to_markdown(sample_flow) if sample_flow is not None and not sample_flow.empty else "No modality sample flow available.",
+        "",
+        "Eye-tracking inference uses eye-specific metric availability and does not inherit EEG exclusions. The trimodal intersection is used only for aligned multimodal analyses.",
+        "",
+        "## Eye metric availability",
+        dataframe_to_markdown(metric_samples.loc[metric_samples.get("grain", pd.Series(dtype=str)).astype(str).str.startswith("eye")]) if metric_samples is not None and not metric_samples.empty else "No eye metric availability table available.",
         "",
         "## Claim Strength",
         dataframe_to_markdown(claim_strength) if not claim_strength.empty else "No claim strength diagnostics available.",
@@ -203,8 +224,29 @@ def _term_support(models: pd.DataFrame, term_fragment: str) -> str:
     hit = models["term"].astype(str).str.contains(term_fragment, case=False, regex=False)
     if not hit.any():
         return "unsupported_no_term"
-    sig = pd.to_numeric(models.loc[hit, "p_value"], errors="coerce").lt(0.05).any()
+    p_col = "p_fdr_bh" if "p_fdr_bh" in models.columns else "p_value"
+    sig = pd.to_numeric(models.loc[hit, p_col], errors="coerce").lt(0.05).any()
     return "moderate" if sig else "exploratory"
+
+
+def _read_optional(path: Path) -> pd.DataFrame:
+    try:
+        return read_table(path) if path.exists() else pd.DataFrame()
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame()
+
+
+def _eye_scope_note(sample_flow: pd.DataFrame) -> str:
+    rows = [
+        "# Eye-tracking analysis scope",
+        "",
+        "The canonical eye-tracking analysis uses every eye trial for which the metric-specific inputs are available. It does not inherit EEG participant or trial exclusions.",
+        "",
+        "Validity-coordinate thresholds of 50%, 60%, 70%, and 80% are sensitivity analyses rather than primary-analysis gates. Pupil results use a scene-early reference, are luminance-confounded, and remain exploratory.",
+    ]
+    if not sample_flow.empty:
+        rows.extend(["", "## Sample flow", "", dataframe_to_markdown(sample_flow)])
+    return "\n".join(rows) + "\n"
 
 
 def _load_json(path: str | Path) -> dict:

@@ -16,12 +16,14 @@ from paper_analysis.fusion.pipeline import run_fusion_pipeline
 from paper_analysis.intake.pipeline import build_manifests
 from paper_analysis.questionnaire.pipeline import run_questionnaire_pipeline
 from paper_analysis.reporting.pipeline import build_paper_outputs
+from paper_analysis.stats.canonical import run_canonical_analysis
 from paper_analysis.stats.models import run_statistical_models
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the complete paper-aligned analysis pipeline.")
     parser.add_argument("--config", default="configs/paths.example.json")
+    parser.add_argument("--legacy-models", action="store_true", help="Also run the superseded models under 06_models/legacy/.")
     args = parser.parse_args()
     config = json.loads(Path(args.config).read_text(encoding="utf-8"))
     outputs = Path(config.get("outputs_root", "outputs"))
@@ -46,6 +48,7 @@ def main() -> None:
         participants_csv=intake["participants_standardized"],
         scene_manifest_csv=intake["scene_manifest_standardized"],
         outdir=outputs / "03_eye_tracking",
+        eye_qc_config=config.get("eye_qc_config", "configs/eye_qc.json"),
     )
     eeg = run_eeg_pipeline(
         participants_csv=intake["participants_standardized"],
@@ -77,11 +80,24 @@ def main() -> None:
         skip_reliability=config.get("skip_questionnaire_reliability", False),
         analysis_qc_csv=fusion["analysis_qc_exclusions"],
     )
-    stats = run_statistical_models(
-        master_csv=fusion["analysis_master_long"],
-        model_config="configs/model_families.json",
+    stats = run_canonical_analysis(
+        questionnaire_csv=questionnaire["questionnaire_long"],
+        eye_aoi_csv=eye["eye_aoi_trial_long"],
+        eye_dynamic_csv=eye["eye_trial_dynamic_metrics"],
+        eye_qc_csv=eye["eye_qc"],
+        eeg_csv=eeg["eeg_trial_long"],
+        eeg_scene_qc_csv=eeg["eeg_scene_qc"],
+        participants_csv=intake["participants_standardized"],
         outdir=outputs / "06_models",
+        mde_simulations=int(config.get("mde_simulations", 1000)),
     )
+    if args.legacy_models:
+        legacy = run_statistical_models(
+            master_csv=fusion["analysis_master_long"],
+            model_config="configs/model_families.json",
+            outdir=outputs / "06_models" / "legacy",
+        )
+        stats.update({f"legacy_{name}": path for name, path in legacy.items()})
     diagnostics = run_diagnostics(
         master_csv=fusion["analysis_master_long"],
         participants_csv=intake["participants_standardized"],

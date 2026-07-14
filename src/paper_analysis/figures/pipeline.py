@@ -270,35 +270,78 @@ def _source_fig2(outputs_root: Path) -> pd.DataFrame:
             sem = float(values.std() / math.sqrt(len(values))) if len(values) > 1 else np.nan
             rows.append(_row("A", "s_item_mean_by_wwr", s_path, group=item, subgroup=wwr, value=mean, mean=mean, sem=sem, n=n_total, error="SEM across available subgroup means"))
 
-    contrast_path = _resolve_output_path("outputs/06_models/emmeans_contrasts.csv", outputs_root)
+    contrast_path = _resolve_output_path("outputs/06_models/model_results.csv", outputs_root)
     contrasts = _read_optional(contrast_path)
-    if not contrasts.empty and {"outcome", "contrast", "estimate"}.issubset(contrasts.columns):
-        selected = contrasts.loc[contrasts["contrast"].astype(str).eq("WWR45_minus_mean_WWR15_WWR75")]
+    if not contrasts.empty and {"outcome", "term", "estimate"}.issubset(contrasts.columns):
+        selected = contrasts.loc[
+            contrasts["outcome"].astype(str).str.startswith("q_")
+            & contrasts["term"].astype(str).str.contains("WWR", regex=False)
+            & ~contrasts["term"].astype(str).str.contains(":", regex=False)
+        ]
         for _, row in selected.iterrows():
-            rows.append(_row("B", "wwr45_planned_contrast", contrast_path, group=row.get("outcome"), subgroup=row.get("contrast"), value=row.get("estimate"), n=1, error="model contrast estimate; no error bar in this audit figure"))
+            rows.append(_row("B", "canonical_wwr_coefficient", contrast_path, group=row.get("outcome"), subgroup=row.get("term"), value=row.get("estimate"), n=row.get("n_obs", row.get("n", 1)), error="canonical GEE coefficient; CI is available in the source model table"))
     return pd.DataFrame(rows)
 
 
 def _source_fig3(outputs_root: Path) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
+    sensitivity_path = _resolve_output_path("outputs/03_eye_tracking/eye_qc_sensitivity.csv", outputs_root)
+    sensitivity = _read_optional(sensitivity_path)
+    if not sensitivity.empty:
+        overall = sensitivity.loc[sensitivity.get("factor", pd.Series(dtype=str)).astype(str).eq("overall")]
+        for _, row in overall.iterrows():
+            rows.append(_row("A", "eye_qc_retention", sensitivity_path, group=row.get("threshold"), value=row.get("retention_rate"), x=row.get("threshold"), y=row.get("retention_rate"), n=row.get("n_trials"), error="retained trial proportion; threshold sensitivity, no inferential error bar"))
+
+    matrix_path = _resolve_output_path("outputs/03_eye_tracking/eye_transition_matrix.csv", outputs_root)
+    matrix = _read_optional(matrix_path)
+    if not matrix.empty:
+        named = matrix.loc[matrix.get("transition_scope", pd.Series(dtype=str)).astype(str).eq("named_aoi")]
+        if not named.empty:
+            pooled = named.groupby(["from_aoi", "to_aoi"], dropna=False)["transition_count"].sum().reset_index()
+            pooled["transition_probability"] = pooled["transition_count"] / pooled.groupby("from_aoi")["transition_count"].transform("sum")
+            for _, row in pooled.iterrows():
+                rows.append(_row("B", "aoi_transition_probability", matrix_path, group=row.get("from_aoi"), subgroup=row.get("to_aoi"), value=row.get("transition_probability"), n=row.get("transition_count"), error="pooled conditional transition probability; cell transition count reported as n"))
+
+    dynamic_path = _resolve_output_path("outputs/03_eye_tracking/eye_trial_dynamic_metrics.csv", outputs_root)
+    dynamic = _read_optional(dynamic_path)
+    if not dynamic.empty:
+        for metric in ["aoi_transition_rate_per_min", "transition_entropy_normalized", "angular_scanpath_deg_per_s", "saccade_rate_per_min"]:
+            if metric not in dynamic:
+                continue
+            for level, sub in dynamic.groupby("Complexity", dropna=False) if "Complexity" in dynamic else [("all", dynamic)]:
+                values = pd.to_numeric(sub[metric], errors="coerce")
+                rows.append(_row("C", metric, dynamic_path, group=metric, subgroup=level, value=values.mean(), mean=values.mean(), sem=_sem(values), n=values.notna().sum(), error="SEM across available scene trials; scene-trial grain"))
+        for metric in ["first_window_fixation_latency_ms", "window_entry_count", "window_directed_transition_rate_per_min"]:
+            if metric not in dynamic:
+                continue
+            for level, sub in dynamic.groupby("WWR", dropna=False) if "WWR" in dynamic else [("all", dynamic)]:
+                values = pd.to_numeric(sub[metric], errors="coerce")
+                rows.append(_row("D", metric, dynamic_path, group=metric, subgroup=level, value=values.mean(), mean=values.mean(), sem=_sem(values), n=values.notna().sum(), error="SEM across available scene trials; scene-trial grain"))
+        for metric in ["pupil_post_early_delta_mm", "blink_rate_per_min"]:
+            if metric not in dynamic:
+                continue
+            for level, sub in dynamic.groupby("block", dropna=False) if "block" in dynamic else [("all", dynamic)]:
+                values = pd.to_numeric(sub[metric], errors="coerce")
+                rows.append(_row("E", metric, dynamic_path, group=metric, subgroup=level, value=values.mean(), mean=values.mean(), sem=_sem(values), n=values.notna().sum(), error="SEM across scene trials; exploratory, scene-early pupil reference and luminance confounding"))
+
     aoi_path = _resolve_output_path("outputs/03_eye_tracking/aoi_validation_summary.csv", outputs_root)
     aoi = _read_optional(aoi_path)
     if not aoi.empty and "class_name" in aoi.columns:
         for class_name, sub in aoi.groupby("class_name", dropna=False):
             visited = pd.to_numeric(sub.get("visited_rate"), errors="coerce")
             area = pd.to_numeric(sub.get("polygon_area_px2"), errors="coerce")
-            rows.append(_row("A", "visited_rate", aoi_path, group=class_name, value=visited.mean(), mean=visited.mean(), sem=_sem(visited), n=visited.notna().sum(), error="SEM across AOI validation rows"))
-            rows.append(_row("B", "polygon_area_px2", aoi_path, group=class_name, value=area.mean(), mean=area.mean(), sem=_sem(area), n=area.notna().sum(), error="SEM across AOI validation rows"))
+            rows.append(_row("F", "visited_rate", aoi_path, group=class_name, subgroup="visited_rate", value=visited.mean(), mean=visited.mean(), sem=_sem(visited), n=visited.notna().sum(), error="SEM across AOI validation rows; AOI-trial grain"))
+            rows.append(_row("F", "polygon_area_px2", aoi_path, group=class_name, subgroup="area_px2", value=area.mean(), mean=area.mean(), sem=_sem(area), n=area.notna().sum(), error="SEM across AOI validation rows; geometry audit"))
 
     qc_path = _resolve_output_path("outputs/03_eye_tracking/eye_qc.csv", outputs_root)
     qc = _read_optional(qc_path)
     if not qc.empty:
         for col in [c for c in ["missing_eye_file", "missing_aoi_file"] if c in qc.columns]:
             count = qc[col].astype(str).str.lower().isin({"true", "1", "yes", "y"}).sum()
-            rows.append(_row("C", col, qc_path, group=col, value=count, n=len(qc), error="not_applicable_count"))
+            rows.append(_row("A", col, qc_path, group=col, value=count, n=len(qc), error="not_applicable_count"))
         if "eye_sample_count" in qc.columns:
             values = pd.to_numeric(qc["eye_sample_count"], errors="coerce")
-            rows.append(_row("C", "eye_sample_count", qc_path, group="eye_sample_count", value=values.mean(), mean=values.mean(), sem=_sem(values), n=values.notna().sum(), error="SEM across scene files"))
+            rows.append(_row("A", "eye_sample_count", qc_path, group="eye_sample_count", value=values.mean(), mean=values.mean(), sem=_sem(values), n=values.notna().sum(), error="SEM across scene files"))
     return pd.DataFrame(rows)
 
 
@@ -386,11 +429,29 @@ def _plot_fig2(source: pd.DataFrame, figsize: tuple[float, float]):
 def _plot_fig3(source: pd.DataFrame, figsize: tuple[float, float]):
     import matplotlib.pyplot as plt
 
-    fig, axes = plt.subplots(1, 3, figsize=figsize, constrained_layout=True)
-    _bar_axis(axes[0], _panel(source, "A"), title="A AOI visited rate", label_col="group", value_col="mean", error_col="sem", color="#54A24B")
-    axes[0].set_ylim(0, 1.05)
-    _bar_axis(axes[1], _panel(source, "B"), title="B AOI area", label_col="group", value_col="mean", error_col="sem", color="#B279A2")
-    _barh_axis(axes[2], _panel(source, "C"), title="C Eye QC", label_cols=["group"], value_col="value", color="#FF9DA6")
+    fig, axes = plt.subplots(2, 3, figsize=figsize, constrained_layout=True)
+    retention = _panel(source, "A").loc[_panel(source, "A")["metric"].eq("eye_qc_retention")]
+    if retention.empty:
+        _no_data(axes[0, 0], "A Eye sample retention")
+    else:
+        axes[0, 0].plot(pd.to_numeric(retention["x"], errors="coerce"), pd.to_numeric(retention["y"], errors="coerce"), marker="o", color="#4C78A8")
+        axes[0, 0].set(title="A Eye sample retention", xlabel="Valid-coordinate threshold", ylabel="Retained proportion", ylim=(0, 1.05))
+    matrix = _panel(source, "B")
+    if matrix.empty:
+        _no_data(axes[0, 1], "B AOI transitions")
+    else:
+        pivot = matrix.pivot_table(index="group", columns="subgroup", values="value", aggfunc="sum", fill_value=0)
+        image = axes[0, 1].imshow(pivot.to_numpy(dtype=float), vmin=0, vmax=1, cmap="Blues", aspect="auto")
+        axes[0, 1].set_xticks(range(len(pivot.columns)), labels=pivot.columns, rotation=45, ha="right")
+        axes[0, 1].set_yticks(range(len(pivot.index)), labels=pivot.index)
+        axes[0, 1].set_title("B AOI transition probability")
+        fig.colorbar(image, ax=axes[0, 1], fraction=.046)
+    _barh_axis(axes[0, 2], _panel(source, "C"), title="C Exploration by complexity", label_cols=["group", "subgroup"], value_col="value", color="#54A24B")
+    _barh_axis(axes[1, 0], _panel(source, "D"), title="D Window-directed gaze by WWR", label_cols=["group", "subgroup"], value_col="value", color="#F58518")
+    _barh_axis(axes[1, 1], _panel(source, "E"), title="E Pupil/blink (exploratory)", label_cols=["group", "subgroup"], value_col="value", color="#E45756")
+    aoi = _panel(source, "F").loc[_panel(source, "F")["metric"].eq("visited_rate")]
+    _bar_axis(axes[1, 2], aoi, title="F AOI visit validity", label_col="group", value_col="mean", error_col="sem", color="#B279A2")
+    axes[1, 2].set_ylim(0, 1.05)
     return fig
 
 
@@ -522,7 +583,10 @@ def _row(
 def _read_optional(path: Path) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
-    return read_table(path)
+    try:
+        return read_table(path)
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame()
 
 
 def _resolve_output_path(path: str | Path, outputs_root: Path) -> Path:

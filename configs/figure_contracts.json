@@ -36,9 +36,9 @@
       "archetype": "quantitative grid",
       "panel_map": [
         {"panel_id": "A", "claim_role": "S-item mean by WWR", "source_data": "outputs/02_questionnaire/s_items_descriptives.csv"},
-        {"panel_id": "B", "claim_role": "WWR planned contrast", "source_data": "outputs/06_models/emmeans_contrasts.csv"}
+        {"panel_id": "B", "claim_role": "Canonical WWR coefficients", "source_data": "outputs/06_models/model_results.csv"}
       ],
-      "source_data": ["outputs/02_questionnaire/s_items_descriptives.csv", "outputs/06_models/model_results.csv", "outputs/06_models/emmeans_contrasts.csv"],
+      "source_data": ["outputs/02_questionnaire/s_items_descriptives.csv", "outputs/06_models/model_results.csv"],
       "review_risk": "Avoid claiming a definitive WWR optimum from three levels; use planned-contrast language.",
       "statistics_note": "Mean with SEM when group-level variability is available; planned contrast is exploratory trend evidence.",
       "image_integrity_note": "No smoothing or interpolation beyond connecting observed WWR levels.",
@@ -46,17 +46,20 @@
     },
     {
       "figure_id": "Fig3_eye_aoi_validity",
-      "manuscript_role": "Eye-tracking measurement validity",
-      "core_conclusion": "AOI-based eye metrics are interpretable only when AOI area, visit rate, and sample coverage are reported.",
+      "manuscript_role": "Eye-tracking dynamic search, window direction, and measurement validity",
+      "core_conclusion": "Eye-search dynamics and window-directed gaze are reported with independent eye-sample QC, AOI structure, and bounded exploratory pupil evidence.",
       "archetype": "quantitative grid",
       "panel_map": [
-        {"panel_id": "A", "claim_role": "AOI visited rate", "source_data": "outputs/03_eye_tracking/aoi_validation_summary.csv"},
-        {"panel_id": "B", "claim_role": "AOI geometry", "source_data": "outputs/03_eye_tracking/aoi_validation_summary.csv"},
-        {"panel_id": "C", "claim_role": "Eye-tracking file QC", "source_data": "outputs/03_eye_tracking/eye_qc.csv"}
+        {"panel_id": "A", "claim_role": "Independent eye sample and threshold retention", "source_data": "outputs/03_eye_tracking/eye_qc_sensitivity.csv"},
+        {"panel_id": "B", "claim_role": "AOI transition matrix", "source_data": "outputs/03_eye_tracking/eye_transition_matrix.csv"},
+        {"panel_id": "C", "claim_role": "Transition entropy, scanpath, and saccade rate by complexity", "source_data": "outputs/03_eye_tracking/eye_trial_dynamic_metrics.csv"},
+        {"panel_id": "D", "claim_role": "First window fixation and window-directed transitions", "source_data": "outputs/03_eye_tracking/eye_trial_dynamic_metrics.csv"},
+        {"panel_id": "E", "claim_role": "Exploratory scene-early pupil and blink measures", "source_data": "outputs/03_eye_tracking/eye_trial_dynamic_metrics.csv"},
+        {"panel_id": "F", "claim_role": "AOI geometry and visit validity", "source_data": "outputs/03_eye_tracking/aoi_validation_summary.csv"}
       ],
-      "source_data": ["outputs/03_eye_tracking/aoi_validation_summary.csv", "outputs/03_eye_tracking/eye_qc.csv", "outputs/03_eye_tracking/eye_aoi_trial_long.csv"],
-      "review_risk": "AOI validity must be shown before interpreting gaze allocation differences.",
-      "statistics_note": "AOI means, sample coverage, and missing-file counts.",
+      "source_data": ["outputs/03_eye_tracking/aoi_validation_summary.csv", "outputs/03_eye_tracking/eye_qc.csv", "outputs/03_eye_tracking/eye_qc_sensitivity.csv", "outputs/03_eye_tracking/eye_transition_matrix.csv", "outputs/03_eye_tracking/eye_trial_dynamic_metrics.csv", "outputs/03_eye_tracking/eye_aoi_trial_long.csv"],
+      "review_risk": "Do not mix AOI-row and scene-trial grains; pupil uses a scene-early reference and remains luminance-confounded and exploratory.",
+      "statistics_note": "Every panel identifies AOI or scene-trial grain, available n, and SEM or conditional-probability definition; model inference comes from canonical GEE tables.",
       "image_integrity_note": "AOI geometry values are plotted directly from validation output.",
       "export_targets": ["svg", "pdf", "tiff", "source_csv"]
     },
