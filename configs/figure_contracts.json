@@ -82,7 +82,7 @@
     {
       "figure_id": "Fig5_robustness_and_claims",
       "manuscript_role": "Reviewer-facing robustness and bounded claims",
-      "core_conclusion": "Gender, order/fatigue, recruitment batch, and nonlinear WWR sensitivity analyses determine how strongly each manuscript claim can be stated.",
+        "core_conclusion": "Formal order/fatigue-proxy estimates and sensitivity analyses determine how strongly each manuscript claim can be stated.",
       "archetype": "quantitative grid",
       "panel_map": [
         {"panel_id": "A", "claim_role": "Order/fatigue diagnostics", "source_data": "outputs/06_robustness/order_fatigue_effects.csv"},
@@ -91,7 +91,7 @@
       ],
       "source_data": ["outputs/06_robustness/gender_sensitivity.csv", "outputs/06_robustness/order_fatigue_effects.csv", "outputs/06_robustness/nonlinear_wwr_sensitivity.csv", "outputs/07_paper_tables/claim_strength_table.csv"],
       "review_risk": "Claim strength must be downgraded when sensitivity checks or modality convergence are incomplete.",
-      "statistics_note": "Diagnostic correlations, WWR45 peak index, and categorical claim-strength scores.",
+        "statistics_note": "Participant-clustered GEE block/position estimates with 95% confidence intervals, WWR45 peak index, and categorical claim-strength scores.",
       "image_integrity_note": "Claim scores are categorical encodings for visual audit only; manuscript wording uses the original labels.",
       "export_targets": ["svg", "pdf", "tiff", "source_csv"]
     }

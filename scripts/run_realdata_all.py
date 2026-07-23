@@ -201,12 +201,25 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
             participants_csv=intake["participants_standardized"],
             outdir=outputs_root / "06_models",
             mde_simulations=args.mde_simulations,
+            scene_manifest_csv=intake["scene_manifest_standardized"],
+            trimodal_qc_csv=fusion["analysis_qc_exclusions"],
         )
         if args.legacy_models:
             legacy = run_statistical_models(fusion["analysis_master_long"], args.model_config, outputs_root / "06_models" / "legacy")
             stats.update({f"legacy_{name}": path for name, path in legacy.items()})
     if not args.skip_diagnostics:
-        diagnostics = run_diagnostics(fusion["analysis_master_long"], intake["participants_standardized"], outputs_root / "06_robustness")
+        diagnostics = run_diagnostics(
+            fusion["analysis_master_long"],
+            intake["participants_standardized"],
+            outputs_root / "06_robustness",
+            questionnaire_csv=questionnaire["questionnaire_long"],
+            eye_dynamic_csv=eye["eye_trial_dynamic_metrics"],
+            eeg_csv=eeg["eeg_trial_long"],
+            eeg_scene_qc_csv=eeg["eeg_scene_qc"],
+            scene_manifest_csv=intake["scene_manifest_standardized"],
+            model_results_csv=stats["model_results"] if stats is not None else None,
+            model_diagnostics_csv=stats["model_diagnostics"] if stats is not None else None,
+        )
     if not args.skip_reporting:
         if stats is None:
             raise SystemExit("Reporting requires model outputs. Remove --skip-models or add --skip-reporting.")
@@ -316,7 +329,7 @@ def _summary_base(
 ) -> dict[str, Any]:
     questionnaire_analysis = _read_csv_or_empty(questionnaire.get("questionnaire_analysis_long"))
     questionnaire_sample = _read_csv_or_empty(questionnaire.get("questionnaire_analysis_sample"))
-    questionnaire_policy = str(questionnaire_sample.iloc[0].get("analysis_policy", "")) if not questionnaire_sample.empty else ""
+    compatibility_policy = str(questionnaire_sample.iloc[0].get("analysis_policy", "")) if not questionnaire_sample.empty else ""
     return {
         "run_scope": _run_scope(args),
         "is_smoke_run": _is_smoke_args(args),
@@ -325,9 +338,14 @@ def _summary_base(
         "participant_ids": participants["participant_id"].astype(str).tolist(),
         "scene_rows": int(len(scene)),
         "questionnaire_rows": _row_count(questionnaire["questionnaire_long"]),
-        "questionnaire_analysis_rows": _unique_trials(questionnaire_analysis),
-        "questionnaire_analysis_participants": _unique_subjects(questionnaire_analysis),
-        "questionnaire_analysis_policy": questionnaire_policy,
+        "questionnaire_analysis_rows": _row_count(questionnaire["questionnaire_long"]),
+        "questionnaire_analysis_participants": _unique_subjects(
+            _read_csv_or_empty(questionnaire["questionnaire_long"])
+        ),
+        "questionnaire_analysis_policy": "questionnaire_specific_available_no_eeg_filter",
+        "questionnaire_shared_intersection_compatibility_rows": _unique_trials(questionnaire_analysis),
+        "questionnaire_shared_intersection_compatibility_participants": _unique_subjects(questionnaire_analysis),
+        "questionnaire_shared_intersection_compatibility_policy": compatibility_policy,
         "eye_metric_rows": _row_count(eye["eye_aoi_trial_long"]),
         "preflight": preflight,
         "raw_inputs": {

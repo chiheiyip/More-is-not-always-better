@@ -27,7 +27,7 @@ All later tables must preserve these keys.
 | Step | Output | Provenance role |
 |---|---|---|
 | Questionnaire | `outputs/02_questionnaire/questionnaire_long.csv` | Subjective outcomes attached to trial index. |
-| Questionnaire analysis | `outputs/02_questionnaire/questionnaire_analysis_long.csv` | Questionnaire rows retained by the shared trimodal `participant_id + scene_id` QC keep set; source for questionnaire statistics and paper summaries. |
+| Questionnaire analysis | `outputs/02_questionnaire/questionnaire_long.csv` | Canonical questionnaire-specific source using all available questionnaire scene trials; EEG QC is not applied. |
 | Eye tracking | `outputs/03_eye_tracking/eye_aoi_trial_long.csv` | AOI metrics attached to trial index. |
 | EEG | `outputs/04_eeg/eeg_trial_long.csv` | EEG scene metrics attached to trial index. |
 
@@ -38,6 +38,11 @@ All later tables must preserve these keys.
 - `analysis_master_long.csv` for statistical models.
 - `aligned_scene_table.csv` for scene-level EEG+AOI fusion.
 - `aligned_timebin_table.csv` for time-bin eye metrics with EEG attached.
+
+Canonical unimodal inference is generated from modality-specific scene tables:
+questionnaire uses its complete available table, eye tracking uses
+metric-specific availability, and EEG uses the EEG-QC-passed table. The
+trimodal synchronized keep set is used only by aligned fusion outputs.
 - `sync_qc.csv`, `alignment_scene_qc.csv`, `alignment_landmarks.csv`, `time_sync_map.csv` for synchronization evidence.
 - `modality_convergence_table.csv` and `claim_support_matrix.csv` for bounded EEG/multimodal interpretation.
 

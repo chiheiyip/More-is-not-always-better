@@ -23,6 +23,8 @@ def main() -> None:
     parser.add_argument("--eeg", default="outputs/04_eeg/eeg_trial_long.csv")
     parser.add_argument("--eeg-qc", default="outputs/04_eeg/eeg_scene_qc.csv")
     parser.add_argument("--participants", default="outputs/01_sample_qc/participants_standardized.csv")
+    parser.add_argument("--scene-manifest", default="outputs/01_sample_qc/scene_manifest_standardized.csv")
+    parser.add_argument("--trimodal-qc", default="outputs/05_multimodal_fusion/analysis_qc_exclusions.csv")
     parser.add_argument("--mde-simulations", type=int, default=1000)
     parser.add_argument("--legacy-models", action="store_true")
     args = parser.parse_args()
@@ -30,6 +32,8 @@ def main() -> None:
         args.questionnaire, args.eye_aoi, args.eye_dynamic, args.eye_qc,
         args.eeg, args.eeg_qc, args.participants, args.outdir,
         mde_simulations=args.mde_simulations,
+        scene_manifest_csv=args.scene_manifest,
+        trimodal_qc_csv=args.trimodal_qc,
     )
     if args.legacy_models:
         legacy = run_statistical_models(args.master, args.model_config, Path(args.outdir) / "legacy")

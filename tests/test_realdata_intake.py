@@ -342,7 +342,8 @@ def test_run_realdata_all_with_existing_eeg_scene_csv(tmp_path: Path) -> None:
     assert summary["eeg_trial_rows"] == 4
     assert summary["questionnaire_analysis_rows"] == 4
     assert summary["questionnaire_analysis_participants"] == 2
-    assert summary["questionnaire_analysis_policy"] == "shared_trimodal_analysis_qc"
+    assert summary["questionnaire_analysis_policy"] == "questionnaire_specific_available_no_eeg_filter"
+    assert summary["questionnaire_shared_intersection_compatibility_policy"] == "shared_trimodal_analysis_qc"
     assert summary["analysis_scene_trials_total"] == 4
     assert summary["fusion_run"] is True
     assert (outputs / "05_multimodal_fusion" / "analysis_master_long.csv").exists()

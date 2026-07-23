@@ -373,12 +373,20 @@ def _source_fig5(outputs_root: Path) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     order_path = _resolve_output_path("outputs/06_robustness/order_fatigue_effects.csv", outputs_root)
     order = _read_optional(order_path)
-    if not order.empty and "correlation" in order.columns:
-        selected = order.dropna(subset=["correlation"]).copy()
-        selected["abs_correlation"] = pd.to_numeric(selected["correlation"], errors="coerce").abs()
-        selected = selected.sort_values("abs_correlation", ascending=False).head(12)
+    if not order.empty and {"estimate", "ci_low", "ci_high"}.issubset(order.columns):
+        selected = order.dropna(subset=["estimate", "ci_low", "ci_high"]).copy()
         for _, row in selected.iterrows():
-            rows.append(_row("A", "order_abs_correlation", order_path, group=row.get("outcome"), subgroup=row.get("order_variable"), value=row.get("abs_correlation"), n=row.get("n"), error="diagnostic correlation; no error bar"))
+            sample = f"{row.get('n_subjects', '')}p/{row.get('n_trials', '')}t"
+            rows.append(_row(
+                "A", "formal_order_estimate", order_path,
+                group=row.get("modality"),
+                subgroup=f"{row.get('outcome')} | {row.get('order_term')} | {sample}",
+                value=row.get("estimate"),
+                ci_low=row.get("ci_low"),
+                ci_high=row.get("ci_high"),
+                n=row.get("n_trials"),
+                error="participant-clustered GEE 95% confidence interval",
+            ))
 
     nonlinear_path = _resolve_output_path("outputs/06_robustness/nonlinear_wwr_sensitivity.csv", outputs_root)
     nonlinear = _read_optional(nonlinear_path)
@@ -478,12 +486,61 @@ def _plot_fig4(source: pd.DataFrame, figsize: tuple[float, float]):
 def _plot_fig5(source: pd.DataFrame, figsize: tuple[float, float]):
     import matplotlib.pyplot as plt
 
-    fig, axes = plt.subplots(1, 3, figsize=figsize, constrained_layout=True)
-    _barh_axis(axes[0], _panel(source, "A"), title="A Order/fatigue", label_cols=["group", "subgroup"], value_col="value", color="#F58518")
-    _barh_axis(axes[1], _panel(source, "B").head(12), title="B WWR sensitivity", label_cols=["group"], value_col="value", color="#E45756")
-    axes[1].axvline(0, color="#333333", linewidth=0.6)
-    _barh_axis(axes[2], _panel(source, "C"), title="C Claim strength", label_cols=["group", "subgroup"], value_col="value", color="#72B7B2")
+    fig, axes = plt.subplots(2, 3, figsize=figsize, constrained_layout=True)
+    panel_a = _panel(source, "A")
+    for ax, modality, color in zip(
+        axes[0],
+        ["questionnaire", "eye", "eeg"],
+        ["#4C78A8", "#F58518", "#54A24B"],
+    ):
+        _forest_axis(
+            ax,
+            panel_a.loc[panel_a["group"].astype(str).eq(modality)],
+            title=f"A {modality}: order/fatigue proxies",
+            color=color,
+        )
+    _barh_axis(axes[1, 0], _panel(source, "B").head(12), title="B WWR sensitivity", label_cols=["group"], value_col="value", color="#E45756")
+    axes[1, 0].axvline(0, color="#333333", linewidth=0.6)
+    _barh_axis(axes[1, 1], _panel(source, "C"), title="C Claim strength", label_cols=["group", "subgroup"], value_col="value", color="#72B7B2")
+    axes[1, 2].axis("off")
+    axes[1, 2].text(
+        0.0, 0.95,
+        "Block, position, blink and pupil\nmeasures are fatigue/attention proxies,\nnot direct proof of fatigue.",
+        fontsize=7, va="top",
+    )
     return fig
+
+
+def _forest_axis(ax, data: pd.DataFrame, title: str, color: str) -> None:
+    if data.empty:
+        _no_data(ax, title)
+        return
+    data = data.copy().reset_index(drop=True)
+    estimate = pd.to_numeric(data["value"], errors="coerce")
+    low = pd.to_numeric(data["ci_low"], errors="coerce")
+    high = pd.to_numeric(data["ci_high"], errors="coerce")
+    valid = estimate.notna() & low.notna() & high.notna()
+    data, estimate, low, high = (
+        data.loc[valid].reset_index(drop=True),
+        estimate.loc[valid].reset_index(drop=True),
+        low.loc[valid].reset_index(drop=True),
+        high.loc[valid].reset_index(drop=True),
+    )
+    if data.empty:
+        _no_data(ax, title)
+        return
+    y = np.arange(len(data))
+    xerr = np.vstack([estimate - low, high - estimate])
+    ax.errorbar(
+        estimate, y, xerr=xerr, fmt="o", color=color, ecolor=color,
+        elinewidth=0.8, capsize=2, markersize=3,
+    )
+    ax.axvline(0, color="#333333", linewidth=0.6)
+    ax.set_yticks(y)
+    ax.set_yticklabels(data["subgroup"].astype(str), fontsize=4.8)
+    ax.invert_yaxis()
+    ax.set_title(title)
+    ax.set_xlabel("Model estimate (95% CI)")
 
 
 def _bar_axis(ax, data: pd.DataFrame, title: str, label_col: str, value_col: str, color: str, error_col: str | None = None) -> None:
@@ -561,6 +618,8 @@ def _row(
     sem: Any = np.nan,
     n: Any = np.nan,
     percent: Any = np.nan,
+    ci_low: Any = np.nan,
+    ci_high: Any = np.nan,
     error: str = "",
 ) -> dict[str, Any]:
     return {
@@ -576,6 +635,8 @@ def _row(
         "sem": _number(sem),
         "n": _number(n),
         "percent": _number(percent),
+        "ci_low": _number(ci_low),
+        "ci_high": _number(ci_high),
         "error_bar_definition": error,
     }
 

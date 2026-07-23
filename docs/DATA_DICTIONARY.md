@@ -12,6 +12,10 @@
 | `block` | Experimental block (1 or 2); the numeric prefix in a simple eye folder is block, not Order. |
 | `position` | Within-block presentation position; used for order/fatigue diagnostics. |
 | `round` | Viewing round when available. |
+| `trial_index` | Canonical experiment progression index; equals `scene_id = (block - 1) * 6 + position`. |
+| `previous_WWR`, `previous_Complexity` | Previous scene condition within participant after sorting by `scene_id`; missing for scene 1. |
+| `order_scheme` | Counterbalancing/order sequence identifier attached from the scene manifest. |
+| `break_before_trial` | Indicator for block 2, position 1, which follows the registered 120-second break. |
 
 ## Participant Fields
 
@@ -81,6 +85,16 @@
 | `pupil_post_early_delta_mm` | Median post-2-second pupil diameter minus the first-2-second scene-early reference. Not a pre-stimulus baseline; exploratory and luminance-confounded. |
 | `coordinate_contract_status` | Whether source/target canvases were explicitly verified, explicitly scaled, incomplete, or unverified. |
 | `eye_qc_sensitivity.csv` | Retained trial/subject counts and condition balance at 50%, 60%, 70%, and 80% valid-coordinate thresholds. |
+
+## Order, Fatigue-Proxy, and Carryover Outputs
+
+| File | Meaning |
+|---|---|
+| `order_fatigue_effects.csv` | Formal participant-clustered GEE block/position estimates with SE, 95% CI, raw p, BH-FDR q, actual subjects/trials, effect scale, and fit status. |
+| `order_fatigue_descriptives.csv` | Scene-grain questionnaire, eye and EEG summaries by block and position; never AOI-expanded for scene outcomes. |
+| `order_condition_stability.csv` | Controlled-versus-unadjusted WWR/complexity coefficients plus WWR × trial-index and Complexity × trial-index sensitivity terms. |
+| `carryover_sensitivity.csv` | Previous-WWR, previous-complexity, order-scheme and break-marker sensitivity results, including explicit failed/unstable status rows. |
+| `reviewer_order_fatigue_evidence.md` | Reviewer-facing R1.11/R2.5 evidence package with methods, numeric results, limitations and readiness gate. |
 
 ## Fusion And Synchronization Fields
 

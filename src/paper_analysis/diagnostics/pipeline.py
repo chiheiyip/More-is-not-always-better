@@ -7,6 +7,15 @@ import pandas as pd
 import statsmodels.formula.api as smf
 
 from paper_analysis.utils.io import read_table, write_table
+from paper_analysis.stats.canonical import (
+    EEG_ORDER_PRIMARY,
+    EEG_OUTCOMES,
+    _add_order_features,
+    _apply_eeg_qc,
+    _attach_scene_design,
+    _normalize_eeg_columns,
+    _normalize_questionnaire,
+)
 
 
 KEYS = ["participant_id", "scene_id"]
@@ -17,10 +26,35 @@ def run_diagnostics(
     master_csv: str | Path,
     participants_csv: str | Path,
     outdir: str | Path = "outputs/06_robustness",
+    *,
+    questionnaire_csv: str | Path | None = None,
+    eye_dynamic_csv: str | Path | None = None,
+    eeg_csv: str | Path | None = None,
+    eeg_scene_qc_csv: str | Path | None = None,
+    scene_manifest_csv: str | Path | None = None,
+    model_results_csv: str | Path | None = None,
+    model_diagnostics_csv: str | Path | None = None,
 ) -> dict[str, Path]:
     master = read_table(master_csv)
     participants = read_table(participants_csv)
-    order = order_fatigue_effects(master)
+    models = read_table(model_results_csv) if model_results_csv else pd.DataFrame()
+    model_diagnostics = (
+        read_table(model_diagnostics_csv) if model_diagnostics_csv else pd.DataFrame()
+    )
+    order = (
+        formal_order_fatigue_effects(models, model_diagnostics)
+        if not models.empty
+        else order_fatigue_effects(master)
+    )
+    descriptives = order_fatigue_descriptives(
+        questionnaire_csv=questionnaire_csv,
+        eye_dynamic_csv=eye_dynamic_csv,
+        eeg_csv=eeg_csv,
+        eeg_scene_qc_csv=eeg_scene_qc_csv,
+        scene_manifest_csv=scene_manifest_csv,
+    )
+    stability = order_condition_stability(models, model_diagnostics)
+    carryover = carryover_sensitivity(models, model_diagnostics)
     gender = factor_sensitivity(master, "Gender")
     batch = factor_sensitivity(master, "RecruitmentBatch")
     date_batch = factor_sensitivity(master, "DateBatch")
@@ -32,6 +66,9 @@ def run_diagnostics(
     outdir = Path(outdir)
     return {
         "order_fatigue_effects": write_table(order, outdir / "order_fatigue_effects.csv"),
+        "order_fatigue_descriptives": write_table(descriptives, outdir / "order_fatigue_descriptives.csv"),
+        "order_condition_stability": write_table(stability, outdir / "order_condition_stability.csv"),
+        "carryover_sensitivity": write_table(carryover, outdir / "carryover_sensitivity.csv"),
         "gender_sensitivity": write_table(gender, outdir / "gender_sensitivity.csv"),
         "batch_sensitivity": write_table(batch, outdir / "batch_sensitivity.csv"),
         "datebatch_sensitivity": write_table(date_batch, outdir / "datebatch_sensitivity.csv"),
@@ -41,6 +78,255 @@ def run_diagnostics(
         "experience_split_questionnaire": write_table(experience_split, outdir / "experience_split_questionnaire.csv"),
         "effect_size_summary": write_table(effects, outdir / "effect_size_summary.csv"),
     }
+
+
+FORMAL_ORDER_COLUMNS = [
+    "modality", "grain", "scope", "outcome", "order_term", "estimate",
+    "std_error", "ci_low", "ci_high", "effect_scale", "p_value",
+    "p_fdr_bh", "n_subjects", "n_trials", "model_type", "fit_status",
+    "hypothesis_block", "interpretation_tier", "formula",
+]
+
+
+def formal_order_fatigue_effects(
+    models: pd.DataFrame,
+    diagnostics: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Return block/position estimates at their native scene-level grain."""
+    if models.empty:
+        return pd.DataFrame(columns=FORMAL_ORDER_COLUMNS)
+    primary_scopes = {"primary_available", "primary_eye_available", "eeg_qc_passed"}
+    terms = models.get("term", pd.Series(index=models.index, dtype=str)).astype(str)
+    mask = (
+        models.get("scope", pd.Series(index=models.index, dtype=str)).isin(primary_scopes)
+        & terms.isin(["block", "position"])
+        & models.get("hypothesis_block", pd.Series(index=models.index, dtype=str)).astype(str).str.startswith("H4_")
+    )
+    out = models.loc[mask].copy()
+    out["modality"] = out.get("family", "").map(_model_modality)
+    out["order_term"] = out["term"]
+    out["fit_status"] = out.get("status", "fit")
+    if diagnostics is not None and not diagnostics.empty:
+        status = diagnostics[
+            ["grain", "family", "scope", "outcome", "status"]
+        ].drop_duplicates(["grain", "family", "scope", "outcome"])
+        status = status.rename(columns={"status": "_diagnostic_status"})
+        out = out.merge(
+            status,
+            on=["grain", "family", "scope", "outcome"],
+            how="left",
+        )
+        out["fit_status"] = out["_diagnostic_status"].fillna(out["fit_status"])
+    return out.reindex(columns=FORMAL_ORDER_COLUMNS).sort_values(
+        ["modality", "outcome", "order_term"], kind="stable"
+    )
+
+
+def order_fatigue_descriptives(
+    *,
+    questionnaire_csv: str | Path | None,
+    eye_dynamic_csv: str | Path | None,
+    eeg_csv: str | Path | None,
+    eeg_scene_qc_csv: str | Path | None,
+    scene_manifest_csv: str | Path | None,
+) -> pd.DataFrame:
+    scene = read_table(scene_manifest_csv) if scene_manifest_csv else pd.DataFrame()
+    frames: list[tuple[str, pd.DataFrame, list[str]]] = []
+    if questionnaire_csv:
+        q = _normalize_questionnaire(read_table(questionnaire_csv))
+        frames.append(("questionnaire", q, [c for c in PRIMARY_QUESTIONNAIRE if c in q]))
+    if eye_dynamic_csv:
+        eye = read_table(eye_dynamic_csv)
+        eye_outcomes = [
+            c for c in (
+                "blink_count", "blink_rate_per_min", "angular_scanpath_deg_per_s",
+                "pupil_post_early_delta_mm",
+            ) if c in eye
+        ]
+        frames.append(("eye", eye, eye_outcomes))
+    if eeg_csv:
+        eeg = _normalize_eeg_columns(read_table(eeg_csv))
+        if eeg_scene_qc_csv:
+            eeg = _apply_eeg_qc(eeg, read_table(eeg_scene_qc_csv))
+        frames.append(("eeg", eeg, [c for c in EEG_OUTCOMES if c in eeg]))
+    rows: list[dict] = []
+    for modality, frame, outcomes in frames:
+        work = _add_order_features(_attach_scene_design(frame, scene), scene)
+        if set(KEYS).issubset(work.columns):
+            work = work.drop_duplicates(KEYS)
+        group_cols = [c for c in ("block", "position") if c in work.columns]
+        if not group_cols:
+            continue
+        for outcome in outcomes:
+            values = pd.to_numeric(work[outcome], errors="coerce")
+            for levels, sub_idx in work.assign(_value=values).groupby(
+                group_cols, dropna=False, sort=True
+            ).groups.items():
+                levels = levels if isinstance(levels, tuple) else (levels,)
+                sub = work.loc[sub_idx].copy()
+                sub[outcome] = values.loc[sub_idx]
+                stats = _summary_stats(sub, outcome)
+                rows.append({
+                    "modality": modality,
+                    "grain": "scene",
+                    "outcome": outcome,
+                    **dict(zip(group_cols, levels)),
+                    **stats,
+                    "interpretation_note": (
+                        "Descriptive order/fatigue proxy only; block and position "
+                        "are not direct fatigue measurements."
+                    ),
+                })
+    return pd.DataFrame(rows)
+
+
+def order_condition_stability(
+    models: pd.DataFrame,
+    diagnostics: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    if models.empty:
+        return pd.DataFrame()
+    models = _merge_model_fit_status(models, diagnostics)
+    rows: list[dict] = []
+    condition = models.get("term", pd.Series(index=models.index, dtype=str)).astype(str).str.contains(
+        "WWR|Complexity", regex=True
+    )
+    controlled = models.loc[
+        models.get("scope", pd.Series(index=models.index, dtype=str)).isin(
+            ["primary_available", "primary_eye_available", "eeg_qc_passed"]
+        ) & condition
+    ].copy()
+    unadjusted = models.loc[
+        models.get("scope", pd.Series(index=models.index, dtype=str)).eq(
+            "order_unadjusted_sensitivity"
+        ) & condition
+    ].copy()
+    keys = ["grain", "family", "outcome", "term"]
+    compare = controlled.merge(
+        unadjusted,
+        on=keys,
+        suffixes=("_controlled", "_unadjusted"),
+        how="inner",
+    )
+    for row in compare.itertuples():
+        controlled_est = float(row.estimate_controlled)
+        unadjusted_est = float(row.estimate_unadjusted)
+        rows.append({
+            "row_type": "condition_coefficient_comparison",
+            "modality": _model_modality(row.family),
+            "grain": row.grain,
+            "outcome": row.outcome,
+            "term": row.term,
+            "estimate_controlled": controlled_est,
+            "ci_low_controlled": row.ci_low_controlled,
+            "ci_high_controlled": row.ci_high_controlled,
+            "estimate_unadjusted": unadjusted_est,
+            "ci_low_unadjusted": row.ci_low_unadjusted,
+            "ci_high_unadjusted": row.ci_high_unadjusted,
+            "estimate_change": controlled_est - unadjusted_est,
+            "direction_changed": (
+                np.sign(controlled_est) != np.sign(unadjusted_est)
+                and controlled_est != 0 and unadjusted_est != 0
+            ),
+            "n_subjects": row.n_subjects_controlled,
+            "n_trials": row.n_trials_controlled,
+            "model_type": row.model_type_controlled,
+            "fit_status": row.fit_status_controlled,
+        })
+    time_rows = models.loc[
+        models.get("scope", pd.Series(index=models.index, dtype=str)).eq(
+            "order_time_stability_sensitivity"
+        )
+        & models.get("term", pd.Series(index=models.index, dtype=str)).astype(str).str.contains("trial_index")
+    ]
+    for row in time_rows.itertuples():
+        rows.append({
+            "row_type": "time_stability_term",
+            "modality": _model_modality(row.family),
+            "grain": row.grain,
+            "outcome": row.outcome,
+            "term": row.term,
+            "estimate_controlled": row.estimate,
+            "ci_low_controlled": row.ci_low,
+            "ci_high_controlled": row.ci_high,
+            "p_value": row.p_value,
+            "p_fdr_bh": row.p_fdr_bh,
+            "n_subjects": row.n_subjects,
+            "n_trials": row.n_trials,
+            "model_type": row.model_type,
+            "fit_status": row.fit_status,
+        })
+    return _append_failed_model_status(
+        pd.DataFrame(rows), diagnostics, "order_time_stability_sensitivity"
+    )
+
+
+def carryover_sensitivity(
+    models: pd.DataFrame,
+    diagnostics: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    if models.empty:
+        return pd.DataFrame()
+    models = _merge_model_fit_status(models, diagnostics)
+    subset = models.loc[
+        models.get("scope", pd.Series(index=models.index, dtype=str)).eq(
+            "carryover_sensitivity"
+        )
+    ].copy()
+    if not subset.empty:
+        subset.insert(0, "modality", subset["family"].map(_model_modality))
+    return _append_failed_model_status(
+        subset, diagnostics, "carryover_sensitivity"
+    )
+
+
+def _append_failed_model_status(
+    table: pd.DataFrame,
+    diagnostics: pd.DataFrame | None,
+    scope: str,
+) -> pd.DataFrame:
+    if diagnostics is None or diagnostics.empty:
+        return table
+    failed = diagnostics.loc[
+        diagnostics.get("scope", pd.Series(index=diagnostics.index, dtype=str)).eq(scope)
+        & ~diagnostics.get("status", pd.Series(index=diagnostics.index, dtype=str)).astype(str).str.startswith("fit")
+    ].copy()
+    if failed.empty:
+        return table
+    failed["modality"] = failed.get("family", "").map(_model_modality)
+    failed["fit_status"] = failed["status"]
+    failed["row_type"] = "model_status"
+    return pd.concat([table, failed], ignore_index=True, sort=False)
+
+
+def _merge_model_fit_status(
+    models: pd.DataFrame,
+    diagnostics: pd.DataFrame | None,
+) -> pd.DataFrame:
+    out = models.copy()
+    out["fit_status"] = out.get("status", "fit")
+    if diagnostics is None or diagnostics.empty:
+        return out
+    keys = ["grain", "family", "scope", "outcome"]
+    available = [key for key in keys if key in out and key in diagnostics]
+    if len(available) != len(keys):
+        return out
+    status = diagnostics[keys + ["status"]].drop_duplicates(keys)
+    status = status.rename(columns={"status": "_diagnostic_status"})
+    out = out.merge(status, on=keys, how="left")
+    out["fit_status"] = out["_diagnostic_status"].fillna(out["fit_status"])
+    return out.drop(columns=["_diagnostic_status"])
+
+
+def _model_modality(family: object) -> str:
+    value = str(family)
+    if value == "questionnaire":
+        return "questionnaire"
+    if value == "eeg":
+        return "eeg"
+    if value.startswith("eye_"):
+        return "eye"
+    return value
 
 
 def order_fatigue_effects(master: pd.DataFrame) -> pd.DataFrame:

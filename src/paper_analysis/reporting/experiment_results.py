@@ -799,15 +799,20 @@ def _robustness_rows(outputs_root: Path) -> list[dict[str, Any]]:
         rows.append(_plain_row(
             module="robustness",
             source_table="06_robustness/order_fatigue_effects.csv",
-            grain="diagnostic",
+            grain=str(row.get("grain", "scene")),
             metric=str(row.get("outcome", "")),
             factor="order_fatigue",
-            level=str(row.get("order_variable", "")),
-            n_subjects=0,
-            n_trials=int(row.get("n", 0) or 0),
+            level=str(row.get("order_term", "")),
+            n_subjects=int(row.get("n_subjects", 0) or 0),
+            n_trials=int(row.get("n_trials", 0) or 0),
             n_rows=1,
-            mean=_to_float(row.get("correlation")),
-            note="Correlation diagnostic for order/fatigue; not a primary effect estimate.",
+            mean=_to_float(row.get("estimate")),
+            note=(
+                f"Participant-clustered GEE estimate ({row.get('effect_scale', '')}); "
+                f"95% CI [{row.get('ci_low', '')}, {row.get('ci_high', '')}], "
+                f"p={row.get('p_value', '')}, BH-FDR q={row.get('p_fdr_bh', '')}. "
+                "Order/fatigue proxy, not a direct fatigue measure."
+            ),
         ))
     return rows
 

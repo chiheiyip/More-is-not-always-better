@@ -21,6 +21,17 @@ from paper_analysis.utils.io import read_table, write_table
 
 KEYS = ["participant_id", "scene_id"]
 QUESTIONNAIRE_OUTCOMES = ["q_S1", "q_S2", "q_S3", "q_S4", "q_S5"]
+EEG_OUTCOMES = [
+    f"eeg_{roi}_{band}"
+    for roi in ("F", "P", "O")
+    for band in ("theta", "alpha", "beta")
+]
+EEG_ORDER_PRIMARY = {
+    f"eeg_{roi}_{band}"
+    for roi in ("F", "P", "O")
+    for band in ("theta", "alpha")
+}
+PRIMARY_SCOPES = {"primary_eye_available", "primary_available", "eeg_qc_passed"}
 PRIMARY_EYE_TRIAL = [
     "aoi_transition_rate_per_min",
     "transition_entropy_normalized",
@@ -29,6 +40,7 @@ PRIMARY_EYE_TRIAL = [
     "first_window_fixation_latency_ms",
     "window_entry_count",
     "window_directed_transition_rate_per_min",
+    "blink_count",
     "blink_rate_per_min",
     "pupil_post_early_delta_mm",
 ]
@@ -56,9 +68,13 @@ def run_canonical_analysis(
     outdir: str | Path = "outputs/06_models",
     mde_simulations: int = 1000,
     random_seed: int = 20260713,
+    scene_manifest_csv: str | Path | None = None,
+    trimodal_qc_csv: str | Path | None = None,
 ) -> dict[str, Path]:
     """Fit the single authoritative model package and supporting sample audits."""
     participants = read_table(participants_csv)
+    scene = read_table(scene_manifest_csv) if scene_manifest_csv else pd.DataFrame()
+    trimodal_qc = read_table(trimodal_qc_csv) if trimodal_qc_csv else pd.DataFrame()
     questionnaire = _attach_participants(_normalize_questionnaire(read_table(questionnaire_csv)), participants)
     eye_aoi = _attach_participants(read_table(eye_aoi_csv), participants)
     eye_dynamic = _attach_participants(read_table(eye_dynamic_csv), participants)
@@ -68,8 +84,12 @@ def run_canonical_analysis(
             on=KEYS, how="left", suffixes=("", "_dynamic"),
         )
     eye_qc = read_table(eye_qc_csv)
-    eeg = _attach_participants(read_table(eeg_csv), participants)
+    eeg = _attach_participants(_normalize_eeg_columns(read_table(eeg_csv)), participants)
     eeg = _apply_eeg_qc(eeg, read_table(eeg_scene_qc_csv))
+    questionnaire = _add_order_features(_attach_scene_design(questionnaire, scene), scene)
+    eye_aoi = _add_order_features(_attach_scene_design(eye_aoi, scene), scene)
+    eye_dynamic = _add_order_features(_attach_scene_design(eye_dynamic, scene), scene)
+    eeg = _add_order_features(_attach_scene_design(eeg, scene), scene)
 
     rows: list[dict] = []
     diagnostics: list[dict] = []
@@ -90,7 +110,9 @@ def run_canonical_analysis(
     models = _apply_fdr(pd.DataFrame(rows))
     sensitivity = models.loc[models.get("scope", pd.Series(dtype=str)).astype(str).str.startswith("eye_valid_coordinates_ge_")].copy()
     availability = metric_sample_summary(questionnaire, eye_aoi, eye_dynamic, eeg)
-    sample_flow = modality_sample_flow(questionnaire, eye_aoi, eye_dynamic, eye_qc, eeg)
+    sample_flow = modality_sample_flow(
+        questionnaire, eye_aoi, eye_dynamic, eye_qc, eeg, trimodal_qc
+    )
     mde = monte_carlo_mde(
         eye_dynamic,
         outcomes=[c for c in PRIMARY_EYE_TRIAL if c in eye_dynamic.columns],
@@ -114,8 +136,7 @@ def _fit_questionnaire(data: pd.DataFrame, rows: list[dict], diagnostics: list[d
 
 
 def _fit_eeg(data: pd.DataFrame, rows: list[dict], diagnostics: list[dict]) -> None:
-    outcomes = [c for c in data.columns if c.startswith("eeg_") and any(b in c.lower() for b in ("theta", "alpha", "beta"))]
-    for outcome in outcomes:
+    for outcome in EEG_OUTCOMES:
         _fit_spec(data, outcome, "eeg_scene", "eeg", "eeg_qc_passed", "gamma", rows, diagnostics, positive=True)
 
 
@@ -196,12 +217,33 @@ def _fit_spec(
         response = outcome
     if positive:
         work = work.loc[work[outcome] > 0].copy()
-    formula = _formula(work, response, aoi=aoi, sensitivity=False)
+    formula = _formula(work, response, aoi=aoi, sensitivity=False, order_policy="primary")
     _fit_gee(work, response, outcome, formula, family, grain, model_family, scope, rows, diagnostics, offset_col, exploratory)
+    if scope in PRIMARY_SCOPES:
+        for sensitivity_scope, order_policy in [
+            ("order_unadjusted_sensitivity", "unadjusted"),
+            ("order_time_stability_sensitivity", "time_stability"),
+            ("carryover_sensitivity", "carryover"),
+        ]:
+            sensitivity_formula = _formula(
+                work,
+                response,
+                aoi=aoi,
+                sensitivity=False,
+                order_policy=order_policy,
+            )
+            if sensitivity_formula != formula:
+                _fit_gee(
+                    work, response, outcome, sensitivity_formula, family, grain,
+                    model_family, sensitivity_scope, rows, diagnostics,
+                    offset_col, True,
+                )
     # Demographic covariates are a predefined sensitivity model, not part of
     # every primary model.
     if scope == "primary_eye_available":
-        sensitivity_formula = _formula(work, response, aoi=aoi, sensitivity=True)
+        sensitivity_formula = _formula(
+            work, response, aoi=aoi, sensitivity=True, order_policy="primary"
+        )
         if sensitivity_formula != formula:
             _fit_gee(work, response, outcome, sensitivity_formula, family, grain, model_family, "demographic_sensitivity", rows, diagnostics, offset_col, True)
 
@@ -250,6 +292,10 @@ def _fit_gee(
             cov_struct=sm.cov_struct.Exchangeable(),
             offset=work["_log_offset"] if offset_col else None,
         )
+        rank_deficient = (
+            np.linalg.matrix_rank(np.asarray(model.exog, dtype=float))
+            < model.exog.shape[1]
+        )
         fit = model.fit()
         ci = fit.conf_int()
         numeric = [fit.params, fit.bse, fit.pvalues, ci.iloc[:, 0], ci.iloc[:, 1]]
@@ -260,13 +306,17 @@ def _fit_gee(
         diagnostics.append(_diag(grain, model_family, scope, reported_outcome, status, len(work), n_subjects, n_trials, formula=formula, error=str(exc)))
         return
     model_type = f"gee_{family_name}_participant_clustered"
-    primary_scopes = {"primary_eye_available", "primary_available", "eeg_qc_passed"}
-    tier = "primary" if not exploratory and scope in primary_scopes else "exploratory"
     for term, estimate in fit.params.items():
+        hypothesis_block = _hypothesis_block(
+            reported_outcome, str(term), model_family=model_family, scope=scope
+        )
         rows.append({
             "grain": grain, "family": model_family, "scope": scope,
-            "hypothesis_block": _hypothesis_block(reported_outcome, str(term)) if scope == "primary_eye_available" else "exploratory_not_in_primary_fdr",
-            "interpretation_tier": tier, "outcome": reported_outcome,
+            "hypothesis_block": hypothesis_block,
+            "interpretation_tier": _term_tier(
+                reported_outcome, str(term), model_family, scope, exploratory
+            ),
+            "outcome": reported_outcome,
             "term": str(term), "estimate": float(estimate),
             "std_error": float(fit.bse[term]),
             "effect_scale": _effect_scale(family_name),
@@ -275,10 +325,17 @@ def _fit_gee(
             "n_subjects": n_subjects, "n_trials": n_trials,
             "model_type": model_type, "formula": formula, "status": "fit",
         })
-    diagnostics.append(_diag(grain, model_family, scope, reported_outcome, "fit", int(fit.nobs), n_subjects, n_trials, model_type, formula))
+    fit_status = "fit_rank_deficient" if rank_deficient else "fit"
+    diagnostics.append(_diag(grain, model_family, scope, reported_outcome, fit_status, int(fit.nobs), n_subjects, n_trials, model_type, formula))
 
 
-def _formula(data: pd.DataFrame, response: str, aoi: bool, sensitivity: bool) -> str:
+def _formula(
+    data: pd.DataFrame,
+    response: str,
+    aoi: bool,
+    sensitivity: bool,
+    order_policy: str = "primary",
+) -> str:
     terms = []
     if _varying(data, "WWR") and _varying(data, "Complexity"):
         terms.append("C(WWR) * C(Complexity)")
@@ -289,7 +346,25 @@ def _formula(data: pd.DataFrame, response: str, aoi: bool, sensitivity: bool) ->
     if _varying(data, "ExperienceGroup"):
         interactions = [f"C(ExperienceGroup) * C({name})" for name in ("WWR", "Complexity") if _varying(data, name)]
         terms.extend(interactions or ["C(ExperienceGroup)"])
-    terms.extend(name for name in ("block", "position") if _varying(data, name))
+    if order_policy in {"primary", "carryover"}:
+        terms.extend(name for name in ("block", "position") if _varying(data, name))
+    elif order_policy == "time_stability" and _varying(data, "trial_index"):
+        terms.append("trial_index")
+        if _varying(data, "WWR"):
+            terms.append("C(WWR):trial_index")
+        if _varying(data, "Complexity"):
+            terms.append("C(Complexity):trial_index")
+    elif order_policy != "unadjusted":
+        raise ValueError(f"Unknown order policy: {order_policy}")
+    if order_policy == "carryover":
+        if _varying(data, "previous_WWR"):
+            terms.append("C(previous_WWR)")
+        if _varying(data, "previous_Complexity"):
+            terms.append("C(previous_Complexity)")
+        if _varying(data, "order_scheme"):
+            terms.append("C(order_scheme)")
+        if _varying(data, "break_before_trial"):
+            terms.append("break_before_trial")
     if aoi and _varying(data, "class_name"):
         terms.append("C(class_name)")
         if _varying(data, "WWR"):
@@ -309,19 +384,76 @@ def _formula(data: pd.DataFrame, response: str, aoi: bool, sensitivity: bool) ->
     return f"{response} ~ " + (" + ".join(dict.fromkeys(terms)) if terms else "1")
 
 
-def _hypothesis_block(outcome: str, term: str) -> str:
+def _hypothesis_block(
+    outcome: str,
+    term: str,
+    *,
+    model_family: str,
+    scope: str,
+) -> str:
     exploration = {"aoi_transition_rate_per_min", "transition_entropy_normalized", "angular_scanpath_deg_per_s", "saccade_rate_per_min"}
     window = {"first_window_fixation_latency_ms", "window_entry_count", "window_directed_transition_rate_per_min"}
     fatigue = {"angular_scanpath_deg_per_s", "scanpath_length_px_per_s", "blink_rate_per_min", "blink_count", "pupil_post_early_delta_mm"}
-    if outcome in exploration and "Complexity" in term and "ExperienceGroup" not in term:
+    if scope == "primary_eye_available" and outcome in exploration and "Complexity" in term and "ExperienceGroup" not in term:
         return "H1_complexity_exploration"
-    if outcome in window and "WWR" in term and "ExperienceGroup" not in term:
+    if scope == "primary_eye_available" and outcome in window and "WWR" in term and "ExperienceGroup" not in term:
         return "H2_wwr_window_direction"
-    if outcome in exploration | window and "ExperienceGroup" in term and ":" in term:
+    if scope == "primary_eye_available" and outcome in exploration | window and "ExperienceGroup" in term and ":" in term:
         return "H3_experience_moderation"
-    if outcome in fatigue and ("block" in term or "position" in term):
-        return "H4_fatigue_order"
+    if scope in PRIMARY_SCOPES and term in {"block", "position"}:
+        if model_family == "eeg" and outcome in EEG_ORDER_PRIMARY:
+            return "H4_eeg_theta_alpha_order"
+        if model_family == "questionnaire":
+            return "H4_questionnaire_order"
+        if model_family.startswith("eye_") and outcome in fatigue:
+            return "H4_eye_fatigue_order"
+    if scope == "order_time_stability_sensitivity" and "trial_index" in term:
+        if "WWR" in term or "Complexity" in term:
+            return f"H4_{_modality_label(model_family)}_time_stability"
+    if scope == "carryover_sensitivity" and (
+        "previous_WWR" in term
+        or "previous_Complexity" in term
+        or term == "break_before_trial"
+    ):
+        return f"H4_{_modality_label(model_family)}_carryover"
     return "exploratory_not_in_primary_fdr"
+
+
+def _modality_label(model_family: str) -> str:
+    if model_family == "questionnaire":
+        return "questionnaire"
+    if model_family == "eeg":
+        return "eeg"
+    return "eye"
+
+
+def _term_tier(
+    outcome: str,
+    term: str,
+    model_family: str,
+    scope: str,
+    exploratory: bool,
+) -> str:
+    fatigue = {
+        "angular_scanpath_deg_per_s", "blink_count", "blink_rate_per_min",
+        "pupil_post_early_delta_mm",
+    }
+    if (
+        scope == "primary_eye_available"
+        and model_family.startswith("eye_")
+        and term in {"block", "position"}
+        and outcome in fatigue
+    ):
+        return "primary"
+    if exploratory or scope not in PRIMARY_SCOPES:
+        return "exploratory"
+    if (
+        model_family == "eeg"
+        and term in {"block", "position"}
+        and outcome not in EEG_ORDER_PRIMARY
+    ):
+        return "exploratory"
+    return "primary"
 
 
 def _apply_fdr(models: pd.DataFrame) -> pd.DataFrame:
@@ -369,7 +501,14 @@ def metric_sample_summary(*frames: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def modality_sample_flow(questionnaire: pd.DataFrame, eye_aoi: pd.DataFrame, eye_dynamic: pd.DataFrame, eye_qc: pd.DataFrame, eeg: pd.DataFrame) -> pd.DataFrame:
+def modality_sample_flow(
+    questionnaire: pd.DataFrame,
+    eye_aoi: pd.DataFrame,
+    eye_dynamic: pd.DataFrame,
+    eye_qc: pd.DataFrame,
+    eeg: pd.DataFrame,
+    trimodal_qc: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     rows = []
     for modality, frame, policy in [
         ("questionnaire", questionnaire, "questionnaire_available"),
@@ -381,6 +520,16 @@ def modality_sample_flow(questionnaire: pd.DataFrame, eye_aoi: pd.DataFrame, eye
     eeg_trials = set(map(tuple, eeg[KEYS].drop_duplicates().to_numpy())) if set(KEYS).issubset(eeg.columns) else set()
     q_trials = set(map(tuple, questionnaire[KEYS].drop_duplicates().to_numpy())) if set(KEYS).issubset(questionnaire.columns) else set()
     intersection = eye_trials & eeg_trials & q_trials
+    if trimodal_qc is not None and not trimodal_qc.empty and set(KEYS).issubset(trimodal_qc.columns):
+        if "excluded_from_analysis" in trimodal_qc:
+            keep = ~_truthy(trimodal_qc["excluded_from_analysis"])
+            qc_kept = set(
+                map(
+                    tuple,
+                    trimodal_qc.loc[keep, KEYS].drop_duplicates().to_numpy(),
+                )
+            )
+            intersection &= qc_kept
     rows.append({"modality": "trimodal_intersection", "eligibility_policy": "descriptive_alignment_only", "n_subjects": len({x[0] for x in intersection}), "n_trials": len(intersection)})
     if not eye_qc.empty and "analysis_valid_ratio" in eye_qc:
         ratio = pd.to_numeric(eye_qc["analysis_valid_ratio"], errors="coerce")
@@ -472,6 +621,121 @@ def _normalize_questionnaire(data: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _normalize_eeg_columns(data: pd.DataFrame) -> pd.DataFrame:
+    """Canonicalize ROI-band EEG columns and reject conflicting duplicates."""
+    out = data.copy()
+    for canonical in EEG_OUTCOMES:
+        source = canonical.removeprefix("eeg_")
+        has_source = source in out.columns
+        has_canonical = canonical in out.columns
+        if has_source and has_canonical:
+            left = pd.to_numeric(out[source], errors="coerce")
+            right = pd.to_numeric(out[canonical], errors="coerce")
+            equal = (left.isna() & right.isna()) | np.isclose(
+                left, right, equal_nan=True
+            )
+            if not bool(np.asarray(equal).all()):
+                raise ValueError(
+                    f"Conflicting EEG columns {source!r} and {canonical!r}"
+                )
+            out = out.drop(columns=[source])
+        elif has_source:
+            out = out.rename(columns={source: canonical})
+    return out
+
+
+def _attach_scene_design(data: pd.DataFrame, scene: pd.DataFrame) -> pd.DataFrame:
+    if data.empty or scene.empty or not set(KEYS).issubset(data.columns) or not set(KEYS).issubset(scene.columns):
+        return data
+    design_cols = [
+        c
+        for c in (
+            "order_scheme",
+            "participant_order",
+            "block",
+            "position",
+            "round",
+            "WWR",
+            "Complexity",
+            "condition_id",
+        )
+        if c in scene.columns
+    ]
+    missing = [c for c in design_cols if c not in data.columns]
+    if not missing:
+        return data
+    return data.merge(
+        scene[KEYS + missing].drop_duplicates(KEYS),
+        on=KEYS,
+        how="left",
+        validate="many_to_one",
+    )
+
+
+def _add_order_features(
+    data: pd.DataFrame,
+    trial_reference: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    if data.empty or not set(KEYS).issubset(data.columns):
+        return data
+    out = data.copy()
+    scene_id = pd.to_numeric(out["scene_id"], errors="coerce")
+    if "block" in out and "position" in out:
+        block = pd.to_numeric(out["block"], errors="coerce")
+        position = pd.to_numeric(out["position"], errors="coerce")
+        # The production experiment has six positions in each block. Small
+        # synthetic fixtures may use fewer; only enforce the registered
+        # 12-scene contract when the six-position design is present.
+        if bool(position.eq(6).any()) or bool(scene_id.eq(12).any()):
+            derived = (block - 1) * 6 + position
+            mismatch = scene_id.notna() & derived.notna() & ~np.isclose(scene_id, derived)
+            if bool(mismatch.any()):
+                raise ValueError("scene_id does not match (block - 1) * 6 + position")
+    out["trial_index"] = scene_id
+    reference = (
+        trial_reference.copy()
+        if trial_reference is not None
+        and not trial_reference.empty
+        and set(KEYS).issubset(trial_reference.columns)
+        else out
+    )
+    trial_cols = KEYS + [
+        c
+        for c in ("WWR", "Complexity", "block", "position", "order_scheme")
+        if c in reference.columns
+    ]
+    trials = (
+        reference[trial_cols]
+        .drop_duplicates(KEYS)
+        .sort_values(KEYS)
+        .copy()
+    )
+    trials["previous_WWR"] = trials.groupby("participant_id", sort=False)["WWR"].shift(1) if "WWR" in trials else np.nan
+    trials["previous_Complexity"] = trials.groupby("participant_id", sort=False)["Complexity"].shift(1) if "Complexity" in trials else np.nan
+    if "block" in trials and "position" in trials:
+        trials["break_before_trial"] = (
+            pd.to_numeric(trials["block"], errors="coerce").eq(2)
+            & pd.to_numeric(trials["position"], errors="coerce").eq(1)
+        ).astype(int)
+    else:
+        trials["break_before_trial"] = 0
+    feature_cols = KEYS + [
+        "previous_WWR",
+        "previous_Complexity",
+        "break_before_trial",
+    ]
+    out = out.drop(
+        columns=[c for c in feature_cols[2:] if c in out.columns],
+        errors="ignore",
+    )
+    return out.merge(
+        trials[feature_cols],
+        on=KEYS,
+        how="left",
+        validate="many_to_one",
+    )
+
+
 def _eye_threshold_subset(data: pd.DataFrame, qc: pd.DataFrame, threshold: float) -> pd.DataFrame:
     if data.empty or qc.empty or "analysis_valid_ratio" not in qc or not set(KEYS).issubset(qc.columns):
         return data.iloc[0:0].copy()
@@ -493,7 +757,10 @@ def _diag(grain: str, family: str, scope: str, outcome: str, status: str, n_obs:
 
 def _formula_columns(formula: str) -> list[str]:
     categorical = re.findall(r"C\(([^)]+)\)", formula)
-    plain = re.findall(r"\b(?:block|position|Age|participant_id|_model_outcome)\b", formula)
+    plain = re.findall(
+        r"\b(?:block|position|trial_index|break_before_trial|Age|participant_id|_model_outcome)\b",
+        formula,
+    )
     response = formula.split("~", 1)[0].strip()
     return list(dict.fromkeys([response, *categorical, *plain]))
 

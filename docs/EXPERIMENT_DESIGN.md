@@ -33,12 +33,16 @@ date; intake fails explicitly when Order is missing.
 Complexity is always parsed from the condition label: `C0 = 0` (low) and
 `C1 = 1` (high). Folder group labels and WWR values never determine Complexity.
 
-## Cross-modal exclusion contract
+## Modality-specific analysis and order contract
 
-The complete prepared questionnaire table remains in `questionnaire_long.csv`
-for audit and fusion construction. Once fusion QC produces
-`analysis_qc_exclusions.csv`, all questionnaire descriptives, reliability
-checks, item models, contrasts, and paper-result summaries use
-`questionnaire_analysis_long.csv`, filtered by the same
-`participant_id + scene_id` keep set as EEG and eye tracking.
-`questionnaire_analysis_sample.csv` records raw, retained, and excluded counts.
+The complete prepared questionnaire table in `questionnaire_long.csv` is the
+canonical questionnaire model source. Questionnaire and eye-tracking models
+do not inherit EEG exclusions. EEG models use the EEG-QC-passed scene set.
+The shared trimodal keep set in `analysis_qc_exclusions.csv` is reserved for
+synchronized cross-modal analyses.
+
+For formal order analyses, `trial_index = scene_id = (block - 1) * 6 +
+position`. The first scene of block 2 is marked by `break_before_trial = 1`
+because it follows the registered 120-second break. Lagged previous-condition
+variables are ordered within participant by `scene_id`; scene 1 has no lag and
+is excluded only from the carryover sensitivity model.

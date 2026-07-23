@@ -14,10 +14,16 @@
       "evidence_file": "outputs/06_robustness/gender_sensitivity.csv"
     },
     {
-      "issue_id": "R1_ORDER_FATIGUE",
-      "reviewer_concern": "Multiple conditions may introduce fatigue or carryover effects.",
-      "action": "Model block and position; report trial-order diagnostics.",
-      "evidence_file": "outputs/06_robustness/order_fatigue_effects.csv"
+      "issue_id": "R1.11",
+      "reviewer_concern": "EEG theta/alpha time trends and condition effects may be confounded by trial order or carryover.",
+      "action": "Fit formal block/position EEG models, trial-index condition interactions, and previous-condition carryover sensitivity models.",
+      "evidence_file": "outputs/08_reviewer_response/reviewer_order_fatigue_evidence.md"
+    },
+    {
+      "issue_id": "R2.5",
+      "reviewer_concern": "Fatigue or attention dispersion across repeated trials may affect questionnaire, eye-tracking, and EEG indicators.",
+      "action": "Report modality-specific order/fatigue-proxy models, FDR, time stability, carryover sensitivity, and bounded limitations.",
+      "evidence_file": "outputs/08_reviewer_response/reviewer_order_fatigue_evidence.md"
     },
     {
       "issue_id": "R1_WWR_NONLINEARITY",

@@ -22,7 +22,7 @@ For real data, copy `configs/paths.example.json` to `configs/paths.local.json` a
 - `outputs/04_eeg/`: EEG trial-level table and frequency-band QC.
 - `outputs/05_multimodal_fusion/`: canonical analysis master table, original-style EEG-eye aligned scene table, time-bin table, sync QC, precise alignment QC, and multimodal claim support.
 - `outputs/06_models/`: the canonical participant-clustered GEE result table, fit diagnostics, modality sample flow, QC sensitivity models, metric availability, and Monte Carlo MDE. Superseded models are written only with `--legacy-models`, under `outputs/06_models/legacy/`.
-- `outputs/06_robustness/`: order/fatigue, gender, batch, nonlinear WWR, power sensitivity.
+- `outputs/06_robustness/`: formal block/position order estimates, scene-level order descriptives, condition-by-trial-index stability, previous-condition carryover, gender, batch, nonlinear WWR, and power sensitivity.
 - `outputs/07_paper_tables/`: paper-facing tables, claim strength table, result summary.
 - `outputs/08_reviewer_response/`: reviewer issue to evidence index and reviewer issue matrix.
 - `outputs/09_data_package/`: Data Availability draft and dataset/source-data availability index.

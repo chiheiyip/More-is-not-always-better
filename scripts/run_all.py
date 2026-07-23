@@ -90,6 +90,8 @@ def main() -> None:
         participants_csv=intake["participants_standardized"],
         outdir=outputs / "06_models",
         mde_simulations=int(config.get("mde_simulations", 1000)),
+        scene_manifest_csv=intake["scene_manifest_standardized"],
+        trimodal_qc_csv=fusion["analysis_qc_exclusions"],
     )
     if args.legacy_models:
         legacy = run_statistical_models(
@@ -102,6 +104,13 @@ def main() -> None:
         master_csv=fusion["analysis_master_long"],
         participants_csv=intake["participants_standardized"],
         outdir=outputs / "06_robustness",
+        questionnaire_csv=questionnaire["questionnaire_long"],
+        eye_dynamic_csv=eye["eye_trial_dynamic_metrics"],
+        eeg_csv=eeg["eeg_trial_long"],
+        eeg_scene_qc_csv=eeg["eeg_scene_qc"],
+        scene_manifest_csv=intake["scene_manifest_standardized"],
+        model_results_csv=stats["model_results"],
+        model_diagnostics_csv=stats["model_diagnostics"],
     )
     reporting = build_paper_outputs(
         model_results_csv=stats["model_results"],

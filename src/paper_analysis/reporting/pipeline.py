@@ -27,13 +27,18 @@ def build_paper_outputs(
     paper_tables = build_model_table(models)
     claim_strength = claim_strength_table(models, diagnostics_dir)
     reviewer_index = reviewer_response_index(reviewer_map, claim_strength)
-    reviewer_matrix = reviewer_issue_matrix(reviewer_index)
     figure_contracts = figure_contract_index(figure_contracts_config)
     source_data = source_data_index(figure_contracts)
     data_availability = data_availability_index(data_availability_config)
     data_statement = data_availability_statement(data_availability)
     sample_flow = _read_optional(model_dir / "modality_sample_flow.csv")
     metric_samples = _read_optional(model_dir / "metric_sample_summary.csv")
+    reviewer_matrix = reviewer_issue_matrix(
+        reviewer_index, models, diagnostics_dir, sample_flow
+    )
+    reviewer_order_evidence = reviewer_order_fatigue_evidence(
+        models, diagnostics_dir, sample_flow, reviewer_matrix
+    )
     summary = paper_summary_markdown(paper_tables, claim_strength, figure_contracts, data_availability, sample_flow, metric_samples)
     outputs = {
         "table_model_results": write_table(paper_tables, outdir / "table_model_results.csv"),
@@ -46,6 +51,10 @@ def build_paper_outputs(
         "eye_analysis_scope_note": write_text(_eye_scope_note(sample_flow), outdir / "eye_analysis_scope_note.md"),
         "response_evidence_index": write_table(reviewer_index, response_dir / "response_evidence_index.csv"),
         "reviewer_issue_matrix": write_table(reviewer_matrix, response_dir / "reviewer_issue_matrix.csv"),
+        "reviewer_order_fatigue_evidence": write_text(
+            reviewer_order_evidence,
+            response_dir / "reviewer_order_fatigue_evidence.md",
+        ),
         "data_availability_index": write_table(data_availability, data_package_dir / "data_availability_index.csv"),
         "data_availability_statement": write_text(data_statement, data_package_dir / "data_availability_statement.md"),
     }
@@ -85,7 +94,8 @@ def reviewer_response_index(reviewer_map: str | Path, claim_strength: pd.DataFra
     if not rows:
         rows = [
             {"issue_id": "R1_SAMPLE_BALANCE", "action": "supplement_low_experience_and_report_balance", "evidence_file": "outputs/01_sample_qc/group_balance_before_after.csv"},
-            {"issue_id": "R1_ORDER_FATIGUE", "action": "model_block_position_trial_order", "evidence_file": "outputs/06_robustness/order_fatigue_effects.csv"},
+            {"issue_id": "R1.11", "action": "model_block_position_trial_order_and_carryover", "evidence_file": "outputs/08_reviewer_response/reviewer_order_fatigue_evidence.md"},
+            {"issue_id": "R2.5", "action": "report_multimodal_fatigue_attention_proxies", "evidence_file": "outputs/08_reviewer_response/reviewer_order_fatigue_evidence.md"},
             {"issue_id": "R1_NONLINEARITY", "action": "soften_claim_and_report_planned_contrasts", "evidence_file": "outputs/06_robustness/nonlinear_wwr_sensitivity.csv"},
         ]
     out = pd.DataFrame(rows)
@@ -94,7 +104,12 @@ def reviewer_response_index(reviewer_map: str | Path, claim_strength: pd.DataFra
     return out
 
 
-def reviewer_issue_matrix(reviewer_index: pd.DataFrame) -> pd.DataFrame:
+def reviewer_issue_matrix(
+    reviewer_index: pd.DataFrame,
+    models: pd.DataFrame | None = None,
+    diagnostics_dir: Path | None = None,
+    sample_flow: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     out = reviewer_index.copy()
     if out.empty:
         return pd.DataFrame(columns=["issue_id", "reviewer_concern", "action", "evidence_file", "response_readiness"])
@@ -106,7 +121,243 @@ def reviewer_issue_matrix(reviewer_index: pd.DataFrame) -> pd.DataFrame:
     if "support_level" in out.columns:
         weak = out["support_level"].fillna("").astype(str).str.contains("unsupported|exploratory", case=False, regex=True)
         out.loc[weak, "response_readiness"] = "draft_with_bounded_claim"
+    strict_ids = out["issue_id"].astype(str).isin(["R1.11", "R2.5"])
+    if strict_ids.any():
+        readiness, reason = _order_readiness(
+            models if models is not None else pd.DataFrame(),
+            diagnostics_dir,
+            sample_flow if sample_flow is not None else pd.DataFrame(),
+        )
+        out.loc[strict_ids, "response_readiness"] = readiness
+        out.loc[strict_ids, "readiness_reason"] = reason
     return out
+
+
+def reviewer_order_fatigue_evidence(
+    models: pd.DataFrame,
+    diagnostics_dir: Path,
+    sample_flow: pd.DataFrame,
+    reviewer_matrix: pd.DataFrame,
+) -> str:
+    order = _read_optional(diagnostics_dir / "order_fatigue_effects.csv")
+    stability = _read_optional(diagnostics_dir / "order_condition_stability.csv")
+    carryover = _read_optional(diagnostics_dir / "carryover_sensitivity.csv")
+    readiness_rows = reviewer_matrix.loc[
+        reviewer_matrix.get("issue_id", pd.Series(dtype=str)).astype(str).isin(
+            ["R1.11", "R2.5"]
+        ),
+        [c for c in ("issue_id", "response_readiness", "readiness_reason") if c in reviewer_matrix],
+    ]
+    order_cols = [
+        c for c in (
+            "modality", "outcome", "order_term", "estimate", "ci_low",
+            "ci_high", "effect_scale", "p_value", "p_fdr_bh", "n_subjects",
+            "n_trials", "model_type", "fit_status",
+        ) if c in order
+    ]
+    time_main = stability.loc[
+        stability.get("row_type", pd.Series(index=stability.index, dtype=str)).eq(
+            "time_stability_term"
+        )
+    ].copy() if not stability.empty else pd.DataFrame()
+    carry_terms = carryover.loc[
+        carryover.get("term", pd.Series(index=carryover.index, dtype=str)).astype(str).str.contains(
+            "previous_WWR|previous_Complexity|break_before_trial", regex=True
+        )
+    ].copy() if not carryover.empty else pd.DataFrame()
+    stability_cols = [
+        c for c in (
+            "row_type", "modality", "outcome", "term", "estimate_controlled",
+            "ci_low_controlled", "ci_high_controlled", "p_value", "p_fdr_bh",
+            "direction_changed", "n_subjects", "n_trials", "model_type",
+            "fit_status",
+        ) if c in stability
+    ]
+    carry_cols = [
+        c for c in (
+            "modality", "outcome", "term", "estimate", "ci_low", "ci_high",
+            "p_value", "p_fdr_bh", "n_subjects", "n_trials", "model_type",
+            "fit_status",
+        ) if c in carry_terms
+    ]
+    significant_order = int(
+        pd.to_numeric(order.get("p_fdr_bh", pd.Series(dtype=float)), errors="coerce")
+        .lt(0.05).sum()
+    )
+    total_order = int(len(order))
+    lines = [
+        "# Reviewer R1.11 and R2.5: order, fatigue-proxy and carryover evidence",
+        "",
+        "## Scope and decision boundary",
+        "",
+        "The analyses below quantify order-related and fatigue/attention-proxy effects. "
+        "Block, within-block position, trial index, blink measures and pupil change "
+        "are not direct measurements of subjective fatigue. The sensitivity analyses "
+        "can assess whether the registered condition effects are stable to plausible "
+        "order and carryover controls, but cannot prove that carryover was eliminated.",
+        "",
+        "All formal models are participant-clustered GEE models. Questionnaire, "
+        "eye-tracking and EEG analyses use their modality-specific available samples; "
+        "the synchronized three-modality intersection is reserved for aligned analyses.",
+        "",
+        "## Readiness gate",
+        "",
+        dataframe_to_markdown(readiness_rows) if not readiness_rows.empty else "No R1.11/R2.5 readiness rows were generated.",
+        "",
+        "## Sample flow",
+        "",
+        dataframe_to_markdown(sample_flow) if not sample_flow.empty else "No sample-flow table was generated.",
+        "",
+        "## Formal block and position estimates",
+        "",
+        f"{significant_order} of {total_order} prespecified order-term estimates have BH-FDR q < 0.05. "
+        "Interpret direction on the stated effect scale and retain the confidence interval.",
+        "",
+        dataframe_to_markdown(order[order_cols]) if not order.empty else "No formal order estimates were generated.",
+        "",
+        "## Time stability of WWR and complexity effects",
+        "",
+        "These models replace the block/position parameterization with trial index and "
+        "test WWR × trial-index and Complexity × trial-index terms. A non-significant "
+        "interaction is evidence of no detected change, not proof of perfect stability.",
+        "",
+        dataframe_to_markdown(time_main[stability_cols]) if not time_main.empty else "No time-stability estimates were generated.",
+        "",
+        "## Controlled versus unadjusted condition coefficients",
+        "",
+        "The table reports the observed change in condition estimates after adding "
+        "block and position. No automatic percentage threshold is used to declare "
+        "absence of confounding.",
+        "",
+        dataframe_to_markdown(
+            stability.loc[
+                stability.get("row_type", pd.Series(index=stability.index, dtype=str)).eq(
+                    "condition_coefficient_comparison"
+                ),
+                stability_cols,
+            ]
+        ) if not stability.empty else "No coefficient comparison was generated.",
+        "",
+        "## Previous-condition carryover sensitivity",
+        "",
+        "The first trial is excluded because its lag is undefined. The first trial of "
+        "block 2 retains the previous condition and is identified by break_before_trial, "
+        "which represents the 120-second break.",
+        "",
+        dataframe_to_markdown(carry_terms[carry_cols]) if not carry_terms.empty else "No carryover estimates were generated.",
+        "",
+        "## Evidence summary for the response letter",
+        "",
+        "### R1.11",
+        "",
+        "We added participant-clustered GEE analyses of EEG theta/alpha order effects, "
+        "formal block and position covariates, trial-index interactions, and lagged "
+        "previous-condition sensitivity models. The numerical estimates, confidence "
+        "intervals, raw p values, BH-FDR q values and actual sample sizes are reported "
+        "above. The response should describe detected and undetected effects exactly as "
+        "shown, without claiming that time-related confounding was completely excluded.",
+        "",
+        "### R2.5",
+        "",
+        "We evaluated questionnaire scores, blink count/rate, angular scan-path rate, "
+        "early-reference pupil change, and EEG theta/alpha using modality-specific "
+        "samples. These are order/fatigue/attention proxies rather than a direct fatigue "
+        "measure; the manuscript should retain that limitation.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _order_readiness(
+    models: pd.DataFrame,
+    diagnostics_dir: Path | None,
+    sample_flow: pd.DataFrame,
+) -> tuple[str, str]:
+    failures: list[str] = []
+    main_outcomes = {
+        *(f"q_S{i}" for i in range(1, 6)),
+        *(f"eeg_{roi}_{band}" for roi in ("F", "P", "O") for band in ("theta", "alpha")),
+        "blink_count",
+        "blink_rate_per_min",
+        "angular_scanpath_deg_per_s",
+        "pupil_post_early_delta_mm",
+    }
+    if models.empty:
+        failures.append("canonical model table missing")
+    else:
+        eeg = models.loc[
+            models.get("family", pd.Series(index=models.index, dtype=str)).eq("eeg")
+            & models.get("scope", pd.Series(index=models.index, dtype=str)).eq("eeg_qc_passed")
+        ]
+        if eeg["outcome"].nunique() < 9 if "outcome" in eeg else True:
+            failures.append("fewer than nine EEG canonical outcomes fitted")
+    if diagnostics_dir is None:
+        failures.append("diagnostics directory missing")
+    else:
+        required = {
+            "formal order models": diagnostics_dir / "order_fatigue_effects.csv",
+            "time interaction models": diagnostics_dir / "order_condition_stability.csv",
+            "carryover models": diagnostics_dir / "carryover_sensitivity.csv",
+        }
+        for label, path in required.items():
+            table = _read_optional(path)
+            if table.empty:
+                failures.append(f"{label} missing or empty")
+        order = _read_optional(required["formal order models"])
+        if not order.empty and pd.to_numeric(
+            order.get("p_fdr_bh", pd.Series(dtype=float)), errors="coerce"
+        ).notna().sum() == 0:
+            failures.append("formal order FDR values missing")
+        for label in ("time interaction models", "carryover models"):
+            table = _read_optional(required[label])
+            if table.empty:
+                continue
+            main = table.loc[
+                table.get("outcome", pd.Series(index=table.index, dtype=str)).isin(
+                    main_outcomes
+                )
+            ]
+            missing = main_outcomes - set(main.get("outcome", pd.Series(dtype=str)))
+            if missing:
+                failures.append(
+                    f"{label} missing main outcomes: {','.join(sorted(missing))}"
+                )
+            if main.get(
+                "fit_status", pd.Series(index=main.index, dtype=str)
+            ).astype(str).str.contains("failed|rank_deficient|nonfinite", case=False, regex=True).any():
+                failures.append(f"{label} contains failed or unstable main-outcome fits")
+        carry = _read_optional(required["carryover models"])
+        if not carry.empty:
+            carry_terms = carry.get("term", pd.Series(index=carry.index, dtype=str)).astype(str)
+            for fragment in (
+                "previous_WWR", "previous_Complexity", "order_scheme",
+                "break_before_trial",
+            ):
+                if not carry_terms.str.contains(fragment, regex=False).any():
+                    failures.append(f"carryover term missing: {fragment}")
+    expected = {
+        ("questionnaire", "questionnaire_available"): (56, 672),
+        ("eeg", "eeg_qc_passed"): (42, 471),
+        ("trimodal_intersection", "descriptive_alignment_only"): (42, 468),
+    }
+    if sample_flow.empty:
+        failures.append("sample-flow QA missing")
+    else:
+        for (modality, policy), counts in expected.items():
+            hit = sample_flow.loc[
+                sample_flow["modality"].astype(str).eq(modality)
+                & sample_flow["eligibility_policy"].astype(str).eq(policy)
+            ]
+            if hit.empty or (int(hit.iloc[0]["n_subjects"]), int(hit.iloc[0]["n_trials"])) != counts:
+                failures.append(
+                    f"sample QA mismatch for {modality}: expected {counts[0]}/{counts[1]}"
+                )
+    if failures:
+        return "needs_revision", "; ".join(dict.fromkeys(failures))
+    return (
+        "ready_to_draft_response",
+        "EEG, formal order/FDR, time interaction, carryover, and sample-flow gates passed",
+    )
 
 
 def figure_contract_index(figure_contracts_config: str | Path) -> pd.DataFrame:
