@@ -66,8 +66,8 @@ def test_trial_index_lag_break_and_order_scheme_are_derived_at_scene_grain() -> 
     assert first["previous_Complexity"].isna().all()
     block2_first = out.loc[out["scene_id"].eq(7)]
     assert block2_first["break_before_trial"].eq(1).all()
-    assert block2_first["previous_WWR"].notna().all()
-    assert block2_first["previous_Complexity"].notna().all()
+    assert block2_first["previous_WWR"].isna().all()
+    assert block2_first["previous_Complexity"].isna().all()
     assert set(out["order_scheme"]) == {"order1", "order2"}
 
     complete = pd.DataFrame(rows)
@@ -82,7 +82,7 @@ def test_trial_index_lag_break_and_order_scheme_are_derived_at_scene_grain() -> 
         with_reference["participant_id"].eq("P01")
         & with_reference["scene_id"].eq(7)
     ].iloc[0]
-    assert scene7["previous_WWR"] == 75
+    assert pd.isna(scene7["previous_WWR"])
 
 
 def test_eeg_theta_alpha_and_beta_use_distinct_interpretation_families() -> None:

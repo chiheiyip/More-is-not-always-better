@@ -366,6 +366,28 @@ def _source_fig4(outputs_root: Path) -> pd.DataFrame:
         for _, row in support.iterrows():
             level = str(row.get("support_level", ""))
             rows.append(_row("C", "claim_support_score", support_path, group=row.get("claim_id"), subgroup=level, value=_support_score(level), n=1, error="categorical score for visual audit"))
+
+    clock_path = _resolve_output_path("outputs/05_multimodal_fusion/clock_alignment_scene_qc.csv", outputs_root)
+    clock = _read_optional(clock_path)
+    if not clock.empty:
+        for _, row in clock.iterrows():
+            rows.append(_row(
+                "B", "clock_match_rate", clock_path,
+                group=row.get("participant_id"), subgroup=row.get("scene_id"),
+                value=row.get("eye_match_rate"), n=row.get("eye_rows_in_eeg_view"),
+                error="absolute-clock nearest-sample QC; maximum tolerance 2 ms",
+            ))
+
+    temporal_path = _resolve_output_path("outputs/06_models/temporal_scene_summaries.csv", outputs_root)
+    temporal = _read_optional(temporal_path)
+    if not temporal.empty:
+        for _, row in temporal.iterrows():
+            rows.append(_row(
+                "D", "late_minus_early", temporal_path,
+                group=row.get("outcome"), subgroup=row.get("class_name", row.get("modality")),
+                value=row.get("late_minus_early"), n=1,
+                error="scene-specific synchronized 2-second-bin bridge summary",
+            ))
     return pd.DataFrame(rows)
 
 

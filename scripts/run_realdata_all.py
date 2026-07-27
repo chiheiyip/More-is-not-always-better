@@ -31,6 +31,7 @@ from paper_analysis.reporting.experiment_results import build_experiment_result_
 from paper_analysis.reporting.pipeline import build_paper_outputs  # noqa: E402
 from paper_analysis.stats.canonical import run_canonical_analysis  # noqa: E402
 from paper_analysis.stats.models import run_statistical_models  # noqa: E402
+from paper_analysis.stats.timebin import run_timebin_models  # noqa: E402
 
 
 DEFAULT_QUESTIONNAIRE = r"E:\26\补\VR+EEG实验问卷-补-原始数据-2026-06-14.xlsx"
@@ -51,6 +52,11 @@ def main() -> None:
     parser.add_argument("--max-participants", type=int, default=None, help="Limit to the first N trimodal participants for smoke runs.")
     parser.add_argument("--eye_alias_csv", default=None)
     parser.add_argument("--eeg_scene_csv", default=None, help="Use an existing scene-level EEG CSV instead of exporting from raw .set/.fdt files.")
+    parser.add_argument("--eeg-clock-cache-root", default=r"E:\26\补\脑电数据\eeg_clock_cache")
+    parser.add_argument("--export-eeg-samples", action="store_true")
+    parser.add_argument("--export-pointwise-alignment", action="store_true")
+    parser.add_argument("--run-synchronized-timebins", action="store_true")
+    parser.add_argument("--run-timebin-models", action="store_true")
     parser.add_argument("--skip-eeg-export", action="store_true", help="Stop before EEG/fusion unless --eeg_scene_csv is supplied.")
     parser.add_argument("--matlab_command", default="matlab")
     parser.add_argument("--expected-scenes-per-subject", type=int, default=12)
@@ -79,6 +85,7 @@ def main() -> None:
 
 
 def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
+    _validate_requested_workflow(args)
     outputs_root = Path(args.outputs_root)
     scratch_dir = outputs_root / "_raw_intake"
     _assert_output_not_inside_raw_inputs(outputs_root, [args.questionnaire_xlsx, args.eye_root, args.eeg_root])
@@ -175,6 +182,12 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
         bin_size_ms=args.bin_size_ms,
         duration_tolerance_s=args.duration_tolerance_s,
         aligned_timebin_source_csv=args.aligned_timebin_csv,
+        eeg_sample_manifest_csv=(
+            outputs_root / "04_eeg_raw_export" / "summary" / "eeg_sample_file_manifest.csv"
+            if args.export_eeg_samples else None
+        ),
+        export_pointwise_alignment=args.export_pointwise_alignment,
+        run_synchronized_timebins=args.run_synchronized_timebins,
     )
     questionnaire = run_questionnaire_pipeline(
         participants_csv=intake["participants_standardized"],
@@ -207,6 +220,16 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
         if args.legacy_models:
             legacy = run_statistical_models(fusion["analysis_master_long"], args.model_config, outputs_root / "06_models" / "legacy")
             stats.update({f"legacy_{name}": path for name, path in legacy.items()})
+        if args.run_timebin_models:
+            if "aligned_synchronized_timebin" not in fusion:
+                raise SystemExit("--run-timebin-models requires --run-synchronized-timebins")
+            temporal = run_timebin_models(
+                synchronized_timebin_csv=fusion["aligned_synchronized_timebin"],
+                clock_scene_qc_csv=fusion["clock_alignment_scene_qc"],
+                outdir=outputs_root / "06_models",
+                scene_model_results_csv=stats["model_results"],
+            )
+            stats.update(temporal)
     if not args.skip_diagnostics:
         diagnostics = run_diagnostics(
             fusion["analysis_master_long"],
@@ -286,8 +309,24 @@ def _prepare_eeg_scene_csv(args: argparse.Namespace, outputs_root: Path) -> Path
         "--matlab_command",
         str(args.matlab_command),
     ]
+    if args.export_eeg_samples:
+        cmd.extend(["--export-eeg-samples", "--eeg-clock-cache-root", str(args.eeg_clock_cache_root)])
+        selected = _parse_participants(args.participants)
+        if selected:
+            cmd.extend(["--participants", ",".join(selected)])
     subprocess.run(cmd, check=True)
     return eeg_outdir / "summary" / "all_subjects_scene_level.csv"
+
+
+def _validate_requested_workflow(args: argparse.Namespace) -> None:
+    if args.run_timebin_models and not args.run_synchronized_timebins:
+        raise SystemExit("--run-timebin-models requires --run-synchronized-timebins")
+    if args.run_timebin_models and args.skip_models:
+        raise SystemExit("--run-timebin-models cannot be combined with --skip-models")
+    if (args.export_pointwise_alignment or args.run_synchronized_timebins) and not args.export_eeg_samples:
+        raise SystemExit(
+            "Clock alignment requires --export-eeg-samples and the corresponding EEG sample manifest."
+        )
 
 
 def _select_participants(participants: pd.DataFrame, selected: list[str], max_participants: int | None) -> pd.DataFrame:
@@ -408,8 +447,16 @@ def _planned_steps(args: argparse.Namespace) -> list[str]:
         steps.extend(["matlab_eeg_export", "validate_eeg_scene_csv", "eeg", "fusion"])
     if args.aligned_timebin_csv:
         steps.append("reuse_aligned_timebin")
+    if args.export_eeg_samples:
+        steps.append("export_eeg_samples")
+    if args.export_pointwise_alignment:
+        steps.append("clock_pointwise_alignment")
+    if args.run_synchronized_timebins:
+        steps.append("synchronized_timebins")
     if not args.skip_models:
         steps.append("models")
+    if args.run_timebin_models:
+        steps.append("timebin_models_coprimary")
     if not args.skip_diagnostics:
         steps.append("diagnostics")
     if not args.skip_reporting:

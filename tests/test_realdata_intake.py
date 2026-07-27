@@ -279,6 +279,31 @@ def test_run_eeg_from_raw_dry_run_command(tmp_path: Path) -> None:
     assert not outdir.exists()
 
 
+def test_run_eeg_from_raw_encodes_chinese_batch_arguments_as_ascii(tmp_path: Path) -> None:
+    eeg_root = tmp_path / "eeg"
+    eeglab_root = tmp_path / "eeglab"
+    cache_root = tmp_path / "cache"
+    eeg_root.mkdir()
+    eeglab_root.mkdir()
+    cache_root.mkdir()
+    (cache_root / "eeg_recording_clock.csv").write_text(
+        "participant_id,first_eeg_epoch_ms\n杨可,1\n", encoding="utf-8-sig"
+    )
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_eeg_from_raw.py"
+    result = subprocess.run([
+        sys.executable, str(script), "--dry-run",
+        "--eeg_root", str(eeg_root),
+        "--eeglab_root", str(eeglab_root),
+        "--outdir", str(tmp_path / "out"),
+        "--export-eeg-samples",
+        "--eeg-clock-cache-root", str(cache_root),
+        "--participants", "杨可",
+    ], capture_output=True, text=True, check=True)
+    assert "native2unicode(uint8([" in result.stdout
+    assert "杨可" not in result.stdout
+    assert result.stdout.isascii()
+
+
 def test_run_realdata_all_dry_run_does_not_create_outputs(tmp_path: Path) -> None:
     outdir = tmp_path / "real_outputs"
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_realdata_all.py"

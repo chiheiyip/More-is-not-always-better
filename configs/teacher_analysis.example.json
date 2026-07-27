@@ -1,0 +1,57 @@
+{
+  "outputs_root": "../outputs",
+  "run_id": null,
+  "rscript": "Rscript",
+  "participant_information": "path/to/participant_information.xlsx",
+  "trial_order_mapping": "path/to/trial_order_mapping.xlsx",
+  "scene_aoi_mapping": "path/to/scene_AOI_mapping.xlsx",
+  "eye": {
+    "raw_root": "path/to/eye/csv/root",
+    "aoi_root": "path/to/AOI/json/root",
+    "base_images_root": "path/to/unlabelled/scene/images",
+    "point_source": "fixation",
+    "validity_accepted": [1],
+    "validity_rule": "both",
+    "primary_tracking_threshold": 0.6,
+    "sensitivity_tracking_thresholds": [0.5, 0.7],
+    "fixation_coordinate_tolerance_px": 1.0,
+    "projection_default": "unknown",
+    "stage1_dir": "",
+    "stage2_dir": "",
+    "stage3_plan_dir": ""
+  },
+  "eeg": {
+    "trial_file": "path/to/eeg_trial_level.csv",
+    "preprocessing_audit_file": "path/to/confirmed_eeg_preprocessing_audit.xlsx",
+    "preprocessing_confirmed": false,
+    "preprocessing_parameters": {
+      "sampling_rate_hz": "500",
+      "highpass_hz": "1",
+      "lowpass_hz": "45",
+      "reference": "average"
+    },
+    "order_stage_dir": "",
+    "core_metrics": [
+      "O_theta",
+      "F_theta",
+      "O_alpha",
+      "O_beta"
+    ],
+    "secondary_metrics": [
+      "P_theta",
+      "P_alpha",
+      "F_alpha"
+    ],
+    "supplemental_metrics": [
+      "F_beta",
+      "P_beta"
+    ],
+    "primary_measure": "relative_power",
+    "bootstrap_iterations": 5000
+  },
+  "stage3": {
+    "zero_rate_trigger": 0.1,
+    "s3_trial_file": "",
+    "stable_eeg_metrics": []
+  }
+}

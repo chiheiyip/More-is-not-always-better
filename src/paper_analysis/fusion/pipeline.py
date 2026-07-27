@@ -20,6 +20,7 @@ from paper_analysis.eye_tracking.aoi import (
     eye_file_stats,
     load_aoi_json,
 )
+from paper_analysis.fusion.clock_sync import run_clock_synchronized_fusion
 from paper_analysis.utils.coding import active_rows, standardize_participants
 from paper_analysis.utils.io import read_table, resolve_path, write_table
 
@@ -42,6 +43,11 @@ def run_fusion_pipeline(
     eye_validity_accepted: tuple[str, ...] | None = None,
     eye_timestamp_gap_ms: float = 5000.0,
     aligned_timebin_source_csv: str | Path | None = None,
+    eeg_sample_manifest_csv: str | Path | None = None,
+    export_pointwise_alignment: bool = False,
+    run_synchronized_timebins: bool = False,
+    clock_timezone: str = "Asia/Shanghai",
+    clock_match_tolerance_ms: int = 2,
 ) -> dict[str, Path]:
     questionnaire = read_table(questionnaire_long)
     eye = read_table(eye_aoi_trial_long)
@@ -64,6 +70,9 @@ def run_fusion_pipeline(
             validity_accepted=eye_validity_accepted,
             timestamp_gap_ms=eye_timestamp_gap_ms,
         )
+    aligned_timebin = aligned_timebin.copy()
+    aligned_timebin["eeg_temporal_resolution"] = "scene_repeated"
+    aligned_timebin["analysis_status"] = "legacy_not_for_temporal_inference"
     sync_qc = build_sync_qc(
         trial_index=trial_index,
         eeg=eeg,
@@ -96,7 +105,7 @@ def run_fusion_pipeline(
     convergence = modality_convergence(master)
     claim_support = claim_support_matrix(convergence)
     outdir = Path(outdir)
-    return {
+    outputs = {
         "analysis_master_long_pre_qc": write_table(master_pre_qc, outdir / "analysis_master_long_pre_qc.csv"),
         "analysis_qc_exclusions": write_table(analysis_qc, outdir / "analysis_qc_exclusions.csv"),
         "analysis_master_long": write_table(master, outdir / "analysis_master_long.csv"),
@@ -109,6 +118,27 @@ def run_fusion_pipeline(
         "modality_convergence_table": write_table(convergence, outdir / "modality_convergence_table.csv"),
         "claim_support_matrix": write_table(claim_support, outdir / "claim_support_matrix.csv"),
     }
+    if export_pointwise_alignment or run_synchronized_timebins:
+        if not scene_manifest_csv:
+            raise ValueError("Clock synchronization requires scene_manifest_csv with eye_csv_path and eye_record_id")
+        if not eeg_sample_manifest_csv:
+            raise ValueError("Clock synchronization requires eeg_sample_manifest_csv")
+        outputs.update(run_clock_synchronized_fusion(
+            scene_manifest_csv=scene_manifest_csv,
+            eeg_sample_manifest_csv=eeg_sample_manifest_csv,
+            outdir=outdir,
+            bin_size_ms=bin_size_ms,
+            match_tolerance_ms=clock_match_tolerance_ms,
+            timezone_name=clock_timezone,
+            export_pointwise=export_pointwise_alignment,
+            build_timebins=run_synchronized_timebins,
+            eye_point_source=eye_point_source,
+            eye_screen_w=eye_screen_w,
+            eye_screen_h=eye_screen_h,
+            eye_validity_accepted=eye_validity_accepted,
+            eye_timestamp_gap_ms=eye_timestamp_gap_ms,
+        ))
+    return outputs
 
 
 def load_reused_aligned_timebin(path: str | Path, trial_index: pd.DataFrame) -> pd.DataFrame:

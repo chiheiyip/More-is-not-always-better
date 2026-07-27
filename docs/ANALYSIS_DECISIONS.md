@@ -1,5 +1,35 @@
 # Analysis Decisions
 
+## Teacher-priority superseding decisions (2026-07-26)
+
+These rules supersede conflicting historical entries below:
+
+1. Formal eye and EEG analysis uses Python orchestration plus locked R
+   inference. The existing Python/GEE workflow is compatibility or
+   supplementary analysis.
+2. Participant registration is the union of modality sources. Eye eligibility
+   never depends on valid EEG or questionnaire data; exact intersections are
+   used only for named cross-modal sensitivities.
+3. Eye tracking uses 60% recomputed valid tracking as the sole primary
+   threshold; 50% and 70% are sensitivities. Trial exclusion does not
+   automatically become participant exclusion.
+4. AOI overlap, unconfirmed coordinates, unreliable ValidScene, stale
+   approvals, or fixation-coordinate conflicts are blocking conditions.
+5. `PreviousWWR` and `PreviousComplexity` are shifted inside
+   `Participant + Block`; position 1 of both blocks is missing.
+6. The three WWR values are categorical levels. The teacher workflow does not
+   estimate an optimum, inverted-U, continuous WWR, or nonlinear WWR claim.
+7. Eye shares use ValidScene TFD as their denominator. C0 Equipment is
+   structural NA, and zero shares receive no pseudoconstant.
+8. EEG relative power is primary and log10 absolute power is sensitivity.
+   Core, secondary, and supplementary ROI × band outcomes are explicitly
+   registered; significance cannot promote an outcome or switch the measure.
+9. EEG primary models allow the three specified two-way condition/exercise
+   interactions plus Gender, Block, centered position, and three-level
+   OrderGroup. Three-way and condition-by-OrderGroup terms are prohibited.
+10. Mixed-model failure is diagnostic evidence and never triggers OLS
+    fallback. Bootstrap failure counts are always reported.
+
 1. The repository uses Python as the primary analysis stack.
 2. The main analysis preserves S1-S5 as separate questionnaire outcomes instead of forcing a single unvalidated composite score.
 3. Questionnaire enhancements inspired by `wannaqueen66-create/spss` are adopted only after method correction: Afford4 is supplementary, B items are C1-only, IPQ is subject-level, and WWR polynomial contrasts are trend evidence only.
@@ -27,3 +57,9 @@
 25. The canonical model table contains participant-clustered GEE fits and visible failure diagnostics. Model failure or non-finite covariance never triggers an OLS fallback. Legacy models require an explicit compatibility flag and write only below `06_models/legacy/`.
 26. Formal order models retain `block + position`; theta/alpha EEG, prespecified eye fatigue proxies, and questionnaire outcomes receive separate BH-FDR families. EEG beta order effects are exploratory.
 27. Time-stability sensitivity models test `WWR × trial_index` and `Complexity × trial_index`. Carryover models add previous WWR, previous complexity, order scheme, and the block-2 break marker. These analyses assess risk but cannot prove that fatigue, distraction, or carryover was eliminated.
+28. Scene-level models and absolute-clock synchronized 2-second models are parallel, co-primary analysis layers. The former estimates whole-scene average effects; the latter estimates within-scene change, `WWR × time_norm`, and `Complexity × time_norm`. Neither layer overrides the other.
+29. Synchronized models use participant-clustered GEE with an independent working correlation and robust sandwich standard errors. Scene and synchronized hypothesis families receive separate BH-FDR correction.
+30. EEG absolute time is established once from validated `.easy/.info` provenance and cached beside the `.set/.fdt` data. Routine analysis fails when the cache is absent and never silently rereads the D-drive acquisition archive.
+31. Per-sample EEG exports contain the preprocessed `.set/.fdt` waveform in µV. They are not described as raw nV. Scenes are half-open consecutive trigger intervals `[7, 8)`.
+32. Eye and EEG clocks are aligned with `clock_offset_ms=0` because both devices used the same Windows system clock. Eye rows use the date from `eye_record_id` plus `Time of Day`; nearest EEG matching is limited to 2 ms. The earlier scene-boundary affine map remains historical diagnostics only.
+33. Divergent scene-average and time-dynamic results are reported as scale-dependent evidence. Multimodal support separately records overall-level and temporal-dynamic convergence.

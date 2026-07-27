@@ -2,6 +2,22 @@
 
 This repository tracks analysis provenance from raw modality inputs to manuscript-ready outputs.
 
+## Teacher-priority run provenance
+
+`scripts/run_teacher_analysis.py` is the authoritative formal entry point.
+Each stage writes to
+`<outputs-root>/teacher_runs/<run-id>/<numbered-stage>/` and never overwrites
+historical outputs. Every `run_manifest.json` records the stage fingerprint,
+resolved config, arguments, Git commit, Python/platform identity, status, and
+blocking reasons. Approval files must contain the exact stage name and
+fingerprint; changed inputs make old approval unusable.
+
+The formal key is `Participant + GlobalTrialOrder`. Modality registries are
+unions. Eye, EEG, and questionnaire samples are recorded separately, while
+cross-modal work must materialize and report the exact participant–trial
+intersection. R dependency versions are locked in `analysis/r/renv.lock`;
+formal stages stop when R or its packages are unavailable.
+
 ## Input Layer
 
 | Input | Config key | Main use |
@@ -37,12 +53,21 @@ All later tables must preserve these keys.
 
 - `analysis_master_long.csv` for statistical models.
 - `aligned_scene_table.csv` for scene-level EEG+AOI fusion.
-- `aligned_timebin_table.csv` for time-bin eye metrics with EEG attached.
+- `aligned_timebin_table.csv` for legacy compatibility only; EEG is scene-repeated and the table is not used for temporal inference.
+- `aligned_synchronized_timebin_table.csv` for window-specific eye/EEG features from identical absolute-clock intervals.
+- `clock_alignment_scene_qc.csv` and `clock_alignment_participant_qc.csv` for clock eligibility.
+- `aligned_pointwise/` for the auditable nearest-sample match at ≤2 ms.
 
 Canonical unimodal inference is generated from modality-specific scene tables:
 questionnaire uses its complete available table, eye tracking uses
 metric-specific availability, and EEG uses the EEG-QC-passed table. The
 trimodal synchronized keep set is used only by aligned fusion outputs.
+
+The absolute EEG clock cache is built once from the acquisition archive and
+stored with the E-drive EEG data. Routine processing thereafter uses only that
+cache and the preprocessed `.set/.fdt` waveform. Source identity follows the
+participant name/history mapping; sample count and sample rate verify that
+recording sample indices remain compatible.
 - `sync_qc.csv`, `alignment_scene_qc.csv`, `alignment_landmarks.csv`, `time_sync_map.csv` for synchronization evidence.
 - `modality_convergence_table.csv` and `claim_support_matrix.csv` for bounded EEG/multimodal interpretation.
 

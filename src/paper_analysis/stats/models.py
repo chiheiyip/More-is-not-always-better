@@ -30,7 +30,23 @@ def run_statistical_models(
                 diagnostics_rows.append({"outcome": outcome, "status": "missing_outcome"})
                 continue
             result, diag = fit_model(master, outcome, predictors, family.get("kind", "continuous"))
-            model_rows.extend(result)
+            if result:
+                model_rows.extend(result)
+            else:
+                model_rows.append({
+                    "outcome": outcome,
+                    "term": pd.NA,
+                    "estimate": np.nan,
+                    "std_error": np.nan,
+                    "p_value": np.nan,
+                    "ci_low": np.nan,
+                    "ci_high": np.nan,
+                    "model_type": "no_ols_fallback",
+                    "n": diag.get("n", 0),
+                    "formula": diag.get("formula", ""),
+                    "status": diag.get("status", "fit_failed"),
+                    "diagnostic": diag.get("diagnostic", ""),
+                })
             diagnostics_rows.append(diag)
             contrast_rows.extend(wwr_contrasts(master, outcome))
     eeg_outcomes = eeg_outcomes_from_config(config, master)
@@ -82,8 +98,13 @@ def fit_model(df: pd.DataFrame, outcome: str, predictors: list[str], kind: str) 
             fit = smf.mixedlm(formula, data=data, groups=data["participant_id"]).fit(reml=False, method="lbfgs", disp=False)
             model_type = "mixedlm_random_intercept"
     except Exception as exc:
-        fit = smf.ols(formula, data=data).fit()
-        model_type = f"ols_fallback_after:{type(exc).__name__}"
+        return [], {
+            "outcome": outcome,
+            "status": f"fit_failed:{type(exc).__name__}",
+            "diagnostic": str(exc),
+            "n": len(data),
+            "formula": formula,
+        }
     rows = []
     conf = fit.conf_int()
     for term, estimate in fit.params.items():
@@ -207,14 +228,22 @@ def _fit_formula_rows(df: pd.DataFrame, outcome: str, formula: str, model_label:
             fit = smf.mixedlm(formula, data=data, groups=data["participant_id"]).fit(reml=False, method="lbfgs", disp=False)
             model_type = "mixedlm_random_intercept"
         else:
-            fit = smf.ols(formula, data=data).fit()
-            model_type = "ols"
+            return [{
+                "model": model_label,
+                "outcome": outcome,
+                "status": "fit_failed:insufficient_participant_groups",
+                "n": int(len(data)),
+                "formula": formula,
+            }]
     except Exception as exc:
-        try:
-            fit = smf.ols(formula, data=data).fit()
-            model_type = f"ols_fallback_after:{type(exc).__name__}"
-        except Exception as exc2:
-            return [{"model": model_label, "outcome": outcome, "status": f"fit_failed:{type(exc2).__name__}", "n": int(len(data)), "formula": formula}]
+        return [{
+            "model": model_label,
+            "outcome": outcome,
+            "status": f"fit_failed:{type(exc).__name__}",
+            "diagnostic": str(exc),
+            "n": int(len(data)),
+            "formula": formula,
+        }]
     conf = fit.conf_int()
     rows = []
     for term, estimate in fit.params.items():

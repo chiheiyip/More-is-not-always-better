@@ -50,6 +50,8 @@ MODEL_COLUMNS = [
     "ci_high", "p_value", "p_fdr_bh", "p_fdr_bh_family", "p_fdr_bh_all",
     "significant_fdr_bh_0_05", "significant_fdr_bh_family_0_05", "n_obs",
     "n_subjects", "n_trials", "model_type", "formula", "status",
+    "analysis_resolution", "analysis_status", "hypothesis_family",
+    "clock_qc_policy",
 ]
 DIAGNOSTIC_COLUMNS = [
     "grain", "family", "scope", "outcome", "status", "n_obs",
@@ -108,6 +110,13 @@ def run_canonical_analysis(
         sensitivity_rows.extend(rows[before:])
 
     models = _apply_fdr(pd.DataFrame(rows))
+    models["analysis_resolution"] = "scene_level"
+    models["analysis_status"] = np.where(
+        models["interpretation_tier"].eq("primary"), "primary",
+        np.where(models["interpretation_tier"].eq("exploratory"), "exploratory", "supporting"),
+    )
+    models["hypothesis_family"] = models["hypothesis_block"]
+    models["clock_qc_policy"] = "not_applicable_scene_level"
     sensitivity = models.loc[models.get("scope", pd.Series(dtype=str)).astype(str).str.startswith("eye_valid_coordinates_ge_")].copy()
     availability = metric_sample_summary(questionnaire, eye_aoi, eye_dynamic, eeg)
     sample_flow = modality_sample_flow(
@@ -710,9 +719,16 @@ def _add_order_features(
         .sort_values(KEYS)
         .copy()
     )
-    trials["previous_WWR"] = trials.groupby("participant_id", sort=False)["WWR"].shift(1) if "WWR" in trials else np.nan
-    trials["previous_Complexity"] = trials.groupby("participant_id", sort=False)["Complexity"].shift(1) if "Complexity" in trials else np.nan
+    lag_group = ["participant_id"] + (["block"] if "block" in trials else [])
+    trials["previous_WWR"] = trials.groupby(lag_group, sort=False)["WWR"].shift(1) if "WWR" in trials else np.nan
+    trials["previous_Complexity"] = trials.groupby(lag_group, sort=False)["Complexity"].shift(1) if "Complexity" in trials else np.nan
     if "block" in trials and "position" in trials:
+        first_in_block = pd.to_numeric(
+            trials["position"], errors="coerce"
+        ).eq(1)
+        trials.loc[
+            first_in_block, ["previous_WWR", "previous_Complexity"]
+        ] = np.nan
         trials["break_before_trial"] = (
             pd.to_numeric(trials["block"], errors="coerce").eq(2)
             & pd.to_numeric(trials["position"], errors="coerce").eq(1)

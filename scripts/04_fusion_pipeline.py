@@ -27,6 +27,11 @@ def main() -> None:
     parser.add_argument("--eye_validity_accepted", default=None, help="Comma-separated accepted validity values for time-bin eye metrics; omitted means audit only.")
     parser.add_argument("--eye_timestamp_gap_ms", type=float, default=5000.0)
     parser.add_argument("--aligned_timebin_csv", default=None, help="Reuse an existing aligned_timebin_table.csv instead of recomputing time-bin eye metrics.")
+    parser.add_argument("--eeg_sample_manifest", default=None, help="Manifest produced by the per-scene EEG sample exporter.")
+    parser.add_argument("--export-pointwise-alignment", action="store_true")
+    parser.add_argument("--run-synchronized-timebins", action="store_true")
+    parser.add_argument("--clock-timezone", default="Asia/Shanghai")
+    parser.add_argument("--clock-match-tolerance-ms", type=int, default=2)
     args = parser.parse_args()
     eye_validity_accepted = tuple(v.strip() for v in args.eye_validity_accepted.split(",") if v.strip()) if args.eye_validity_accepted else None
     for name, path in run_fusion_pipeline(
@@ -45,6 +50,11 @@ def main() -> None:
         eye_validity_accepted=eye_validity_accepted,
         eye_timestamp_gap_ms=args.eye_timestamp_gap_ms,
         aligned_timebin_source_csv=args.aligned_timebin_csv,
+        eeg_sample_manifest_csv=args.eeg_sample_manifest,
+        export_pointwise_alignment=args.export_pointwise_alignment,
+        run_synchronized_timebins=args.run_synchronized_timebins,
+        clock_timezone=args.clock_timezone,
+        clock_match_tolerance_ms=args.clock_match_tolerance_ms,
     ).items():
         print(f"{name}: {path}")
 

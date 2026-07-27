@@ -13,9 +13,30 @@
 | `position` | Within-block presentation position; used for order/fatigue diagnostics. |
 | `round` | Viewing round when available. |
 | `trial_index` | Canonical experiment progression index; equals `scene_id = (block - 1) * 6 + position`. |
-| `previous_WWR`, `previous_Complexity` | Previous scene condition within participant after sorting by `scene_id`; missing for scene 1. |
+| `previous_WWR`, `previous_Complexity` | Previous scene condition within `participant_id + block`; missing for position 1 of both blocks. |
 | `order_scheme` | Counterbalancing/order sequence identifier attached from the scene manifest. |
 | `break_before_trial` | Indicator for block 2, position 1, which follows the registered 120-second break. |
+
+## Teacher workflow canonical fields
+
+| Field | Meaning |
+|---|---|
+| `Participant` | Modality-union participant identifier; absence from one modality does not remove another. |
+| `Q1.5Original` | Unmodified teacher-specified exercise-frequency source response. |
+| `ExerciseFrequency` | Registered analysis grouping derived from the configured source rule. |
+| `OrderGroup` | One of `order1`, `order2`, or canonical `new order2`; `neworder2` is compatibility input only. |
+| `IncludeEyeCandidate` | Candidate for eye QC, independent of EEG and questionnaire status. |
+| `IncludeEEGValid` | EEG-valid flag; used for EEG and explicitly named common-sample sensitivities only. |
+| `IncludeQuestionnaireValid` | Questionnaire-valid flag. |
+| `GlobalTrialOrder` | Formal trial key 1–12 within participant. |
+| `PositionWithinBlockCentered` | Within-block position centered at 3.5. |
+| `ValidTrackingRatio` | Recomputed ratio using configured binocular validity and finite coordinates. |
+| `SoftwareTrackingRatio` | Vendor-reported ratio retained for audit. |
+| `TrackingRatioDifference` | Recomputed minus software tracking ratio. |
+| `ValidScene` | Confirmed stimulus region used in the attention-share denominator. |
+| `OffStimulus` | Fixation outside ValidScene; excluded from ValidScene TFD. |
+| `StructuralNA` | True for Equipment in C0; not a measured zero. |
+| `stage_fingerprint` | SHA-256 binding stage config and input identities to manifests and approvals. |
 
 ## Participant Fields
 
@@ -104,7 +125,17 @@
 | `analysis_master_long.csv` | Main AOI-expanded analysis table after analysis-level QC. Do not treat its row count as the number of participant-scene trials. |
 | `analysis_qc_exclusions.csv` | Participant-scene QC table listing retained/excluded trials and exclusion reasons. |
 | `aligned_scene_table.csv` | Scene-level EEG + eye AOI projection from the canonical trial index. |
-| `aligned_timebin_table.csv` | Time-bin eye AOI projection with scene-level EEG columns attached. |
+| `aligned_timebin_table.csv` | Legacy compatibility projection with scene-level EEG repeated across eye bins; marked `eeg_temporal_resolution=scene_repeated` and `analysis_status=legacy_not_for_temporal_inference`. |
+| `eeg_recording_clock.csv` | One-time recording-level EEG epoch cache, source checksum, sampling structure, timezone, and cache status. |
+| `eeg_trigger_events.csv` | Validated EEG trigger code, recording sample index, Unix epoch ms, and local datetime. |
+| `eeg_source_resolution.csv` | Candidate EASY source audit and deterministic selection reason. |
+| `eeg_sample_file_manifest.csv` | One row per participant-scene preprocessed EEG sample CSV, with `[7,8)` latencies, timing bounds, rate/cache checks, and export status. |
+| `clock_alignment_scene_qc.csv` | Scene-level absolute-clock coverage, nearest-match rate/delta, monotonicity, and source/cache QC. |
+| `clock_alignment_participant_qc.csv` | Participant-level 12-scene clock-alignment eligibility. |
+| `aligned_synchronized_timebin_table.csv` | Co-primary non-overlapping 2-second windows with window-specific F/P/O theta/alpha/beta and eye AOI metrics from the identical epoch interval. |
+| `timebin_model_results.csv` | Co-primary synchronized-time GEE estimates and separate BH-FDR families. |
+| `temporal_scene_summaries.csv` | Early/middle/late means, late-minus-early difference, and per-scene slope linking the two primary resolutions. |
+| `multiscale_claim_support.csv` | Separate overall-level and time-dynamic support with a scale-dependence interpretation rule. |
 | `sync_qc.csv` | Per-trial duration and scene-count synchronization QC. |
 | `duration_delta_s` | Eye duration minus EEG viewing duration. |
 | `duration_mismatch` | Whether duration delta exceeds the configured tolerance. |

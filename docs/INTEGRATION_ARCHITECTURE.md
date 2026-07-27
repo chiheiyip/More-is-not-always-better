@@ -26,7 +26,9 @@ All modality tables must attach to this index. This prevents questionnaire, eye-
 |---|---|
 | `analysis_master_long.csv` | Paper-level table used by statistical models. |
 | `aligned_scene_table.csv` | Scene-level EEG + AOI metric table, preserving the original fusion pipeline concept. |
-| `aligned_timebin_table.csv` | Time-bin eye AOI table with scene EEG attached for temporal/order diagnostics. |
+| `aligned_timebin_table.csv` | Legacy eye-bin table with repeated scene EEG; compatibility only, not temporal inference. |
+| `aligned_synchronized_timebin_table.csv` | Absolute-clock synchronized, window-specific eye/EEG table for the co-primary temporal models. |
+| `aligned_pointwise/` | Eye rows matched to the nearest EEG sample within 2 ms, retaining rows beyond EEG scene bounds as explicitly unmatched. |
 | `sync_qc.csv` | Duration and scene-count QC for EEG-eye synchronization. |
 | `alignment_scene_qc.csv` | Per-scene precise alignment QC. |
 | `alignment_landmarks.csv` | Start/end eye and EEG landmarks used for affine time mapping. |
@@ -37,7 +39,8 @@ All modality tables must attach to this index. This prevents questionnaire, eye-
 The original `More-is-not-always-better` repository provided EEG + eye-tracking fusion logic. That logic is still present for compatibility under `src/more_is_not_always_better/`, while the paper-facing architecture is integrated at the data-model layer under `src/paper_analysis/`:
 
 - Original scene-level fusion maps to `aligned_scene_table.csv`.
-- Original time-bin eye/EEG table maps to `aligned_timebin_table.csv`.
+- Original time-bin eye/EEG table maps to legacy `aligned_timebin_table.csv`.
+- Formal temporal inference maps to `aligned_synchronized_timebin_table.csv`; scene-level and synchronized-timebin models are equal-status primary layers.
 - Original synchronization QC maps to `sync_qc.csv`.
 - Original precise alignment QC maps to `alignment_scene_qc.csv`, `alignment_landmarks.csv`, and `time_sync_map.csv`.
 - Paper-specific statistics use `analysis_master_long.csv`, which is generated from the same trial index.

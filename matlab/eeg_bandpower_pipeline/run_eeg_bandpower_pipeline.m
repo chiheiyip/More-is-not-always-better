@@ -28,6 +28,9 @@ addParameter(p, 'MinSegmentDurationS', 1.0);
 addParameter(p, 'LegacyHfThreshold', 0.4);
 addParameter(p, 'Bands', default_bands());
 addParameter(p, 'Rois', default_rois());
+addParameter(p, 'ClockCacheRoot', '', @(x) ischar(x) || isstring(x));
+addParameter(p, 'ExportSamples', false, @(x) islogical(x) || isnumeric(x));
+addParameter(p, 'ParticipantFilter', strings(0, 1));
 parse(p, input_path, outdir, varargin{:});
 opts = p.Results;
 opts = apply_config(opts);
@@ -43,11 +46,29 @@ subject_dir = fullfile(outdir, 'subjects');
 if ~exist(summary_dir, 'dir'), mkdir(summary_dir); end
 if ~exist(subject_dir, 'dir'), mkdir(subject_dir); end
 
+clock_cache = table();
+if logical(opts.ExportSamples)
+    if isempty(opts.ClockCacheRoot)
+        error('ClockCacheRoot is required when ExportSamples is true.');
+    end
+    clock_path = fullfile(char(opts.ClockCacheRoot), 'eeg_recording_clock.csv');
+    if exist(clock_path, 'file') ~= 2
+        error('EEG clock cache not found: %s. Run scripts/build_eeg_clock_cache.py first.', clock_path);
+    end
+    clock_cache = readtable(clock_path, 'TextType', 'string', 'VariableNamingRule', 'preserve');
+end
+
 all_scene = table();
 all_qc = table();
 all_pairs = table();
+all_sample_manifest = table();
 for i = 1:numel(files)
     [fp, base, ext] = fileparts(files{i});
+    participant_filter = string(opts.ParticipantFilter);
+    participant_filter = participant_filter(strlength(participant_filter) > 0);
+    if ~isempty(participant_filter) && ~any(participant_filter == string(base))
+        continue;
+    end
     fprintf('Processing EEG subject %s (%d/%d)\n', base, i, numel(files));
     EEG = pop_loadset('filename', [base ext], 'filepath', fp);
     EEG = eeg_checkset(EEG);
@@ -59,6 +80,12 @@ for i = 1:numel(files)
     writetable(qc_rows, fullfile(sub_out, [base '_qc.csv']));
     writetable(pairs, fullfile(sub_out, [base '_pairs_check.csv']));
     write_methods_snapshot(fullfile(sub_out, [base '_methods_snapshot.md']), opts);
+    if logical(opts.ExportSamples)
+        sample_root = fullfile(outdir, 'samples', base);
+        if ~exist(sample_root, 'dir'), mkdir(sample_root); end
+        sample_manifest = export_scene_samples(EEG, base, clock_cache, sample_root);
+        all_sample_manifest = [all_sample_manifest; sample_manifest]; %#ok<AGROW>
+    end
     all_scene = [all_scene; scene_rows]; %#ok<AGROW>
     all_qc = [all_qc; qc_rows]; %#ok<AGROW>
     all_pairs = [all_pairs; pairs]; %#ok<AGROW>
@@ -68,10 +95,112 @@ outputs = struct();
 outputs.all_subjects_scene_level = fullfile(summary_dir, 'all_subjects_scene_level.csv');
 outputs.all_subjects_qc = fullfile(summary_dir, 'all_subjects_qc.csv');
 outputs.all_subjects_pairs_check = fullfile(summary_dir, 'all_subjects_pairs_check.csv');
+outputs.eeg_sample_file_manifest = fullfile(summary_dir, 'eeg_sample_file_manifest.csv');
 writetable(all_scene, outputs.all_subjects_scene_level);
 writetable(all_qc, outputs.all_subjects_qc);
 writetable(all_pairs, outputs.all_subjects_pairs_check);
+if logical(opts.ExportSamples)
+    writetable(all_sample_manifest, outputs.eeg_sample_file_manifest, 'Encoding', 'UTF-8');
+end
 fprintf('Wrote %s\n', outputs.all_subjects_scene_level);
+end
+
+function manifest = export_scene_samples(EEG, subject_id, clock_cache, sample_root)
+participant_col = string(clock_cache.("participant_id"));
+clock_row = clock_cache(participant_col == string(subject_id), :);
+if height(clock_row) ~= 1
+    error('Expected exactly one clock-cache row for %s, found %d.', subject_id, height(clock_row));
+end
+if double(clock_row.("n_samples")) ~= double(EEG.pnts)
+    error('Clock-cache sample count mismatch for %s: cache=%g EEG=%g.', subject_id, double(clock_row.("n_samples")), double(EEG.pnts));
+end
+if abs(double(clock_row.("srate_hz")) - double(EEG.srate)) > 1e-9
+    error('Clock-cache sampling-rate mismatch for %s.', subject_id);
+end
+if ~startsWith(string(clock_row.("cache_status")), "pass")
+    error('Clock-cache status is not passing for %s: %s.', subject_id, string(clock_row.("cache_status")));
+end
+
+first_epoch_ms = double(clock_row.("first_eeg_epoch_ms"));
+sample_interval_ms = double(clock_row.("sample_interval_ms"));
+timezone_name = char(clock_row.("timezone"));
+irregular_path = string(clock_row.("irregular_timestamp_path"));
+all_epoch_ms = [];
+if strlength(irregular_path) > 0
+    if exist(char(irregular_path), 'file') ~= 2
+        error('Irregular timestamp vector not found for %s: %s', subject_id, irregular_path);
+    end
+    irregular = readtable(char(irregular_path), 'VariableNamingRule', 'preserve');
+    all_epoch_ms = double(irregular.("eeg_epoch_ms"));
+    if numel(all_epoch_ms) ~= EEG.pnts
+        error('Irregular timestamp vector length mismatch for %s.', subject_id);
+    end
+end
+
+events = EEG.event;
+types = arrayfun(@(e) marker_to_string(e.type), events, 'UniformOutput', false);
+latencies = arrayfun(@(e) double(e.latency), events);
+manifest = table();
+scene_id = 0;
+for i = 1:(numel(events) - 1)
+    if ~(strcmp(marker_to_string(types{i}), '7') && strcmp(marker_to_string(types{i + 1}), '8'))
+        continue;
+    end
+    scene_id = scene_id + 1;
+    start_sample = max(1, round(latencies(i)));
+    end_sample_exclusive = min(size(EEG.data, 2) + 1, round(latencies(i + 1)));
+    if end_sample_exclusive <= start_sample
+        continue;
+    end
+    recording_indices = (start_sample:(end_sample_exclusive - 1))';
+    n = numel(recording_indices);
+    if isempty(all_epoch_ms)
+        epoch_ms = first_epoch_ms + (double(recording_indices) - 1) * sample_interval_ms;
+    else
+        epoch_ms = all_epoch_ms(recording_indices);
+    end
+    time_continuous = all(diff(epoch_ms) > 0) && ...
+        all(abs(diff(epoch_ms) - sample_interval_ms) < 1e-9);
+    local_dt = datetime(epoch_ms / 1000.0, 'ConvertFrom', 'posixtime', 'TimeZone', timezone_name);
+    local_dt.Format = "yyyy-MM-dd'T'HH:mm:ss.SSSXXX";
+    datetime_text = string(local_dt);
+    local_dt.Format = "HH:mm:ss.SSS";
+    time_of_day = string(local_dt);
+    scene_time_ms = epoch_ms - epoch_ms(1);
+
+    out = table( ...
+        repmat(string(subject_id), n, 1), repmat(scene_id, n, 1), ...
+        repmat(ceil(scene_id / 6), n, 1), repmat(mod(scene_id - 1, 6) + 1, n, 1), ...
+        recording_indices, (0:(n - 1))', int64(round(epoch_ms)), datetime_text, time_of_day, ...
+        (double(recording_indices) - 1) * sample_interval_ms, scene_time_ms, ...
+        'VariableNames', {'participant_id','scene_id','block_id','cycle_in_block', ...
+        'sample_index_recording','sample_index_scene','eeg_epoch_ms','eeg_datetime_local','eeg_time_of_day', ...
+        'eeg_recording_time_ms','eeg_scene_time_ms'});
+
+    labels = string({EEG.chanlocs.labels});
+    for channel_index = 1:numel(labels)
+        label = matlab.lang.makeValidName(char(labels(channel_index)));
+        column_name = matlab.lang.makeValidName(['preproc_' label '_uV']);
+        out.(column_name) = double(EEG.data(channel_index, recording_indices))';
+    end
+    output_path = fullfile(sample_root, sprintf('scene_%02d_eeg_samples.csv', scene_id));
+    writetable(out, output_path, 'Encoding', 'UTF-8');
+    row = table( ...
+        string(subject_id), scene_id, ceil(scene_id / 6), mod(scene_id - 1, 6) + 1, ...
+        string(output_path), n, start_sample, end_sample_exclusive, ...
+        int64(round(epoch_ms(1))), int64(round(epoch_ms(end))), (end_sample_exclusive - start_sample) / EEG.srate, ...
+        double(latencies(i)), double(latencies(i + 1)), double(EEG.srate), ...
+        double(clock_row.("srate_hz")), true, time_continuous, ...
+        string(clock_row.("cache_status")), "exported", true, ...
+        'VariableNames', {'participant_id','scene_id','block_id','cycle_in_block','eeg_sample_csv_path','n_samples', ...
+        'start_sample','end_sample_exclusive','first_eeg_epoch_ms','last_eeg_epoch_ms','view_duration_s', ...
+        'trigger_7_latency','trigger_8_latency','srate_hz','cache_srate_hz','srate_cache_match', ...
+        'time_continuous','clock_cache_status','export_status','sample_export_pass'});
+    manifest = [manifest; row]; %#ok<AGROW>
+end
+if scene_id ~= 12
+    error('Subject %s exported %d sample scenes; expected 12.', subject_id, scene_id);
+end
 end
 
 function [segments, scene_rows, qc_rows, pairs] = export_subject(EEG, subject_id, opts)
@@ -145,10 +274,19 @@ for r = 1:numel(roi_names)
     low_beta = bandpower_welch(roi_signal, EEG.srate, opts.Bands.low_beta);
     high_beta = bandpower_welch(roi_signal, EEG.srate, opts.Bands.high_beta);
     low_gamma = bandpower_welch(roi_signal, EEG.srate, opts.Bands.low_gamma);
+    total_1_45 = bandpower_welch(roi_signal, EEG.srate, opts.Bands.totalBand40);
     prefix = roi_prefix(roi_name);
+    % Bare band columns are retained for compatibility and are absolute
+    % Welch power. Teacher-priority analysis consumes the explicit columns.
     row.([prefix '_theta']) = theta;
     row.([prefix '_alpha']) = alpha;
     row.([prefix '_beta']) = beta;
+    row.([prefix '_theta_absolute']) = theta;
+    row.([prefix '_alpha_absolute']) = alpha;
+    row.([prefix '_beta_absolute']) = beta;
+    row.([prefix '_theta_relative']) = safe_ratio(theta, total_1_45);
+    row.([prefix '_alpha_relative']) = safe_ratio(alpha, total_1_45);
+    row.([prefix '_beta_relative']) = safe_ratio(beta, total_1_45);
     row.([prefix '_low_beta']) = low_beta;
     row.([prefix '_high_beta']) = high_beta;
     row.([prefix '_low_gamma']) = low_gamma;

@@ -51,6 +51,15 @@ QC convention:
 - The legacy high-frequency rule `hf_ratio_20_40Hz > 0.4` is exported as `eeg_legacy_hf_flag` for audit and sensitivity checks, not as a universal EEG standard.
 - `low_gamma` and high-beta metrics are exploratory because high-frequency scalp EEG is more vulnerable to muscle artifacts.
 
+## Per-sample clocked EEG export
+
+Build `E:\26\补\脑电数据\eeg_clock_cache` once with
+`scripts/build_eeg_clock_cache.py`, then pass `ClockCacheRoot` and
+`ExportSamples=true`. The exporter reads preprocessed `.set/.fdt` values in µV
+and writes one CSV for each consecutive half-open `[7,8)` scene. It does not
+export the archived EASY nV waveform. A missing cache is a hard error; routine
+export never falls back to the D-drive acquisition archive.
+
 Raw EEG input:
 
 - One `.set` file per subject in `E:/eeg原始文件`.

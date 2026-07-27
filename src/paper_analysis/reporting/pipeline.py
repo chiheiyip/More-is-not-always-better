@@ -67,7 +67,8 @@ def build_model_table(models: pd.DataFrame) -> pd.DataFrame:
         "grain", "family", "scope", "hypothesis_block", "interpretation_tier",
         "outcome", "term", "estimate", "std_error", "effect_scale", "p_value",
         "p_fdr_bh", "ci_low", "ci_high", "model_type", "n_obs", "n_subjects",
-        "n_trials", "formula", "status",
+        "n_trials", "formula", "status", "analysis_resolution",
+        "analysis_status", "hypothesis_family", "clock_qc_policy",
     ] if c in models.columns]
     return models[keep].copy() if keep else pd.DataFrame()
 
@@ -79,6 +80,21 @@ def claim_strength_table(models: pd.DataFrame, diagnostics_dir: Path) -> pd.Data
     rows.append({"claim_id": "C1_WWR_NONLINEAR", "support_level": "exploratory", "reason": "Only three WWR levels; use trend/planned contrasts, not optimality language."})
     rows.append({"claim_id": "C2_COMPLEXITY_PROCESSING", "support_level": _term_support(models, "Complexity"), "reason": "Requires convergence between questionnaire, EEG, and eye metrics."})
     rows.append({"claim_id": "C3_EXPERIENCE_MODERATION", "support_level": _term_support(models, "ExperienceGroup"), "reason": "Interpret as moderation only if interaction terms are stable after balance and covariates."})
+    rows.append({
+        "claim_id": "C4_SCENE_LEVEL_EFFECTS",
+        "support_level": _term_support_resolution(models, ["WWR", "Complexity"], "scene_level"),
+        "reason": "Co-primary whole-scene average-effect layer.",
+    })
+    rows.append({
+        "claim_id": "C5_SYNCHRONIZED_TIME_DYNAMICS",
+        "support_level": _term_support_resolution(models, ["time_norm"], "synchronized_timebin"),
+        "reason": "Co-primary within-scene dynamic layer; includes WWR × time and Complexity × time.",
+    })
+    rows.append({
+        "claim_id": "C6_MULTISCALE_CONVERGENCE",
+        "support_level": _multiscale_support(models),
+        "reason": "Convergence strengthens evidence; disagreement is reported as scale-dependent rather than overridden.",
+    })
     if not nonlinear.empty:
         rows.append({"claim_id": "C1_WWR_NONLINEAR_DIAGNOSTIC", "support_level": "see_diagnostics", "reason": str(nonlinear.get("claim_strength", pd.Series([""])).iloc[0])})
     return pd.DataFrame(rows)
@@ -366,6 +382,7 @@ def figure_contract_index(figure_contracts_config: str | Path) -> pd.DataFrame:
     for row in data.get("figures", []):
         out = row.copy()
         out["source_data"] = _join_list(out.get("source_data"))
+        out["optional_source_data"] = _join_list(out.get("optional_source_data"))
         out["export_targets"] = _join_list(out.get("export_targets"))
         out["panel_map"] = _join_panel_map(out.get("panel_map"))
         out["statistics_note"] = out.get("statistics_note", "")
@@ -382,16 +399,21 @@ def source_data_index(figure_contracts: pd.DataFrame) -> pd.DataFrame:
     if figure_contracts.empty or "source_data" not in figure_contracts.columns:
         return pd.DataFrame(columns=["figure_id", "source_file", "source_role"])
     for _, figure in figure_contracts.iterrows():
-        for source_file in str(figure.get("source_data", "")).split(";"):
-            source_file = source_file.strip()
-            if not source_file:
-                continue
-            rows.append({
-                "figure_id": figure.get("figure_id"),
-                "source_file": source_file,
-                "source_role": figure.get("manuscript_role"),
-                "core_conclusion": figure.get("core_conclusion"),
-            })
+        for column, requirement in (
+            ("source_data", "required"),
+            ("optional_source_data", "conditional_synchronized_analysis"),
+        ):
+            for source_file in str(figure.get(column, "")).split(";"):
+                source_file = source_file.strip()
+                if not source_file:
+                    continue
+                rows.append({
+                    "figure_id": figure.get("figure_id"),
+                    "source_file": source_file,
+                    "source_role": figure.get("manuscript_role"),
+                    "source_requirement": requirement,
+                    "core_conclusion": figure.get("core_conclusion"),
+                })
     return pd.DataFrame(rows)
 
 
@@ -478,6 +500,39 @@ def _term_support(models: pd.DataFrame, term_fragment: str) -> str:
     p_col = "p_fdr_bh" if "p_fdr_bh" in models.columns else "p_value"
     sig = pd.to_numeric(models.loc[hit, p_col], errors="coerce").lt(0.05).any()
     return "moderate" if sig else "exploratory"
+
+
+def _term_support_resolution(
+    models: pd.DataFrame,
+    term_fragments: list[str],
+    resolution: str,
+) -> str:
+    if models.empty or not {"term", "analysis_resolution"}.issubset(models.columns):
+        return "unsupported_no_model"
+    hit = models["analysis_resolution"].astype(str).eq(resolution)
+    hit &= models["term"].astype(str).apply(
+        lambda term: any(fragment in term for fragment in term_fragments)
+    )
+    if not hit.any():
+        return "unsupported_no_term"
+    q = pd.to_numeric(models.loc[hit, "p_fdr_bh"], errors="coerce")
+    return "moderate" if q.lt(0.05).any() else "bounded_no_fdr_signal"
+
+
+def _multiscale_support(models: pd.DataFrame) -> str:
+    if "analysis_resolution" not in models.columns:
+        return "unsupported_no_multiscale_models"
+    levels = set(models["analysis_resolution"].dropna().astype(str))
+    if not {"scene_level", "synchronized_timebin"}.issubset(levels):
+        return "incomplete_one_resolution"
+    q = pd.to_numeric(models.get("p_fdr_bh"), errors="coerce")
+    significant = models.assign(_q=q).loc[lambda frame: frame["_q"].lt(0.05)]
+    supported = set(significant["analysis_resolution"].astype(str))
+    if {"scene_level", "synchronized_timebin"}.issubset(supported):
+        return "convergent_multiscale_support"
+    if supported:
+        return "scale_dependent_support"
+    return "bounded_no_fdr_signal"
 
 
 def _read_optional(path: Path) -> pd.DataFrame:
