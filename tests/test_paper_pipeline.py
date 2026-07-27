@@ -38,6 +38,16 @@ def test_standardize_participants_recomputes_experience_group_from_q1_4() -> Non
     assert out["ExperienceGroup"].tolist() == ["High", "Low"]
     assert out["ExperienceGroupInput"].tolist() == ["Low", "High"]
     assert out["ExperienceGroupSource"].eq("Experience").all()
+
+
+def test_sport_frequency_is_not_an_experience_group_fallback() -> None:
+    participants = pd.DataFrame({
+        "participant_id": ["P01"],
+        "SportFreq": ["经常（每月≥5次）"],
+    })
+    out = standardize_participants(participants)
+    assert out.loc[0, "ExperienceGroup"] == "Unknown"
+    assert out.loc[0, "ExperienceGroupSource"] == ""
     assert out["ExperienceGroupRule"].eq("q1_4_table_tennis_experience_2_by_2").all()
 
 

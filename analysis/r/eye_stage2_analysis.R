@@ -17,15 +17,15 @@ input$WWR <- factor(input$WWR)
 input$Complexity <- factor(input$Complexity)
 input$Gender <- factor(input$Gender)
 input$OrderGroup <- factor(input$OrderGroup)
-input$ExerciseFrequency <- factor(input$ExerciseFrequency)
+input$ExperienceGroup <- factor(input$ExperienceGroup)
 
 outcomes_a <- c("TableShare", "WindowShare", "RawCompetition")
 outcomes_b <- c("LogTableEnrichment", "LogWindowEnrichment", "AdjustedCompetition")
 formula_for <- function(outcome) {
   stats::as.formula(paste0(
     outcome,
-    " ~ WWR * Complexity + WWR * ExerciseFrequency + ",
-    "Complexity * ExerciseFrequency + Gender + Block + ",
+    " ~ WWR * Complexity + WWR * ExperienceGroup + ",
+    "Complexity * ExperienceGroup + Gender + Block + ",
     "PositionWithinBlockCentered + OrderGroup + (1|Participant)"
   ))
 }

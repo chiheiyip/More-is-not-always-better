@@ -11,43 +11,49 @@
   "Packages": {
     "Rcpp": {
       "Package": "Rcpp",
-      "Version": "1.0.14",
+      "Version": "1.1.2",
       "Source": "Repository",
       "Repository": "CRAN"
     },
     "broom.mixed": {
       "Package": "broom.mixed",
-      "Version": "0.2.9.6",
+      "Version": "0.2.9.7",
       "Source": "Repository",
       "Repository": "CRAN"
     },
     "clubSandwich": {
       "Package": "clubSandwich",
-      "Version": "0.6.1",
+      "Version": "0.7.0",
       "Source": "Repository",
       "Repository": "CRAN"
     },
     "emmeans": {
       "Package": "emmeans",
-      "Version": "1.10.7",
+      "Version": "2.0.4",
       "Source": "Repository",
       "Repository": "CRAN"
     },
     "glmmTMB": {
       "Package": "glmmTMB",
-      "Version": "1.1.10",
+      "Version": "1.1.14",
       "Source": "Repository",
       "Repository": "CRAN"
     },
     "lme4": {
       "Package": "lme4",
-      "Version": "1.1-36",
+      "Version": "2.0-6",
       "Source": "Repository",
       "Repository": "CRAN"
     },
     "renv": {
       "Package": "renv",
-      "Version": "1.1.1",
+      "Version": "1.2.3",
+      "Source": "Repository",
+      "Repository": "CRAN"
+    },
+    "TMB": {
+      "Package": "TMB",
+      "Version": "1.9.19",
       "Source": "Repository",
       "Repository": "CRAN"
     }

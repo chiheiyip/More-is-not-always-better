@@ -15,15 +15,15 @@
 | `trial_index` | Canonical experiment progression index; equals `scene_id = (block - 1) * 6 + position`. |
 | `previous_WWR`, `previous_Complexity` | Previous scene condition within `participant_id + block`; missing for position 1 of both blocks. |
 | `order_scheme` | Counterbalancing/order sequence identifier attached from the scene manifest. |
-| `break_before_trial` | Indicator for block 2, position 1, which follows the registered 120-second break. |
+| `break_before_trial` | Descriptive indicator for block 2, position 1, which follows the registered 120-second break; it is not used as a lagged-condition model term because both block starts have undefined within-block lags. |
 
 ## Teacher workflow canonical fields
 
 | Field | Meaning |
 |---|---|
 | `Participant` | Modality-union participant identifier; absence from one modality does not remove another. |
-| `Q1.5Original` | Unmodified teacher-specified exercise-frequency source response. |
-| `ExerciseFrequency` | Registered analysis grouping derived from the configured source rule. |
+| `ExperienceRaw` | Unmodified Q1.4 experience response used by the repository-wide grouping rule. |
+| `ExperienceGroup` | Registered `High`/`Low` experience classification. Teacher-priority eye and EEG models use this field; Q1.5 exercise frequency is not a substitute. |
 | `OrderGroup` | One of `order1`, `order2`, or canonical `new order2`; `neworder2` is compatibility input only. |
 | `IncludeEyeCandidate` | Candidate for eye QC, independent of EEG and questionnaire status. |
 | `IncludeEEGValid` | EEG-valid flag; used for EEG and explicitly named common-sample sensitivities only. |
@@ -43,7 +43,7 @@
 | Field | Meaning |
 |---|---|
 | `ExperienceRaw` | Original Q1.4 table-tennis-experience response used for experience grouping. |
-| `ExperienceGroup` | Latest two-by-two Q1.4 experience grouping: `Low` = never/rarely or occasional (monthly <1 or 1-2 times); `High` = sometimes/often (monthly 3-4 or >=5 times). This is not derived from `SportFreq` unless Q1.4 experience is unavailable. |
+| `ExperienceGroup` | Latest two-by-two Q1.4 experience grouping: `Low` = never/rarely or occasional (monthly <1 or 1-2 times); `High` = sometimes/often (monthly 3-4 or >=5 times). `SportFreq`/Q1.5 is never substituted for this field. |
 | `ExperienceGroupInput` | Optional audit copy of any pre-existing `ExperienceGroup` column before recomputing the latest two-by-two grouping. |
 | `ExperienceGroupSource` | Source column used to recompute `ExperienceGroup`, normally `Experience` from Q1.4. |
 | `ExperienceGroupRule` | Experience grouping rule identifier, normally `q1_4_table_tennis_experience_2_by_2`. |

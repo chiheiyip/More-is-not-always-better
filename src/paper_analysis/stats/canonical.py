@@ -372,8 +372,6 @@ def _formula(
             terms.append("C(previous_Complexity)")
         if _varying(data, "order_scheme"):
             terms.append("C(order_scheme)")
-        if _varying(data, "break_before_trial"):
-            terms.append("break_before_trial")
     if aoi and _varying(data, "class_name"):
         terms.append("C(class_name)")
         if _varying(data, "WWR"):
@@ -422,7 +420,6 @@ def _hypothesis_block(
     if scope == "carryover_sensitivity" and (
         "previous_WWR" in term
         or "previous_Complexity" in term
-        or term == "break_before_trial"
     ):
         return f"H4_{_modality_label(model_family)}_carryover"
     return "exploratory_not_in_primary_fdr"

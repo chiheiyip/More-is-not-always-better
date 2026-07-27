@@ -41,7 +41,7 @@ def _resolve_paths(config: dict[str, Any], config_path: Path) -> dict[str, Any]:
         "aoi_root",
         "stage2_dir", "stage3_plan_dir", "trial_file",
         "preprocessing_audit_file", "order_stage_dir",
-        "s3_trial_file",
+        "s3_trial_file", "rscript",
     }
 
     def walk(value: Any, key: str = "") -> Any:
@@ -68,6 +68,11 @@ def _parser() -> argparse.ArgumentParser:
         child.add_argument("--outputs-root", type=Path)
         child.add_argument("--run-id")
         child.add_argument("--dry-run", action="store_true")
+        child.add_argument(
+            "--skip-r",
+            action="store_true",
+            help="Complete Python audit/QC outputs without formal R inference.",
+        )
     return parser
 
 
@@ -126,12 +131,14 @@ def main(argv: list[str] | None = None) -> int:
         "eeg-primary": run_eeg_primary,
     }
     try:
-        functions[args.command](
-            config,
-            config_path=config_path,
-            outdir=outdir,
-            repo_root=REPO_ROOT,
-        )
+        call_kwargs = {
+            "config_path": config_path,
+            "outdir": outdir,
+            "repo_root": REPO_ROOT,
+        }
+        if args.command in {"eye-stage2", "eeg-order", "eeg-primary"}:
+            call_kwargs["r_required"] = not args.skip_r
+        functions[args.command](config, **call_kwargs)
     except StageBlockedError as exc:
         print(f"BLOCKED: {exc}", file=sys.stderr)
         print(json.dumps(plan, ensure_ascii=False, indent=2), file=sys.stderr)

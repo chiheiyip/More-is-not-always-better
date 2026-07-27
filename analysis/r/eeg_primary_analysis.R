@@ -14,13 +14,13 @@ iterations <- as.integer(args[[5]])
 dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
 
 for (column in c(
-  "Participant", "WWR", "Complexity", "ExerciseFrequency", "Gender", "OrderGroup"
+  "Participant", "WWR", "Complexity", "ExperienceGroup", "Gender", "OrderGroup"
 )) input[[column]] <- factor(input[[column]])
 
 primary_formula <- function(outcome) stats::as.formula(paste0(
   outcome,
-  " ~ WWR * Complexity + WWR * ExerciseFrequency + ",
-  "Complexity * ExerciseFrequency + Gender + Block + ",
+  " ~ WWR * Complexity + WWR * ExperienceGroup + ",
+  "Complexity * ExperienceGroup + Gender + Block + ",
   "PositionWithinBlockCentered + OrderGroup + (1|Participant)"
 ))
 
@@ -99,8 +99,8 @@ for (outcome in relative[nzchar(relative)]) {
     formula <- if (label == "PreviousScene") {
       stats::as.formula(paste0(
         outcome,
-        " ~ WWR * Complexity + WWR * ExerciseFrequency + ",
-        "Complexity * ExerciseFrequency + PreviousWWR + PreviousComplexity + ",
+        " ~ WWR * Complexity + WWR * ExperienceGroup + ",
+        "Complexity * ExperienceGroup + PreviousWWR + PreviousComplexity + ",
         "Gender + Block + PositionWithinBlockCentered + OrderGroup + ",
         "(1|Participant)"
       ))
@@ -130,8 +130,8 @@ for (outcome in relative[nzchar(relative)]) {
     # Gender is constant within a stratified sensitivity and is removed.
     formula <- stats::as.formula(paste0(
       outcome,
-      " ~ WWR * Complexity + WWR * ExerciseFrequency + ",
-      "Complexity * ExerciseFrequency + Block + ",
+      " ~ WWR * Complexity + WWR * ExperienceGroup + ",
+      "Complexity * ExperienceGroup + Block + ",
       "PositionWithinBlockCentered + OrderGroup + (1|Participant)"
     ))
     model <- fit_lmer_or_record(

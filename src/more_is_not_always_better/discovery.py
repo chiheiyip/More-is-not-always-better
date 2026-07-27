@@ -452,7 +452,15 @@ def load_questionnaire_metadata(path: str | Path) -> pd.DataFrame:
         "VRExperience",
         "MotionSickness",
     ]:
-        out[output_col] = df[resolved[output_col]] if output_col in resolved else ""
+        if output_col in resolved:
+            values = df[resolved[output_col]]
+            out[output_col] = (
+                values.map(_repair_legacy_mojibake)
+                if values.dtype == object
+                else values
+            )
+        else:
+            out[output_col] = ""
 
     out = out.loc[out["participant_id"].ne("") & out["participant_id"].ne("nan")].copy()
     out["Order"] = pd.to_numeric(out["Order"], errors="coerce").astype("Int64")
@@ -794,9 +802,20 @@ def _strip_suffix_note(value: object) -> str:
 
 
 def _canonical_questionnaire_subject_id(value: object) -> str:
-    text = str(value or "").strip()
+    text = _repair_legacy_mojibake(value)
     parts = [part.strip() for part in ETHNIC_NAME_SEPARATOR_RE.split(text) if part.strip()]
     return parts[0] if len(parts) > 1 else text
+
+
+def _repair_legacy_mojibake(value: object) -> str:
+    text = str(value or "").strip()
+    if not text or not any(0x80 <= ord(char) <= 0xFF for char in text):
+        return text
+    try:
+        repaired = text.encode("latin1").decode("gbk")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+    return repaired if re.search(r"[\u3400-\u9fff]", repaired) else text
 
 
 def _first_existing(columns: Iterable[str], candidates: Iterable[str]) -> Optional[str]:

@@ -8,12 +8,15 @@ import pandas as pd
 import pytest
 
 from paper_analysis.teacher.contracts import (
+    REQUIRED_PARTICIPANT_COLUMNS,
     build_modality_registry,
     canonicalize_trials,
+    normalize_participant_information,
 )
 from paper_analysis.teacher.eeg import FORBIDDEN_PRIMARY_TERMS, _metric_columns
 from paper_analysis.teacher.eye import (
     SceneMasks,
+    _eye_filename_participant_candidate,
     build_eye_trial_metrics,
     classify_fixations,
     deduplicate_fixations,
@@ -56,6 +59,26 @@ def test_explicit_modality_exclusion_is_not_overridden_by_file_presence() -> Non
     ).set_index("Participant")
     assert not bool(registry.loc["P01", "IncludeEyeCandidate"])
     assert bool(registry.loc["P02", "IncludeEyeCandidate"])
+
+
+def test_teacher_registry_uses_experience_group_not_exercise_frequency() -> None:
+    normalized = normalize_participant_information(pd.DataFrame({
+        "Participant": ["P01", "P02"],
+        "ExperienceRaw": [
+            "偶尔（每月1–2次）",
+            "经常（每月≥5次）",
+        ],
+        "ExerciseFrequency": ["High", "Low"],
+    }))
+    assert normalized["ExperienceGroup"].tolist() == ["Low", "High"]
+    assert "ExperienceGroup" in REQUIRED_PARTICIPANT_COLUMNS
+    assert "ExerciseFrequency" not in REQUIRED_PARTICIPANT_COLUMNS
+
+
+def test_eye_raw_trial_filename_yields_participant_candidate() -> None:
+    path = Path("raw_P01_260130211058_0617142206.csv")
+    assert _eye_filename_participant_candidate(path) == "P01"
+    assert _eye_filename_participant_candidate(Path("unmatched.csv")) == "unmatched"
 
 
 def test_trial_contract_has_three_order_groups_and_block_local_lags() -> None:
@@ -110,6 +133,20 @@ def test_fixation_dedup_does_not_accumulate_repeated_duration() -> None:
     )
     assert fixations.loc[fixations["FixationIndex"].eq(1), "FixationDuration"].item() == 120
     assert conflicts["FixationIndex"].tolist() == [2]
+
+
+def test_fixation_dedup_empty_input_preserves_event_contract() -> None:
+    fixations, conflicts = deduplicate_fixations(
+        pd.DataFrame({"Fixation Index": [np.nan]}),
+        participant="P01",
+        global_trial_order=1,
+    )
+    assert fixations.empty
+    assert {"FixationX", "FixationY", "FixationDuration"}.issubset(
+        fixations.columns
+    )
+    assert conflicts.empty
+    assert "Reason" in conflicts.columns
 
 
 def _scene(complexity: str = "C1") -> SceneMasks:
@@ -210,7 +247,7 @@ def test_approval_missing_unapproved_and_stale_are_blocked(tmp_path: Path) -> No
 
 
 def test_teacher_eeg_contract_forbids_three_way_and_condition_order_terms() -> None:
-    assert "WWR:Complexity:ExerciseFrequency" in FORBIDDEN_PRIMARY_TERMS
+    assert "WWR:Complexity:ExperienceGroup" in FORBIDDEN_PRIMARY_TERMS
     assert "WWR:OrderGroup" in FORBIDDEN_PRIMARY_TERMS
 
 
@@ -232,8 +269,8 @@ def test_locked_r_scripts_encode_teacher_models_without_ols_fallback() -> None:
     common = (root / "analysis/r/common.R").read_text(encoding="utf-8")
     assert "ordbeta" in eye
     assert "c(.50, .60, .70)" in eye
-    assert "WWR * Complexity + WWR * ExerciseFrequency" in eeg
+    assert "WWR * Complexity + WWR * ExperienceGroup" in eeg
     assert "iterations <- as.integer" in eeg
     assert 'vcov = "CR2"' in common
     assert "lm(" not in common
-    assert "WWR * Complexity * ExerciseFrequency" not in eeg
+    assert "WWR * Complexity * ExperienceGroup" not in eeg

@@ -124,7 +124,6 @@ def main() -> None:
         terms = carry.get("term", pd.Series(dtype=str)).astype(str)
         for fragment in (
             "previous_WWR", "previous_Complexity", "order_scheme",
-            "break_before_trial",
         ):
             _check(
                 checks, f"carryover_term:{fragment}",

@@ -1,5 +1,7 @@
 .venv/
 .venv-system/
+.r-env/
+.tools/
 __pycache__/
 .pytest_cache/
 .pytest_tmp/

@@ -26,7 +26,7 @@ from paper_analysis.utils.io import is_truthy, read_table, write_table, write_te
 
 
 FORBIDDEN_PRIMARY_TERMS = (
-    "WWR:Complexity:ExerciseFrequency",
+    "WWR:Complexity:ExperienceGroup",
     "WWR:OrderGroup",
     "Complexity:OrderGroup",
 )
@@ -68,9 +68,9 @@ def _normalize_eeg(config: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame]:
         participant_path, eeg_participants=trials["Participant"]
     )
     covariates = [
-        "Participant", "Gender", "ExerciseFrequency", "OrderGroup", "IncludeEEGValid"
+        "Participant", "Gender", "ExperienceGroup", "OrderGroup", "IncludeEEGValid"
     ]
-    for column in ("Gender", "ExerciseFrequency", "OrderGroup", "IncludeEEGValid"):
+    for column in ("Gender", "ExperienceGroup", "OrderGroup", "IncludeEEGValid"):
         if column in trials:
             covariates.remove(column)
     trials = trials.merge(
@@ -151,7 +151,7 @@ def run_eeg_order(
         invalid_trials["ExclusionReason"] = "IncludeEEGValid_false"
     audit = trial_contract_audit(trials)
     required_design = {
-        "Participant", "WWR", "Complexity", "Gender", "ExerciseFrequency",
+        "Participant", "WWR", "Complexity", "Gender", "ExperienceGroup",
         "OrderGroup", "Block", "PositionWithinBlock",
     }
     missing_design = sorted(required_design - set(trials.columns))
@@ -386,8 +386,8 @@ def run_eeg_primary(
         {
             "Model": "teacher_primary_lmm",
             "Formula": (
-                "Outcome ~ WWR*Complexity + WWR*ExerciseFrequency + "
-                "Complexity*ExerciseFrequency + Gender + Block + "
+                "Outcome ~ WWR*Complexity + WWR*ExperienceGroup + "
+                "Complexity*ExperienceGroup + Gender + Block + "
                 "PositionWithinBlockCentered + OrderGroup + (1|Participant)"
             ),
             "Forbidden": ";".join(FORBIDDEN_PRIMARY_TERMS),

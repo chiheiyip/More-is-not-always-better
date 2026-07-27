@@ -24,9 +24,11 @@ These rules supersede conflicting historical entries below:
 8. EEG relative power is primary and log10 absolute power is sensitivity.
    Core, secondary, and supplementary ROI × band outcomes are explicitly
    registered; significance cannot promote an outcome or switch the measure.
-9. EEG primary models allow the three specified two-way condition/exercise
-   interactions plus Gender, Block, centered position, and three-level
-   OrderGroup. Three-way and condition-by-OrderGroup terms are prohibited.
+9. Teacher-priority eye and EEG models use the repository-standard
+   `ExperienceGroup` derived from Q1.4. They allow the three specified
+   two-way condition/experience interactions plus Gender, Block, centered
+   position, and three-level OrderGroup. Q1.5 exercise frequency is not a
+   substitute; three-way and condition-by-OrderGroup terms are prohibited.
 10. Mixed-model failure is diagnostic evidence and never triggers OLS
     fallback. Bootstrap failure counts are always reported.
 

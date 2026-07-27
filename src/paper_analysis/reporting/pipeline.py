@@ -178,7 +178,7 @@ def reviewer_order_fatigue_evidence(
     ].copy() if not stability.empty else pd.DataFrame()
     carry_terms = carryover.loc[
         carryover.get("term", pd.Series(index=carryover.index, dtype=str)).astype(str).str.contains(
-            "previous_WWR|previous_Complexity|break_before_trial", regex=True
+            "previous_WWR|previous_Complexity", regex=True
         )
     ].copy() if not carryover.empty else pd.DataFrame()
     stability_cols = [
@@ -256,9 +256,9 @@ def reviewer_order_fatigue_evidence(
         "",
         "## Previous-condition carryover sensitivity",
         "",
-        "The first trial is excluded because its lag is undefined. The first trial of "
-        "block 2 retains the previous condition and is identified by break_before_trial, "
-        "which represents the 120-second break.",
+        "Position 1 of each block is excluded because its within-block lag is "
+        "undefined. Previous-condition variables never cross the 120-second break "
+        "between blocks.",
         "",
         dataframe_to_markdown(carry_terms[carry_cols]) if not carry_terms.empty else "No carryover estimates were generated.",
         "",
@@ -347,7 +347,6 @@ def _order_readiness(
             carry_terms = carry.get("term", pd.Series(index=carry.index, dtype=str)).astype(str)
             for fragment in (
                 "previous_WWR", "previous_Complexity", "order_scheme",
-                "break_before_trial",
             ):
                 if not carry_terms.str.contains(fragment, regex=False).any():
                     failures.append(f"carryover term missing: {fragment}")

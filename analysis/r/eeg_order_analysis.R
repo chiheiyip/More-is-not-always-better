@@ -16,7 +16,7 @@ reserved <- c(
   "Participant", "OrderGroup", "Block", "PositionWithinBlock",
   "PositionWithinBlockCentered", "GlobalTrialOrder", "SceneID", "WWR",
   "Complexity", "PreviousWWR", "PreviousComplexity", "Gender",
-  "ExerciseFrequency", "IncludeEEGValid"
+  "ExperienceGroup", "IncludeEEGValid"
 )
 numeric_candidates <- names(input)[vapply(input, is.numeric, logical(1))]
 outcomes <- setdiff(numeric_candidates, c(

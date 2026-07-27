@@ -1,0 +1,13 @@
+name: teacher-analysis-r
+channels:
+  - conda-forge
+dependencies:
+  - r-base=4.4.2
+  - r-lme4
+  # glmmTMB 1.1.14 on win-64 was compiled against TMB 1.9.19.
+  # Pin both sides of the compiled dependency to avoid ABI mismatch warnings.
+  - r-glmmtmb=1.1.14
+  - r-tmb=1.9.19
+  - r-emmeans
+  - r-broom.mixed
+  - r-renv

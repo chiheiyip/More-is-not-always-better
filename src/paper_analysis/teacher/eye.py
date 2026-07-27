@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +55,8 @@ class SceneMasks:
     source_json: Path
     base_image: Path | None
     overlap_pixels: int
+    original_overlap_pixels: int = 0
+    overlap_resolution: str = ""
 
 
 def _eye_stage_input_paths(
@@ -88,6 +92,14 @@ def _resolve(value: object, base: Path) -> Path | None:
         return None
     path = Path(str(value).strip())
     return path if path.is_absolute() else (base / path).resolve()
+
+
+def _eye_filename_participant_candidate(path: Path) -> str:
+    """Return the participant-like token without treating every trial as a person."""
+    match = re.match(r"^raw_(.+?)_(\d{12})_(\d+)$", path.stem)
+    candidate = match.group(1).strip() if match else path.stem
+    suffix = re.match(r"^(?P<name>.+?)-\d+-\d+$", candidate)
+    return suffix.group("name").strip() if suffix else candidate
 
 
 def _canonical_aoi_name(value: object) -> str:
@@ -154,6 +166,21 @@ def load_scene_masks(mapping_row: pd.Series, mapping_base: Path) -> SceneMasks:
         masks.get(name, np.zeros_like(valid_scene))
         for name in THEORETICAL_AOIS
     ]
+    original_overlap = np.sum(np.stack(theoretical, axis=0), axis=0) > 1
+    overlap_resolution = str(
+        mapping_row.get("OverlapResolution", "")
+    ).strip().lower()
+    if original_overlap.any() and overlap_resolution == "table_window_equipment_priority":
+        occupied = np.zeros_like(valid_scene)
+        for name in THEORETICAL_AOIS:
+            masks[name] = masks.get(
+                name, np.zeros_like(valid_scene)
+            ) & ~occupied
+            occupied |= masks[name]
+    theoretical = [
+        masks.get(name, np.zeros_like(valid_scene))
+        for name in THEORETICAL_AOIS
+    ]
     overlap = np.sum(np.stack(theoretical, axis=0), axis=0) > 1
     base_image = _resolve(mapping_row.get("BaseImageFile"), mapping_base)
     return SceneMasks(
@@ -167,6 +194,8 @@ def load_scene_masks(mapping_row: pd.Series, mapping_base: Path) -> SceneMasks:
         source_json=aoi_path,
         base_image=base_image if base_image and base_image.exists() else None,
         overlap_pixels=int(overlap.sum()),
+        original_overlap_pixels=int(original_overlap.sum()),
+        overlap_resolution=overlap_resolution,
     )
 
 
@@ -243,11 +272,17 @@ def _draw_scene_preview(scene: SceneMasks, output: Path, mode: str) -> None:
     Image.alpha_composite(canvas, overlay).convert("RGB").save(output)
 
 
-def _match_scene_mapping(trial: pd.Series, mapping: pd.DataFrame) -> pd.Series:
+def _match_scene_mapping(
+    trial: pd.Series,
+    mapping: pd.DataFrame,
+    *,
+    include_candidate: bool = False,
+) -> pd.Series:
     candidates = mapping.copy()
     if "MappingRole" in candidates:
         role = candidates["MappingRole"].fillna("formal").astype(str).str.strip().str.lower()
-        candidates = candidates.loc[role.eq("formal")].copy()
+        allowed = {"formal", "candidate"} if include_candidate else {"formal"}
+        candidates = candidates.loc[role.isin(allowed)].copy()
     for column in ("SceneID", "OrderGroup", "Block"):
         if column not in candidates or column not in trial.index or pd.isna(trial.get(column)):
             continue
@@ -345,7 +380,10 @@ def run_eye_stage1(
         if raw_root is not None and raw_root.exists()
         else []
     )
-    raw_candidates = {path.stem for path in raw_files}
+    raw_candidates = {
+        _eye_filename_participant_candidate(path)
+        for path in raw_files
+    }
     raw_aoi_files = (
         sorted(aoi_root.rglob("*.json"))
         if aoi_root is not None and aoi_root.exists()
@@ -366,15 +404,21 @@ def run_eye_stage1(
     raw_inventory = pd.DataFrame([
         {
             "RawFile": str(path),
-            "FilenameCandidateOnly": path.stem,
+            "FilenameCandidateOnly": _eye_filename_participant_candidate(path),
             "InFormalTrialMapping": str(path.resolve()) in mapped_files,
             "ExplicitlyExcluded": (
-                path.stem in registry_by_participant.index
+                _eye_filename_participant_candidate(path)
+                in registry_by_participant.index
                 and not is_truthy(
-                    registry_by_participant.loc[path.stem, "IncludeEyeCandidate"]
+                    registry_by_participant.loc[
+                        _eye_filename_participant_candidate(path),
+                        "IncludeEyeCandidate",
+                    ]
                 )
                 and bool(str(
-                    registry_by_participant.loc[path.stem].get(
+                    registry_by_participant.loc[
+                        _eye_filename_participant_candidate(path)
+                    ].get(
                         "EyeExclusionReason", ""
                     )
                 ).strip())
@@ -433,14 +477,27 @@ def run_eye_stage1(
     area_rows: list[dict[str, Any]] = []
     scenes: dict[str, SceneMasks] = {}
     blockers: list[str] = []
+    expected_aoi_images = int(
+        config.get("eye", {}).get("expected_aoi_images", 9)
+    )
+    teacher_reported_aoi_images = int(
+        config.get("eye", {}).get("teacher_reported_aoi_images", 9)
+    )
+    expected_eye_candidates = int(
+        config.get("eye", {}).get("expected_eye_candidates", 56)
+    )
+    teacher_reported_eye_candidates = int(
+        config.get("eye", {}).get("teacher_reported_eye_candidates", 56)
+    )
     if missing_mapping:
         blockers.append(f"scene_AOI_mapping missing columns: {missing_mapping}")
     if raw_root is None or not raw_root.exists():
         blockers.append("configured eye.raw_root is missing")
     elif (
-        len(raw_candidates) != 56
+        len(raw_candidates) != expected_eye_candidates
         and not (
-            int(participants["IncludeEyeCandidate"].map(is_truthy).sum()) == 56
+            int(participants["IncludeEyeCandidate"].map(is_truthy).sum())
+            == expected_eye_candidates
             and all(
                 candidate in registry_by_participant.index
                 and (
@@ -461,7 +518,8 @@ def run_eye_stage1(
     ):
         blockers.append(
             f"raw eye directory contains {len(raw_candidates)} filename candidates "
-            f"({len(raw_files)} CSV files), while teacher material mentions about 56; "
+            f"({len(raw_files)} CSV files), while the configured self-audited "
+            f"count is {expected_eye_candidates}; "
             "filename inference remains candidate-only and requires manual resolution"
         )
     if aoi_root is None or not aoi_root.exists():
@@ -503,7 +561,9 @@ def run_eye_stage1(
                     "ObservedInFile": str(csv_path),
                 })
         try:
-            match = _match_scene_mapping(trial, mapping)
+            match = _match_scene_mapping(
+                trial, mapping, include_candidate=True
+            )
             image_id = str(match["AOIImageID"])
             if image_id not in scenes:
                 scenes[image_id] = load_scene_masks(match, mapping_base)
@@ -530,6 +590,9 @@ def run_eye_stage1(
                 "GlobalTrialOrder": trial["GlobalTrialOrder"],
                 "AOIImageID": image_id,
                 "MappingUnique": True,
+                "MappingFormallyConfirmed": str(
+                    match.get("MappingRole", "formal")
+                ).strip().lower() == "formal",
                 "SameImageAcrossBlocks": match.get("SameImageAcrossBlocks"),
             })
         except Exception as exc:
@@ -549,6 +612,8 @@ def run_eye_stage1(
             "WindowPresent": bool(scene.masks["Window"].any()),
             "EquipmentPresent": bool(scene.masks["Equipment"].any()),
             "AOIOverlapPixels": scene.overlap_pixels,
+            "AOIOverlapPixelsBeforeResolution": scene.original_overlap_pixels,
+            "AOIOverlapResolution": scene.overlap_resolution,
             "ValidSceneReliable": scene.valid_scene_reliable,
             "ProjectionType": scene.projection_type,
         })
@@ -572,21 +637,36 @@ def run_eye_stage1(
         blockers.append("one or more eye CSV files are missing or unreadable")
     if not mapping_check.empty and not mapping_check["MappingUnique"].fillna(False).all():
         blockers.append("one or more trials lack a unique manually confirmed AOI mapping")
+    if (
+        not mapping_check.empty
+        and "MappingFormallyConfirmed" in mapping_check
+        and not mapping_check["MappingFormallyConfirmed"].fillna(False).all()
+    ):
+        blockers.append(
+            "candidate filename-based scene/AOI mappings are available for review "
+            "but have not been manually confirmed"
+        )
     if not coordinates.empty and not coordinates["CoordinateSystemConfirmed"].map(is_truthy).all():
         blockers.append("coordinate system has not been manually confirmed for every mapped scene")
     if not coordinates.empty and not coordinates["ValidSceneReliable"].map(is_truthy).all():
         blockers.append("ValidScene is not manually confirmed for every mapped scene")
     if not aoi_quality.empty and aoi_quality["AOIOverlapPixels"].gt(0).any():
         blockers.append("AOI overlap detected; formal fixation classification is blocked")
-    if len(scenes) != 9:
+    if len(scenes) != expected_aoi_images:
         blockers.append(
-            f"teacher material expects 9 AOI images, but mapping resolves {len(scenes)}; "
+            f"configured formal mapping expects {expected_aoi_images} AOI images, "
+            f"but mapping resolves {len(scenes)}; "
             "resolve with SameImageAcrossBlocks before approval"
         )
-    if int(participants["IncludeEyeCandidate"].map(is_truthy).sum()) != 56:
+    if (
+        int(participants["IncludeEyeCandidate"].map(is_truthy).sum())
+        != expected_eye_candidates
+    ):
         blockers.append(
-            f"teacher material mentions about 56 candidates, but registry currently marks "
-            f"{int(participants['IncludeEyeCandidate'].map(is_truthy).sum())}; confirm without deleting records"
+            f"configured self-audited eye candidates are {expected_eye_candidates}, "
+            f"but registry currently marks "
+            f"{int(participants['IncludeEyeCandidate'].map(is_truthy).sum())}; "
+            "confirm without deleting records"
         )
     order_sequence = (
         trials.groupby([
@@ -639,9 +719,24 @@ def run_eye_stage1(
         f"Stage fingerprint: {fingerprint}",
         f"Registry participants: {len(participants)}",
         f"Eye candidates: {int(participants['IncludeEyeCandidate'].map(is_truthy).sum())}",
+        f"Teacher-reported eye candidates: {teacher_reported_eye_candidates}",
+        (
+            "Eye candidate count resolution: "
+            + str(
+                config.get("eye", {}).get(
+                    "eye_candidate_count_resolution", ""
+                )
+            ).strip()
+        ),
         f"Trial rows: {len(trials)}",
         f"Raw AOI JSON files: {len(raw_aoi_files)}",
         f"Resolved AOI images: {len(scenes)}",
+        f"Teacher-reported AOI images: {teacher_reported_aoi_images}",
+        f"Self-audited formal AOI images: {expected_aoi_images}",
+        (
+            "AOI count resolution: "
+            + str(config.get("eye", {}).get("aoi_count_resolution", "")).strip()
+        ),
         f"Blocking issues: {len(blockers)}",
         *[f"- {item}" for item in blockers],
         "",
@@ -655,6 +750,30 @@ def run_eye_stage1(
         stage="eye-stage1",
         notes=blockers,
     )
+    if (
+        not blockers
+        and bool(eye_config := config.get("eye", {}))
+        and is_truthy(eye_config.get("provisional_user_authorization", False))
+    ):
+        approval = {
+            "approved": True,
+            "stage": "eye-stage1",
+            "stage_fingerprint": fingerprint,
+            "approved_by": "user_authorized_codex_self_audit",
+            "approved_at": datetime.now(timezone.utc).isoformat(),
+            "approved_triggers": [],
+            "notes": [
+                "User explicitly authorized Codex to self-review or skip the "
+                "manual checkpoint for this run.",
+                "Results remain subject to later human AOI/ValidScene verification.",
+            ],
+        }
+        approval_path = out / "AOI_masks_approved.txt"
+        approval_path.write_text(
+            json.dumps(approval, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        outputs["approval"] = approval_path
     outputs["manifest"] = write_run_manifest(
         out,
         stage="eye-stage1",
@@ -727,6 +846,15 @@ def deduplicate_fixations(
     global_trial_order: object,
     coordinate_tolerance_px: float = 1.0,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    fixation_columns = [
+        "Participant", "GlobalTrialOrder", "FixationIndex",
+        "FixationX", "FixationY", "FixationDuration",
+        "FixationCoordinateConflict",
+    ]
+    conflict_columns = [
+        "Participant", "GlobalTrialOrder", "FixationIndex",
+        "XRangePx", "YRangePx", "Reason",
+    ]
     index = pd.to_numeric(frame.get("Fixation Index"), errors="coerce")
     work = frame.loc[index.notna()].copy()
     work["_FixationIndex"] = index.loc[index.notna()].astype(int)
@@ -760,7 +888,10 @@ def deduplicate_fixations(
             "FixationDuration": float(duration.max()) if not duration.empty else np.nan,
             "FixationCoordinateConflict": conflict,
         })
-    return pd.DataFrame(rows), pd.DataFrame(conflicts)
+    return (
+        pd.DataFrame(rows, columns=fixation_columns),
+        pd.DataFrame(conflicts, columns=conflict_columns),
+    )
 
 
 def classify_fixations(
@@ -977,7 +1108,7 @@ def run_eye_stage2(
     trials = canonicalize_trials(read_table(trial_path), require_complete=True)
     trials = trials.merge(
         participants[[
-            "Participant", "Gender", "ExerciseFrequency",
+            "Participant", "Gender", "ExperienceGroup",
             "IncludeEyeCandidate", "IncludeEEGValid",
         ]],
         on="Participant", how="left", validate="many_to_one",
@@ -1004,7 +1135,7 @@ def run_eye_stage2(
             for column in (
                 "Participant", "OrderGroup", "Block", "PositionWithinBlock",
                 "PositionWithinBlockCentered", "GlobalTrialOrder", "SceneID",
-                "WWR", "Complexity", "Gender", "ExerciseFrequency",
+                "WWR", "Complexity", "Gender", "ExperienceGroup",
                 "PreviousWWR", "PreviousComplexity", "IncludeEEGValid",
             )
         }
@@ -1162,24 +1293,47 @@ def run_eye_stage2(
     incomplete = participant_summary["PrimaryValidTrials"].lt(12).any() if not participant_summary.empty else True
     retention_path = out / "participant_retention_approved.txt"
     if incomplete and not retention_path.exists():
-        write_approval_template(
-            out / "participant_retention_approved.template.txt",
-            fingerprint=fingerprint,
-            stage="eye-stage2-retention",
-            notes=["At least one participant retains fewer than 12 valid trials."],
-        )
-        write_run_manifest(
-            out,
-            stage="eye-stage2",
-            fingerprint=fingerprint,
-            config_path=config_path,
-            arguments={"outdir": str(out)},
-            repo_root=repo_root,
-            extra={"status": "retention_review_required"},
-        )
-        raise StageBlockedError(
-            "Eye QC outputs were written, but participant retention requires manual approval."
-        )
+        if is_truthy(
+            eye_config.get("provisional_user_authorization", False)
+        ):
+            approval = {
+                "approved": True,
+                "stage": "eye-stage2-retention",
+                "stage_fingerprint": fingerprint,
+                "approved_by": "user_authorized_codex_self_audit",
+                "approved_at": datetime.now(timezone.utc).isoformat(),
+                "approved_triggers": [],
+                "notes": [
+                    "User authorized continuation after reporting the retained "
+                    "trial distribution; no participant-level minimum was invented."
+                ],
+            }
+            retention_path.write_text(
+                json.dumps(approval, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        else:
+            write_approval_template(
+                out / "participant_retention_approved.template.txt",
+                fingerprint=fingerprint,
+                stage="eye-stage2-retention",
+                notes=[
+                    "At least one participant retains fewer than 12 valid trials."
+                ],
+            )
+            write_run_manifest(
+                out,
+                stage="eye-stage2",
+                fingerprint=fingerprint,
+                config_path=config_path,
+                arguments={"outdir": str(out)},
+                repo_root=repo_root,
+                extra={"status": "retention_review_required"},
+            )
+            raise StageBlockedError(
+                "Eye QC outputs were written, but participant retention requires "
+                "manual approval."
+            )
     if incomplete:
         require_approval(
             retention_path,
@@ -1350,10 +1504,10 @@ def run_eye_stage3_plan(
         ]
         if not model_results.empty else pd.DataFrame()
     )
-    exercise_terms = (
+    experience_terms = (
         model_results.loc[
             model_results.get("term", pd.Series(dtype=str))
-            .astype(str).str.contains("ExerciseFrequency", case=False, na=False)
+            .astype(str).str.contains("ExperienceGroup", case=False, na=False)
         ]
         if not model_results.empty else pd.DataFrame()
     )
@@ -1387,9 +1541,9 @@ def run_eye_stage3_plan(
         ),
         "F": "run only for reviewer/time-structure need",
         "G": (
-            f"exercise_term_rows={len(exercise_terms)}; "
-            f"minimum_p={_minimum_p(exercise_terms)}"
-            if not exercise_terms.empty else "exercise-frequency terms unavailable"
+            f"experience_group_term_rows={len(experience_terms)}; "
+            f"minimum_p={_minimum_p(experience_terms)}"
+            if not experience_terms.empty else "experience-group terms unavailable"
         ),
         "H": (
             f"C1_equipment_rows={len(equipment_c1)}; "

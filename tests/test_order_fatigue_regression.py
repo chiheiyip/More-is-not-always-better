@@ -121,7 +121,7 @@ def test_primary_time_and_carryover_formulas_have_registered_terms() -> None:
     assert "C(previous_WWR)" in carry
     assert "C(previous_Complexity)" in carry
     assert "C(order_scheme)" in carry
-    assert "break_before_trial" in carry
+    assert "break_before_trial" not in carry
 
 
 def test_sample_flow_uses_modality_specific_and_exact_trimodal_counts() -> None:

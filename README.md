@@ -12,9 +12,14 @@ The default formal workflow is the staged teacher specification. Python owns
 input scanning, QC, fingerprints, approval gates, data contracts, and output
 packaging; locked R code owns LMM/GLMM/ordered-beta mixed models, CR2,
 `emmeans`, and participant-cluster bootstrap inference.
+The only High/Low experience classification in formal models is
+`ExperienceGroup`, derived from the repository-standard Q1.4 two-by-two rule;
+Q1.5 exercise frequency is retained only as questionnaire source data and is
+not a model grouping variable.
 
 ```powershell
 Copy-Item configs/teacher_analysis.example.json configs/teacher_analysis.local.json
+powershell -ExecutionPolicy Bypass -File scripts/bootstrap_portable_r.ps1
 python scripts/run_teacher_analysis.py eye-stage1 --config configs/teacher_analysis.local.json --run-id review01
 ```
 
@@ -26,10 +31,16 @@ Then use the same `--run-id` for `eye-stage2`, `eye-stage3-plan`,
 analysis marker. Approvals are JSON stored in `.txt` files and are bound to the
 stage input fingerprint.
 
-R is mandatory for formal inference. Install R 4.4.x and run
-`renv::restore(lockfile = "analysis/r/renv.lock")` before Stage 2 or either EEG
-stage. Missing R or a failed mixed model stops or records a diagnostic; no OLS
-fallback is permitted.
+R is mandatory for formal inference. On Windows,
+`scripts/bootstrap_portable_r.ps1` creates repository-local `.r-env` and
+`.tools` directories with R 4.4.2 and the required packages. It does not modify
+the system R installation or global `PATH`; deleting those two directories
+removes it. Teacher commands launch it through
+`scripts/portable_rscript.cmd`. `analysis/r/renv.lock` remains the
+package-version record. Users
+with an existing R installation may instead run
+`renv::restore(lockfile = "analysis/r/renv.lock")`. Missing R or a failed mixed
+model stops or records a diagnostic; no OLS fallback is permitted.
 
 ## Compatibility Workflow
 

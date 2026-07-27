@@ -42,7 +42,9 @@ The shared trimodal keep set in `analysis_qc_exclusions.csv` is reserved for
 synchronized cross-modal analyses.
 
 For formal order analyses, `trial_index = scene_id = (block - 1) * 6 +
-position`. The first scene of block 2 is marked by `break_before_trial = 1`
-because it follows the registered 120-second break. Lagged previous-condition
-variables are ordered within participant by `scene_id`; scene 1 has no lag and
-is excluded only from the carryover sensitivity model.
+position`. The first scene of block 2 is marked descriptively by
+`break_before_trial = 1` because it follows the registered 120-second break.
+Lagged previous-condition variables are constructed within
+`participant_id + block`; position 1 of both blocks has no lag and is excluded
+from the carryover sensitivity model. No previous-condition variable crosses
+the block boundary.

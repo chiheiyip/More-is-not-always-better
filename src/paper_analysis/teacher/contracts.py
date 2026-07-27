@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
+from paper_analysis.utils.coding import experience_group
 from paper_analysis.utils.io import is_truthy, read_table
 
 
@@ -13,8 +13,8 @@ TRIAL_KEYS = ["Participant", "GlobalTrialOrder"]
 REQUIRED_PARTICIPANT_COLUMNS = [
     "Participant",
     "Gender",
-    "Q1.5Original",
-    "ExerciseFrequency",
+    "ExperienceRaw",
+    "ExperienceGroup",
     "OrderGroup",
     "IncludeEyeCandidate",
     "IncludeEEGValid",
@@ -36,9 +36,7 @@ PARTICIPANT_ALIASES = {
     "participant_id": "Participant",
     "subject_id": "Participant",
     "GenderRaw": "Gender",
-    "Q1.5": "Q1.5Original",
-    "SportFreq": "Q1.5Original",
-    "ExperienceGroup": "ExerciseFrequency",
+    "Experience": "ExperienceRaw",
     "order_scheme": "OrderGroup",
     "Order": "OrderGroup",
     "has_eye_raw": "IncludeEyeCandidate",
@@ -107,11 +105,10 @@ def normalize_participant_information(frame: pd.DataFrame) -> pd.DataFrame:
     out["Participant"] = out["Participant"].astype(str).str.strip()
     if "OrderGroup" in out:
         out["OrderGroup"] = out["OrderGroup"].map(normalize_order_group)
-    if "ExerciseFrequency" not in out and "Q1.5Original" in out:
-        score = pd.to_numeric(out["Q1.5Original"], errors="coerce")
-        out["ExerciseFrequency"] = np.where(
-            score.isin([1, 2]), "Low", np.where(score.isin([3, 4]), "High", pd.NA)
-        )
+    if "ExperienceGroup" not in out and "ExperienceRaw" in out:
+        out["ExperienceGroup"] = out["ExperienceRaw"].map(experience_group)
+    elif "ExperienceGroup" in out:
+        out["ExperienceGroup"] = out["ExperienceGroup"].map(experience_group)
     for column in (
         "IncludeEyeCandidate",
         "IncludeEEGValid",

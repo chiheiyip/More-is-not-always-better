@@ -1,7 +1,7 @@
 {
   "outputs_root": "../outputs",
   "run_id": null,
-  "rscript": "Rscript",
+  "rscript": "../scripts/portable_rscript.cmd",
   "participant_information": "path/to/participant_information.xlsx",
   "trial_order_mapping": "path/to/trial_order_mapping.xlsx",
   "scene_aoi_mapping": "path/to/scene_AOI_mapping.xlsx",

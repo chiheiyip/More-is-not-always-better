@@ -8,7 +8,7 @@ import pandas as pd
 
 
 EXPERIENCE_GROUP_RULE = "q1_4_table_tennis_experience_2_by_2"
-EXPERIENCE_SOURCE_PRIORITY = ["Experience", "ExperienceRaw", "ExperienceGroup", "SportFreq"]
+EXPERIENCE_SOURCE_PRIORITY = ["Experience", "ExperienceRaw", "ExperienceGroup"]
 
 LOW_EXPERIENCE_PATTERNS = [
     "never",
