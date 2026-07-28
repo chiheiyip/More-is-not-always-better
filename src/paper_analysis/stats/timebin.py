@@ -82,16 +82,12 @@ def _eligible_timebins(timebins: pd.DataFrame, qc: pd.DataFrame) -> pd.DataFrame
         raise ValueError("Clock scene QC must contain participant_id, scene_id, clock_alignment_pass")
     qc_work = qc.copy()
     qc_work["_passed"] = _truthy(qc_work["clock_alignment_pass"])
-    participant_pass = qc_work.groupby("participant_id").agg(
-        scene_count=("scene_id", "nunique"),
-        all_scene_qc_pass=("_passed", "all"),
-    )
-    participant_ids = participant_pass.index[
-        participant_pass["scene_count"].eq(12) & participant_pass["all_scene_qc_pass"]
-    ]
-    passed = qc_work.loc[
-        qc_work["participant_id"].isin(participant_ids) & qc_work["_passed"], KEYS
-    ].drop_duplicates()
+    # Alignment eligibility is a Participant × Trial contract. A participant
+    # does not need all 12 scenes to pass in order for their successfully
+    # aligned scenes to contribute. Requiring complete clock QC here would
+    # discard valid synchronized trials after the formal exact-intersection
+    # table has already applied scene-level eye, EEG and clock QC.
+    passed = qc_work.loc[qc_work["_passed"], KEYS].drop_duplicates()
     out = timebins.merge(passed, on=KEYS, how="inner")
     coverage = pd.to_numeric(out["eeg_window_coverage"], errors="coerce")
     return out.loc[coverage.ge(0.95)].copy()
@@ -181,7 +177,7 @@ def _fit_outcome(
             "analysis_resolution": "synchronized_timebin",
             "analysis_status": "primary",
             "hypothesis_family": family_label,
-            "clock_qc_policy": "12_scenes_monotonic_coverage95_match95_p95delta2ms",
+            "clock_qc_policy": "scene_level_monotonic_coverage95_match95_p95delta2ms",
         })
     diagnostics.append(_diag(
         outcome, modality, "fit", int(fit.nobs), n_subjects, n_trials,
@@ -365,5 +361,5 @@ def _diag(
         "error": error,
         "analysis_resolution": "synchronized_timebin",
         "analysis_status": "primary",
-        "clock_qc_policy": "12_scenes_monotonic_coverage95_match95_p95delta2ms",
+        "clock_qc_policy": "scene_level_monotonic_coverage95_match95_p95delta2ms",
     }

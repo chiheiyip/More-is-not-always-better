@@ -5,12 +5,24 @@ This repository tracks analysis provenance from raw modality inputs to manuscrip
 ## Teacher-priority run provenance
 
 `scripts/run_teacher_analysis.py` is the authoritative formal entry point.
+The complete entry point is `all-results --self-review --reuse-valid --resume
+--promote`; stage-specific commands remain available for diagnosis.
 Each stage writes to
 `<outputs-root>/teacher_runs/<run-id>/<numbered-stage>/` and never overwrites
 historical outputs. Every `run_manifest.json` records the stage fingerprint,
 resolved config, arguments, Git commit, Python/platform identity, status, and
 blocking reasons. Approval files must contain the exact stage name and
 fingerprint; changed inputs make old approval unusable.
+Every manifest also records a method-contract hash calculated from the teacher
+Python orchestration, R model scripts and command-line entry point. Resume and
+reuse are invalidated when that code contract changes, even if source data are
+unchanged. In self-review mode, skipped manual gates are recorded as explicit
+machine review decisions rather than silently omitted.
+
+Formal narrative reports are Markdown. Excel/CSV tables remain the
+machine-readable source of numerical claims; figures, logs and code snapshots
+remain separate auditable artifacts. DOCX is optional and is not a completion
+criterion.
 
 The formal key is `Participant + GlobalTrialOrder`. Modality registries are
 unions. Eye, EEG, and questionnaire samples are recorded separately, while

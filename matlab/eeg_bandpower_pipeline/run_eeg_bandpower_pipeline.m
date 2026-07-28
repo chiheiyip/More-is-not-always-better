@@ -108,8 +108,16 @@ end
 function manifest = export_scene_samples(EEG, subject_id, clock_cache, sample_root)
 participant_col = string(clock_cache.("participant_id"));
 clock_row = clock_cache(participant_col == string(subject_id), :);
-if height(clock_row) ~= 1
-    error('Expected exactly one clock-cache row for %s, found %d.', subject_id, height(clock_row));
+if height(clock_row) == 0
+    warning( ...
+        'Skipping sample export for %s because no validated clock-cache row exists.', ...
+        subject_id ...
+    );
+    manifest = table();
+    return;
+end
+if height(clock_row) > 1
+    error('Expected at most one clock-cache row for %s, found %d.', subject_id, height(clock_row));
 end
 if double(clock_row.("n_samples")) ~= double(EEG.pnts)
     error('Clock-cache sample count mismatch for %s: cache=%g EEG=%g.', subject_id, double(clock_row.("n_samples")), double(EEG.pnts));

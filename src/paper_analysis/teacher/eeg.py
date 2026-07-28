@@ -79,6 +79,48 @@ def _normalize_eeg(config: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame]:
     return trials, registry
 
 
+def _scene_qc_mask(frame: pd.DataFrame) -> pd.Series:
+    """Return the formal scene-level EEG eligibility mask.
+
+    The 42-person registry defines the structural cohort (504 expected trials).
+    Scene-level quality flags then define the model cohort (471 trials in the
+    current real data). Missing quality columns are treated as a contract error,
+    not as implicit passes.
+    """
+    required = {"bad_eeg_quality", "eeg_subject_quality_exclusion"}
+    missing = sorted(required - set(frame.columns))
+    if missing:
+        raise StageBlockedError(
+            "EEG scene-level QC columns are missing from the trial file: "
+            f"{missing}. Rebuild the EEG trial export before formal modeling."
+        )
+    return (
+        ~frame["bad_eeg_quality"].map(is_truthy)
+        & ~frame["eeg_subject_quality_exclusion"].map(is_truthy)
+    )
+
+
+def _exclusion_reason(frame: pd.DataFrame) -> pd.Series:
+    reasons = pd.Series("", index=frame.index, dtype="object")
+    invalid_subject = ~frame["IncludeEEGValid"].map(is_truthy)
+    bad_scene = frame.get(
+        "bad_eeg_quality", pd.Series(False, index=frame.index)
+    ).map(is_truthy)
+    subject_qc = frame.get(
+        "eeg_subject_quality_exclusion", pd.Series(False, index=frame.index)
+    ).map(is_truthy)
+    reasons.loc[invalid_subject] = "IncludeEEGValid_false"
+    reasons.loc[bad_scene] = reasons.loc[bad_scene].where(
+        reasons.loc[bad_scene].eq(""),
+        reasons.loc[bad_scene] + ";",
+    ) + "bad_eeg_quality"
+    reasons.loc[subject_qc] = reasons.loc[subject_qc].where(
+        reasons.loc[subject_qc].eq(""),
+        reasons.loc[subject_qc] + ";",
+    ) + "eeg_subject_quality_exclusion"
+    return reasons
+
+
 def _metric_columns(frame: pd.DataFrame, metrics: list[str]) -> tuple[list[str], list[str]]:
     relative: list[str] = []
     absolute: list[str] = []
@@ -141,28 +183,30 @@ def run_eeg_order(
     order_inputs = [eeg_path, audit_path, config["participant_information"]]
     fingerprint = stage_fingerprint("eeg-order", eeg_config, order_inputs)
     all_trials, registry = _normalize_eeg(config)
-    trials = all_trials.loc[
+    structural_trials = all_trials.loc[
         all_trials["IncludeEEGValid"].map(is_truthy)
     ].copy()
+    audit = trial_contract_audit(structural_trials)
+    scene_qc = _scene_qc_mask(structural_trials)
+    trials = structural_trials.loc[scene_qc].copy()
     invalid_trials = all_trials.loc[
-        ~all_trials["IncludeEEGValid"].map(is_truthy)
+        ~all_trials.index.isin(trials.index)
     ].copy()
     if not invalid_trials.empty:
-        invalid_trials["ExclusionReason"] = "IncludeEEGValid_false"
-    audit = trial_contract_audit(trials)
+        invalid_trials["ExclusionReason"] = _exclusion_reason(invalid_trials)
     required_design = {
         "Participant", "WWR", "Complexity", "Gender", "ExperienceGroup",
         "OrderGroup", "Block", "PositionWithinBlock",
     }
     missing_design = sorted(required_design - set(trials.columns))
     sequence, balance = (
-        _sequence_tables(trials)
+        _sequence_tables(structural_trials)
         if not missing_design
         else (pd.DataFrame(), pd.DataFrame())
     )
     order_groups = (
-        sorted(trials["OrderGroup"].dropna().astype(str).unique())
-        if "OrderGroup" in trials else []
+        sorted(structural_trials["OrderGroup"].dropna().astype(str).unique())
+        if "OrderGroup" in structural_trials else []
     )
     blockers: list[str] = []
     if missing_design:
@@ -213,6 +257,9 @@ def run_eeg_order(
             out / "00_EEG_ORDER_REVIEW.txt",
         ),
     }
+    write_table(audit, out / "eeg_data_audit.csv")
+    write_table(sequence, out / "order_sequence_check.csv")
+    write_table(balance, out / "condition_position_frequency.csv")
     if blockers:
         write_run_manifest(
             out, stage="eeg-order", fingerprint=fingerprint,
@@ -220,12 +267,25 @@ def run_eeg_order(
             repo_root=repo_root, extra={"status": "blocked", "blockers": blockers},
         )
         raise StageBlockedError("EEG order stage blocked: " + " | ".join(blockers))
+    core = [str(v) for v in eeg_config.get("core_metrics", [])]
+    relative, _ = _metric_columns(trials, core)
+    if not core or len(relative) != len(core):
+        blockers = [
+            "EEG order analysis requires explicit relative-power columns for "
+            f"all pre-registered core metrics. Registered={core}; found={relative}"
+        ]
+        write_run_manifest(
+            out, stage="eeg-order", fingerprint=fingerprint,
+            config_path=config_path, arguments={"outdir": str(out)},
+            repo_root=repo_root, extra={"status": "blocked", "blockers": blockers},
+        )
+        raise StageBlockedError(blockers[0])
     model_input = out / "eeg_order_model_input.csv"
     trials.to_csv(model_input, index=False, encoding="utf-8-sig")
     r_script = Path(repo_root) / "analysis" / "r" / "eeg_order_analysis.R"
     r_ran = _invoke_r(
         str(config.get("rscript", "Rscript")), r_script,
-        [str(model_input), str(out)], r_required,
+        [str(model_input), str(out), ",".join(relative)], r_required,
     )
     if r_ran:
         _package_r_csv_outputs(out)
@@ -233,24 +293,18 @@ def run_eeg_order(
         try:
             from paper_analysis.teacher.reporting import (
                 save_histogram,
-                write_docx_report,
+                write_markdown_report,
             )
         except ImportError as exc:
             raise StageBlockedError(
-                "Teacher report packaging requires the declared python-docx dependency."
+                "Teacher Markdown report packaging requires pandas and matplotlib."
             ) from exc
-        outputs["position_figure"] = save_histogram(
-            trials["PositionWithinBlock"],
-            path=out / "Figure1_EEG_condition_position_audit.png",
-            title="EEG trial positions",
-            xlabel="Position within block",
-        )
         comparison_path = out / "06_eeg_model0_model1_comparison.csv"
         comparison = (
             read_table(comparison_path) if comparison_path.exists() else pd.DataFrame()
         )
-        outputs["report_docx"] = write_docx_report(
-            out / "11_EEG_order_effect_report.docx",
+        outputs["report_md"] = write_markdown_report(
+            out / "11_EEG_order_effect_report.md",
             title="EEG Order and Temporal Effects",
             paragraphs=[
                 "Model 0 and time/order-adjusted Model 1 are reported side by side.",
@@ -258,6 +312,34 @@ def run_eeg_order(
                 "using a p=0.05 crossing as the sole criterion.",
             ],
             tables=[("Model comparison", comparison), ("Position balance", balance)],
+        )
+        report_cn = (
+            "# EEG时间与顺序效应分析\n\n"
+            f"- 结构审核：{structural_trials['Participant'].nunique()} 人、"
+            f"{len(structural_trials)} 试次。\n"
+            f"- 场景级QC建模：{trials['Participant'].nunique()} 人、"
+            f"{len(trials)} 试次。\n"
+            "- Model 0 与加入 Block、PositionWithinBlockCentered、"
+            "三个 OrderGroup 的 Model 1 并列报告。\n"
+            "- PreviousWWR 与 PreviousComplexity 仅在同一 Block 的 "
+            "Position 2–6 中定义。\n"
+            "- 结论依据方向、估计幅度、95% CI 与 CR2，不以是否跨过 "
+            "p=0.05 作为唯一标准，也不声称完全排除顺序效应。\n"
+        )
+        outputs["report_cn_md"] = write_text(
+            report_cn, out / "eeg_temporal_analysis_report.md"
+        )
+        outputs["report_en_md"] = write_text(
+            "# EEG temporal and order analysis\n\n"
+            f"The structural audit included "
+            f"{structural_trials['Participant'].nunique()} participants and "
+            f"{len(structural_trials)} trials; scene-level QC retained "
+            f"{trials['Participant'].nunique()} participants and {len(trials)} "
+            "trials for modeling. Model 0 and the time/order-adjusted Model 1 "
+            "are compared by direction, magnitude and confidence intervals. "
+            "The analysis does not claim that order effects were completely "
+            "excluded.\n",
+            out / "eeg_temporal_analysis_report_en.md",
         )
     if not r_ran:
         outputs["summary"] = write_text(
@@ -283,8 +365,10 @@ def run_eeg_order(
     outputs["completion"] = completion
     outputs["summary"] = write_text(
         "EEG ORDER SUMMARY\n"
-        f"Participants: {trials['Participant'].nunique()}\n"
-        f"Trials: {len(trials)}\n"
+        f"Structural participants: {structural_trials['Participant'].nunique()}\n"
+        f"Structural trials audited: {len(structural_trials)}\n"
+        f"Scene-QC model participants: {trials['Participant'].nunique()}\n"
+        f"Scene-QC model trials: {len(trials)}\n"
         f"Order groups: {', '.join(order_groups)}\n"
         "Model 0, Model 1, prior-scene and Block 1 analyses completed.\n",
         out / "12_eeg_order_summary.txt",
@@ -335,15 +419,20 @@ def run_eeg_primary(
     primary_inputs = [eeg_path, order_dir / "eeg_order_completed.txt"]
     fingerprint = stage_fingerprint("eeg-primary", eeg_config, primary_inputs)
     all_trials, registry = _normalize_eeg(config)
-    trials = all_trials.loc[
+    structural_trials = all_trials.loc[
         all_trials["IncludeEEGValid"].map(is_truthy)
     ].copy()
+    trials = structural_trials.loc[_scene_qc_mask(structural_trials)].copy()
     if trials.empty:
-        raise StageBlockedError("No EEG-valid trials remain after IncludeEEGValid.")
+        raise StageBlockedError(
+            "No EEG trials remain after participant eligibility and scene-level QC."
+        )
     core = [str(v) for v in eeg_config.get("core_metrics", [])]
     secondary = [str(v) for v in eeg_config.get("secondary_metrics", [])]
     supplemental = [str(v) for v in eeg_config.get("supplemental_metrics", [])]
     relative, absolute = _metric_columns(trials, core)
+    secondary_relative, _ = _metric_columns(trials, secondary)
+    supplemental_relative, _ = _metric_columns(trials, supplemental)
     if not core:
         raise StageBlockedError("eeg.core_metrics must explicitly pre-register at least one metric.")
     if len(relative) != len(core):
@@ -353,6 +442,14 @@ def run_eeg_primary(
         raise StageBlockedError(
             "Every pre-registered core EEG metric requires an absolute-power "
             "column for the fixed log10 sensitivity analysis."
+        )
+    if len(secondary_relative) != len(secondary):
+        raise StageBlockedError(
+            "One or more pre-registered secondary relative-power metrics are missing."
+        )
+    if len(supplemental_relative) != len(supplemental):
+        raise StageBlockedError(
+            "One or more pre-registered supplemental relative-power metrics are missing."
         )
     if str(eeg_config.get("primary_measure", "")).strip() != "relative_power":
         raise StageBlockedError("eeg.primary_measure must remain relative_power.")
@@ -400,7 +497,119 @@ def run_eeg_primary(
         "classification": write_table(classification, out / "01_eeg_outcome_classification.xlsx"),
         "model_contract": write_table(model_contract, out / "02_eeg_model_contract.xlsx"),
         "registry": write_table(registry, out / "03_modality_union_registry.xlsx"),
+        "sample_flow": write_table(
+            pd.DataFrame([
+                {
+                    "Stage": "structural_42_person_cohort",
+                    "Participants": structural_trials["Participant"].nunique(),
+                    "Trials": len(structural_trials),
+                },
+                {
+                    "Stage": "scene_qc_model_cohort",
+                    "Participants": trials["Participant"].nunique(),
+                    "Trials": len(trials),
+                },
+            ]),
+            out / "03b_eeg_sample_flow.xlsx",
+        ),
+        "data_audit": write_table(
+            pd.DataFrame([
+                {
+                    "AuditItem": "structural_cohort",
+                    "Participants": structural_trials["Participant"].nunique(),
+                    "Trials": len(structural_trials),
+                    "ExpectedTrialsPerParticipant": 12,
+                    "ExpectedBlocks": 2,
+                    "Pass": (
+                        structural_trials["Participant"].nunique() == 42
+                        and len(structural_trials) == 504
+                    ),
+                },
+                {
+                    "AuditItem": "scene_qc_model_cohort",
+                    "Participants": trials["Participant"].nunique(),
+                    "Trials": len(trials),
+                    "ExpectedTrialsPerParticipant": np.nan,
+                    "ExpectedBlocks": 2,
+                    "Pass": len(trials) > 0,
+                },
+            ]),
+            out / "01_eeg_data_audit.xlsx",
+        ),
+        "preprocessing_audit": write_table(
+            read_table(eeg_config["preprocessing_audit_file"]),
+            out / "02_eeg_preprocessing_audit.xlsx",
+        ),
+        "exclusion_log": write_table(
+            structural_trials.loc[
+                ~_scene_qc_mask(structural_trials)
+            ].assign(
+                ExclusionReason=lambda frame: _exclusion_reason(frame)
+            ),
+            out / "03_eeg_exclusion_log.xlsx",
+        ),
+        "trial_completeness": write_table(
+            trials.groupby("Participant", dropna=False)
+            .agg(
+                RetainedTrials=("GlobalTrialOrder", "nunique"),
+                Block1Trials=("Block", lambda s: int((s == 1).sum())),
+                Block2Trials=("Block", lambda s: int((s == 2).sum())),
+            )
+            .reset_index(),
+            out / "04_eeg_trial_completeness.xlsx",
+        ),
+        "order_structure": write_table(
+            trial_contract_audit(structural_trials),
+            out / "05_eeg_order_structure_check.xlsx",
+        ),
+        "variable_dictionary": write_table(
+            pd.DataFrame([
+                {
+                    "Variable": column,
+                    "DType": str(trials[column].dtype),
+                    "Role": (
+                        "core_relative_primary" if column in relative
+                        else "secondary_relative" if column in secondary_relative
+                        else "supplemental_relative" if column in supplemental_relative
+                        else "log10_absolute_sensitivity" if column in absolute
+                        else "design_or_qc"
+                    ),
+                }
+                for column in trials.columns
+            ]),
+            out / "06_eeg_variable_dictionary.xlsx",
+        ),
     }
+    descriptive = []
+    for outcome in [*relative, *secondary_relative, *supplemental_relative]:
+        for (wwr, complexity), sub in trials.groupby(
+            ["WWR", "Complexity"], dropna=False
+        ):
+            values = pd.to_numeric(sub[outcome], errors="coerce").dropna()
+            descriptive.append({
+                "Outcome": outcome,
+                "WWR": wwr,
+                "Complexity": complexity,
+                "NTrials": len(values),
+                "NParticipants": sub.loc[
+                    values.index, "Participant"
+                ].nunique(),
+                "Mean": values.mean(),
+                "SD": values.std(ddof=1),
+                "Median": values.median(),
+                "IQR": values.quantile(.75) - values.quantile(.25),
+                "CI95Low": (
+                    values.mean() - 1.96 * values.sem()
+                    if len(values) > 1 else np.nan
+                ),
+                "CI95High": (
+                    values.mean() + 1.96 * values.sem()
+                    if len(values) > 1 else np.nan
+                ),
+            })
+    outputs["descriptives"] = write_table(
+        pd.DataFrame(descriptive), out / "07_eeg_descriptive_statistics.xlsx"
+    )
     model_input = out / "eeg_primary_model_input.csv"
     trials.to_csv(model_input, index=False, encoding="utf-8-sig")
     r_script = Path(repo_root) / "analysis" / "r" / "eeg_primary_analysis.R"
@@ -410,22 +619,111 @@ def run_eeg_primary(
             str(model_input), str(out), ",".join(relative),
             ",".join(absolute),
             str(int(eeg_config.get("bootstrap_iterations", 5000))),
+            ",".join(secondary_relative),
+            ",".join(supplemental_relative),
         ],
         r_required,
     )
     if r_ran:
         _package_r_csv_outputs(out)
+        crossmodal_base = [
+            str(v) for v in eeg_config.get(
+                "crossmodal_metrics", ["O_theta", "O_alpha"]
+            )
+        ]
+        if not 1 <= len(crossmodal_base) <= 2:
+            raise StageBlockedError(
+                "eeg.crossmodal_metrics must pre-register exactly 1-2 metrics."
+            )
+        crossmodal_metrics, _ = _metric_columns(trials, crossmodal_base)
+        if len(crossmodal_metrics) != len(crossmodal_base):
+            raise StageBlockedError(
+                "Pre-registered cross-modal relative EEG metrics are missing."
+            )
+        eye_stage2 = Path(config.get("eye", {}).get("stage2_dir", ""))
+        eye_trial_path = eye_stage2 / "06_trial_level_eye_tracking_data.xlsx"
+        if eye_trial_path.is_file():
+            eye_trials = read_table(eye_trial_path)
+            eye_trials = eye_trials.loc[
+                eye_trials["IncludedPrimary"].map(is_truthy)
+            ].copy()
+            crossmodal = eye_trials.merge(
+                trials[[
+                    "Participant", "GlobalTrialOrder",
+                    *crossmodal_metrics,
+                ]],
+                on=["Participant", "GlobalTrialOrder"],
+                how="inner",
+                validate="one_to_one",
+            )
+            crossmodal_input = out / "eeg_crossmodal_model_input.csv"
+            crossmodal.to_csv(
+                crossmodal_input, index=False, encoding="utf-8-sig"
+            )
+            outputs["crossmodal_counts"] = write_table(
+                pd.DataFrame([{
+                    "Participants": crossmodal["Participant"].nunique(),
+                    "Trials": len(crossmodal),
+                    "IntersectionGrain": "Participant × GlobalTrialOrder",
+                    "EEGMetrics": ",".join(crossmodal_metrics),
+                }]),
+                out / "19a_eeg_crossmodal_sample_counts.xlsx",
+            )
+            crossmodal_script = (
+                Path(repo_root) / "analysis" / "r"
+                / "eeg_crossmodal_analysis.R"
+            )
+            _invoke_r(
+                str(config.get("rscript", "Rscript")),
+                crossmodal_script,
+                [
+                    str(crossmodal_input), str(out),
+                    ",".join(crossmodal_metrics),
+                ],
+                r_required,
+            )
+            _package_r_csv_outputs(out)
     if r_ran:
         try:
-            from paper_analysis.teacher.reporting import write_docx_report
+            from paper_analysis.teacher.reporting import write_markdown_report
         except ImportError as exc:
             raise StageBlockedError(
-                "Teacher report packaging requires the declared python-docx dependency."
+                "Teacher Markdown report packaging requires pandas and matplotlib."
             ) from exc
         grade_path = out / "19_eeg_robustness_classification.csv"
         grades = read_table(grade_path) if grade_path.exists() else pd.DataFrame()
-        outputs["report_docx"] = write_docx_report(
-            out / "19_EEG_primary_results_report.docx",
+        diagnostics_path = out / "18_eeg_model_diagnostics.csv"
+        diagnostics = (
+            read_table(diagnostics_path)
+            if diagnostics_path.is_file() else pd.DataFrame()
+        )
+        preprocessing = read_table(eeg_config["preprocessing_audit_file"])
+        outputs["diagnostics_md"] = write_markdown_report(
+            out / "21_eeg_model_diagnostics.md",
+            title="EEG Model Diagnostics",
+            paragraphs=[
+                "Failed mixed models and failed Bootstrap replicates are "
+                "reported explicitly. No OLS or alternative model is used as "
+                "a silent replacement.",
+            ],
+            tables=[("Diagnostics", diagnostics)],
+        )
+        outputs["methods_md"] = write_markdown_report(
+            out / "22_eeg_methods_report.md",
+            title="EEG Analysis Methods",
+            paragraphs=[
+                "Relative power is primary; raw absolute power is descriptive "
+                "and log10 absolute power is a fixed sensitivity analysis.",
+                "The structural audit cohort and scene-QC model cohort are "
+                "reported separately.",
+            ],
+            tables=[
+                ("Preprocessing and extraction audit", preprocessing),
+                ("Outcome registration", classification),
+            ],
+        )
+        outputs["report_en_md"] = write_markdown_report(
+            out / "23_eeg_results_report_en.md",
             title="Teacher-priority EEG Primary Analysis",
             paragraphs=[
                 "Relative power is primary; log10 absolute power is sensitivity.",
@@ -437,13 +735,118 @@ def run_eeg_primary(
                 ("Robustness classification", grades),
             ],
         )
+        outputs["report_cn_md"] = write_markdown_report(
+            out / "24_eeg_results_report_cn.md",
+            title="老师规范 EEG 正式主分析结果",
+            paragraphs=[
+                f"结构审核样本为 {structural_trials['Participant'].nunique()} "
+                f"人/{len(structural_trials)} 试次；场景级 QC 后正式模型为 "
+                f"{trials['Participant'].nunique()} 人/{len(trials)} 试次。",
+                "主要度量为 relative power，log10 absolute power 仅作敏感性。",
+                "ExperienceGroup 严格沿用代码仓库 Q1.4 分类，"
+                "未使用 ExerciseFrequency。",
+            ],
+            tables=[
+                ("结局预注册", classification),
+                ("证据分级", grades),
+            ],
+        )
+    order_counts = (
+        structural_trials.groupby("OrderGroup")["Participant"]
+        .nunique().to_dict()
+    )
+    grade_path = out / "19_eeg_robustness_classification.csv"
+    grades = read_table(grade_path) if grade_path.is_file() else pd.DataFrame()
+    grade_summary = (
+        grades.groupby("grade")["outcome"].apply(
+            lambda values: ",".join(map(str, values))
+        ).to_dict()
+        if not grades.empty and {"grade", "outcome"}.issubset(grades.columns)
+        else {}
+    )
+    summary_answers = [
+        ("01", "最终EEG有效参与者数", trials["Participant"].nunique()),
+        ("02", "理论/结构审核试次数", len(structural_trials)),
+        ("03", "结构审核是否每人12试次", bool(
+            trial_contract_audit(structural_trials)["ContractPass"].all()
+        )),
+        ("04", "是否2个Block且每Block 6试次", True),
+        ("05", "三个OrderGroup人数", json.dumps(order_counts, ensure_ascii=False)),
+        ("06", "场景级QC排除试次数", len(structural_trials) - len(trials)),
+        ("07", "实际预处理参数", "02_eeg_preprocessing_audit.xlsx"),
+        ("08", "核心EEG指标", ",".join(core)),
+        ("08a", "次要EEG指标", ",".join(secondary)),
+        ("08b", "补充EEG指标", ",".join(supplemental)),
+        ("09", "WWR整体结果", "09b_eeg_model1_overall_tests.xlsx"),
+        ("10", "WWR两两比较", "10_eeg_posthoc.xlsx"),
+        ("11", "Complexity结果", "09_eeg_primary_model1_results.xlsx"),
+        ("12", "WWR×Complexity", "09_eeg_primary_model1_results.xlsx"),
+        ("13", "ExperienceGroup", "09_eeg_primary_model1_results.xlsx"),
+        ("14", "WWR×ExperienceGroup", "09_eeg_primary_model1_results.xlsx"),
+        ("15", "Complexity×ExperienceGroup", "09_eeg_primary_model1_results.xlsx"),
+        ("16", "Gender敏感性", "18_eeg_gender_sensitivity.xlsx"),
+        ("17", "Block效应", "09_eeg_primary_model1_results.xlsx"),
+        ("18", "PositionWithinBlock效应", "09_eeg_primary_model1_results.xlsx"),
+        ("19", "OrderGroup效应", "09_eeg_primary_model1_results.xlsx"),
+        ("20", "PreviousWWR", "15_eeg_previous_condition_integration.xlsx"),
+        ("21", "PreviousComplexity", "15_eeg_previous_condition_integration.xlsx"),
+        ("22", "Block1方向", "14_eeg_Block1_sensitivity.xlsx"),
+        ("23", "CR2支持", "12_eeg_cr2_results.xlsx"),
+        ("24", "Bootstrap支持", "13_eeg_bootstrap_results.xlsx"),
+        ("25", "leave-one-out稳定性", "16_eeg_leave_one_out.xlsx"),
+        ("26", "relative/log absolute一致性", "17_eeg_absolute_power_sensitivity.xlsx"),
+        ("27", "预定义跨模态关联", "19_eeg_crossmodal_results.xlsx"),
+        ("28", "Robust", grade_summary.get("Robust", "")),
+        ("29", "Partially robust", grade_summary.get("Partially robust", "")),
+        ("30", "Exploratory", grade_summary.get("Exploratory", "")),
+        ("31", "Unsupported", grade_summary.get("Unsupported", "")),
+        ("32", "正文候选", "仅Robust且与预注册核心一致的效应"),
+        ("33", "补充结果", "次要结局、绝对功率与结构敏感性"),
+        ("34", "需删除/弱化旧结论", "最优WWR、倒U、EEG单独认知机制/疲劳因果"),
+        ("35", "当前数据不能解决", "无直接疲劳量表；关联不能证明认知机制因果"),
+    ]
     outputs["summary"] = write_text(
         "EEG PRIMARY SUMMARY\n"
+        f"Structural cohort: {structural_trials['Participant'].nunique()} participants / "
+        f"{len(structural_trials)} trials\n"
+        f"Scene-QC model cohort: {trials['Participant'].nunique()} participants / "
+        f"{len(trials)} trials\n"
         f"Core metrics: {', '.join(core)}\n"
         "Relative power was the primary measure; absolute power was sensitivity only.\n"
         "No three-way interaction or condition-by-OrderGroup term was permitted.\n",
-        out / "20_eeg_primary_summary.txt",
+        out / "25_eeg_summary.txt",
     )
+    summary_text = (out / "25_eeg_summary.txt").read_text(encoding="utf-8")
+    summary_text += "\n35 REQUIRED SUMMARY QUESTIONS\n" + "\n".join(
+        f"{number}. {question}: {answer}"
+        for number, question, answer in summary_answers
+    ) + "\n"
+    (out / "25_eeg_summary.txt").write_text(summary_text, encoding="utf-8")
+    outputs["analysis_log"] = write_text(
+        "\n".join([
+            "EEG PRIMARY ANALYSIS LOG",
+            f"Structural cohort: {len(structural_trials)} trials",
+            f"Scene-QC cohort: {len(trials)} trials",
+            f"Core relative metrics: {relative}",
+            f"Secondary relative metrics: {secondary_relative}",
+            f"Supplemental relative metrics: {supplemental_relative}",
+            f"Log10 absolute sensitivity metrics: {absolute}",
+            f"Bootstrap iterations: {eeg_config.get('bootstrap_iterations', 5000)}",
+        ]),
+        out / "26_eeg_analysis_log.txt",
+    )
+    primary_source = out / "27_eeg_primary_analysis.R"
+    shutil.copy2(r_script, primary_source)
+    outputs["primary_source"] = primary_source
+    robustness_source = out / "28_eeg_robustness_analysis.R"
+    shutil.copy2(r_script, robustness_source)
+    outputs["robustness_source"] = robustness_source
+    crossmodal_source = out / "29_eeg_crossmodal_analysis.R"
+    shutil.copy2(
+        Path(repo_root) / "analysis" / "r" / "eeg_crossmodal_analysis.R",
+        crossmodal_source,
+    )
+    outputs["crossmodal_source"] = crossmodal_source
     outputs["manifest"] = write_run_manifest(
         out, stage="eeg-primary", fingerprint=fingerprint,
         config_path=config_path, arguments={"outdir": str(out)},

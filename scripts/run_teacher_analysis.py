@@ -13,6 +13,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from paper_analysis.teacher.eeg import run_eeg_order, run_eeg_primary
+from paper_analysis.teacher.complete import run_all_results
 from paper_analysis.teacher.eye import (
     run_eye_stage1,
     run_eye_stage2,
@@ -41,7 +42,8 @@ def _resolve_paths(config: dict[str, Any], config_path: Path) -> dict[str, Any]:
         "aoi_root",
         "stage2_dir", "stage3_plan_dir", "trial_file",
         "preprocessing_audit_file", "order_stage_dir",
-        "s3_trial_file", "rscript",
+        "s3_trial_file", "questionnaire_file", "rscript",
+        "synchronized_timebin_file", "clock_scene_qc_file",
     }
 
     def walk(value: Any, key: str = "") -> Any:
@@ -73,6 +75,16 @@ def _parser() -> argparse.ArgumentParser:
             action="store_true",
             help="Complete Python audit/QC outputs without formal R inference.",
         )
+    all_results = subparsers.add_parser("all-results")
+    all_results.add_argument("--config", required=True, type=Path)
+    all_results.add_argument("--outputs-root", type=Path)
+    all_results.add_argument("--run-id")
+    all_results.add_argument("--dry-run", action="store_true")
+    all_results.add_argument("--skip-r", action="store_true")
+    all_results.add_argument("--self-review", action="store_true")
+    all_results.add_argument("--reuse-valid", action="store_true")
+    all_results.add_argument("--resume", action="store_true")
+    all_results.add_argument("--promote", action="store_true")
     return parser
 
 
@@ -93,7 +105,10 @@ def main(argv: list[str] | None = None) -> int:
         or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     )
     run_root = outputs_root / "teacher_runs" / str(run_id)
-    outdir = run_root / STAGE_FOLDERS[args.command]
+    outdir = (
+        run_root / STAGE_FOLDERS[args.command]
+        if args.command in STAGE_FOLDERS else run_root
+    )
     config.setdefault("eye", {})
     config["eye"]["stage1_dir"] = (
         config["eye"].get("stage1_dir") or str(run_root / STAGE_FOLDERS["eye-stage1"])
@@ -116,8 +131,9 @@ def main(argv: list[str] | None = None) -> int:
         "outputs_root": str(outputs_root),
         "run_id": run_id,
         "outdir": str(outdir),
-        "formal_r_inference_required": args.command != "eye-stage1"
-        and args.command != "eye-stage3-plan",
+        "formal_r_inference_required": args.command not in {
+            "eye-stage1", "eye-stage3-plan"
+        },
     }
     if args.dry_run:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
@@ -131,6 +147,21 @@ def main(argv: list[str] | None = None) -> int:
         "eeg-primary": run_eeg_primary,
     }
     try:
+        if args.command == "all-results":
+            run_all_results(
+                config,
+                config_path=config_path,
+                outputs_root=outputs_root,
+                run_id=str(run_id),
+                repo_root=REPO_ROOT,
+                self_review=bool(args.self_review),
+                reuse_valid=bool(args.reuse_valid),
+                resume=bool(args.resume),
+                promote=bool(args.promote),
+                r_required=not args.skip_r,
+            )
+            print(json.dumps({**plan, "status": "complete"}, ensure_ascii=False, indent=2))
+            return 0
         call_kwargs = {
             "config_path": config_path,
             "outdir": outdir,

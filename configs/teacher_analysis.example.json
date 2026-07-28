@@ -5,6 +5,8 @@
   "participant_information": "path/to/participant_information.xlsx",
   "trial_order_mapping": "path/to/trial_order_mapping.xlsx",
   "scene_aoi_mapping": "path/to/scene_AOI_mapping.xlsx",
+  "synchronized_timebin_file": "path/to/aligned_synchronized_timebin_table.csv",
+  "clock_scene_qc_file": "path/to/clock_alignment_scene_qc.csv",
   "eye": {
     "raw_root": "path/to/eye/csv/root",
     "aoi_root": "path/to/AOI/json/root",
@@ -16,6 +18,7 @@
     "sensitivity_tracking_thresholds": [0.5, 0.7],
     "fixation_coordinate_tolerance_px": 1.0,
     "projection_default": "unknown",
+    "expected_aoi_images": 12,
     "stage1_dir": "",
     "stage2_dir": "",
     "stage3_plan_dir": ""
@@ -25,10 +28,18 @@
     "preprocessing_audit_file": "path/to/confirmed_eeg_preprocessing_audit.xlsx",
     "preprocessing_confirmed": false,
     "preprocessing_parameters": {
-      "sampling_rate_hz": "500",
-      "highpass_hz": "1",
-      "lowpass_hz": "45",
-      "reference": "average"
+      "input_state": "preprocessed EEGLAB .set",
+      "upstream_filter_and_reference": "not recoverable from exporter; must be reported as unavailable",
+      "view_start_marker": "7",
+      "view_end_marker": "8",
+      "theta_hz": "4-7",
+      "alpha_hz": "8-12",
+      "beta_hz": "13-30",
+      "relative_power_denominator_hz": "1-45",
+      "frontal_roi": "F3,F4",
+      "parietal_roi": "P3,PZ,P4",
+      "occipital_roi": "O1,OZ,O2",
+      "power_estimator": "Welch PSD integrated over band"
     },
     "order_stage_dir": "",
     "core_metrics": [
@@ -51,7 +62,12 @@
   },
   "stage3": {
     "zero_rate_trigger": 0.1,
-    "s3_trial_file": "",
-    "stable_eeg_metrics": []
+    "s3_trial_file": "path/to/questionnaire_trial_level.csv",
+    "bootstrap_iterations": 5000,
+    "boundary_material_share_change": 0.05,
+    "run_boundary_sensitivity": true,
+    "run_area_composition_sensitivity": true,
+    "run_time_effects": true,
+    "run_experience_moderation": true
   }
 }

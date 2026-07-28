@@ -38,7 +38,10 @@ These rules supersede conflicting historical entries below:
 4. Cronbach's alpha is reported as an internal-consistency diagnostic, not as proof of validity; low or insufficient alpha prevents strong composite-score claims.
 5. Shapiro, skewness, and kurtosis are descriptive diagnostics and do not automatically choose or reject the model family.
 6. Eye-tracking uses a two-part analysis policy: AOI visited first, then continuous AOI metrics conditionally.
-7. EEG primary ROI-band outcomes symmetrically cover F/P/O x theta/alpha/beta: `F_theta`, `F_alpha`, `F_beta`, `P_theta`, `P_alpha`, `P_beta`, `O_theta`, `O_alpha`, and `O_beta`. Recovery contrasts such as `delta_O_alpha` are supplementary.
+7. Historical compatibility only: the old workflow promoted all F/P/O ×
+   theta/alpha/beta outcomes symmetrically. The teacher-priority workflow
+   supersedes this with an explicit core/secondary/supplementary registry;
+   significance cannot promote a secondary outcome into the primary family.
 8. Gender, age, block, position, and recruitment batch are included in model registries when available.
 9. Questionnaire, eye-tracking, and EEG inferential outputs use modality-specific available samples. EEG QC never excludes questionnaire or eye observations; the trimodal intersection is reserved for synchronized fusion.
 10. WWR45 local-optimum evidence is evaluated within the tested levels using planned contrasts such as WWR45 minus the mean of WWR15 and WWR75; do not extrapolate to untested WWR values.

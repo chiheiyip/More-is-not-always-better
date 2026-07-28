@@ -20,16 +20,29 @@ not a model grouping variable.
 ```powershell
 Copy-Item configs/teacher_analysis.example.json configs/teacher_analysis.local.json
 powershell -ExecutionPolicy Bypass -File scripts/bootstrap_portable_r.ps1
-python scripts/run_teacher_analysis.py eye-stage1 --config configs/teacher_analysis.local.json --run-id review01
+python scripts/run_teacher_analysis.py all-results `
+  --config configs/teacher_analysis.local.json `
+  --outputs-root "E:\26\补\数据分析结果" `
+  --self-review --reuse-valid --resume --promote
 ```
 
-Then use the same `--run-id` for `eye-stage2`, `eye-stage3-plan`,
-`eye-stage3-run`, `eeg-order`, and `eeg-primary`. Every command also supports
-`--outputs-root` and `--dry-run`. Stage 2 requires a current
-`AOI_masks_approved.txt`; Stage 3 requires a current
-`stage3_plan_approved.txt`; EEG primary requires the matching successful order
-analysis marker. Approvals are JSON stored in `.txt` files and are bound to the
-stage input fingerprint.
+`all-results` runs the complete teacher-priority workflow into a versioned
+`teacher_runs/<run-id>` directory. `--self-review` performs and records the
+intermediate AOI/coordinate and Stage 3 decisions without waiting for a manual
+approval file; `--reuse-valid` accepts only artifacts whose inputs, analysis
+configuration, method contract and key structure pass reuse checks; `--resume`
+restarts from the last matching fingerprint; and `--promote` updates the
+top-level formal result view only after QA passes. The individual stage
+commands remain available for diagnosis.
+
+The real eye design contains 12 scenes and 12 AOI definitions. No workflow
+collapses these to nine. Eye eligibility is independent of EEG eligibility;
+the EEG-valid eye sensitivity uses the exact participant-by-trial intersection.
+The formal questionnaire analysis is rebuilt from the current workbook on the
+42-person EEG-valid cohort (504 trials), while the eye primary analysis retains
+the independently QC-qualified A-person cohort.
+Formal stage narratives are delivered as Markdown alongside machine-readable
+Excel/CSV tables, figures and logs.
 
 R is mandatory for formal inference. On Windows,
 `scripts/bootstrap_portable_r.ps1` creates repository-local `.r-env` and

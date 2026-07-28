@@ -316,11 +316,42 @@ def build_inputs(args: argparse.Namespace) -> dict[str, Path]:
     registry.to_excel(registry_path, index=False)
     trials.to_excel(trials_path, index=False)
     mapping.to_excel(mapping_path, index=False)
+    preprocessing_parameters = {
+        "input_state": "preprocessed EEGLAB .set",
+        "upstream_filter_and_reference": (
+            "not recoverable from exporter; reported as unavailable"
+        ),
+        "view_start_marker": "7",
+        "view_end_marker": "8",
+        "theta_hz": "4-7",
+        "alpha_hz": "8-12",
+        "beta_hz": "13-30",
+        "relative_power_denominator_hz": "1-45",
+        "frontal_roi": "F3,F4",
+        "parietal_roi": "P3,PZ,P4",
+        "occipital_roi": "O1,OZ,O2",
+        "power_estimator": "Welch PSD integrated over band",
+    }
+    preprocessing_audit_path = (
+        output_dir / "confirmed_eeg_preprocessing_audit.xlsx"
+    )
+    pd.DataFrame([
+        {
+            "Parameter": key,
+            "Value": value,
+            "Evidence": (
+                "matlab/eeg_bandpower_pipeline/run_eeg_bandpower_pipeline.m "
+                "and generated methods snapshot"
+            ),
+        }
+        for key, value in preprocessing_parameters.items()
+    ]).to_excel(preprocessing_audit_path, index=False)
 
     config = {
         "outputs_root": str(args.outputs_root.resolve()),
         "run_id": None,
         "rscript": str(REPO_ROOT / "scripts" / "portable_rscript.cmd"),
+        "questionnaire_file": str(args.questionnaire_xlsx.resolve()),
         "participant_information": str(registry_path),
         "trial_order_mapping": str(trials_path),
         "scene_aoi_mapping": str(mapping_path),
@@ -343,13 +374,11 @@ def build_inputs(args: argparse.Namespace) -> dict[str, Path]:
                 "the teacher rule prohibits excluding eye data solely for missing EEG."
                 if args.provisional_formal else ""
             ),
-            "expected_aoi_images": 12 if args.provisional_formal else 9,
-            "teacher_reported_aoi_images": 9,
+            "expected_aoi_images": 12,
+            "teacher_reported_aoi_images": 12,
             "aoi_count_resolution": (
-                "Self-audit retained 12 block-specific AOI files because all six "
-                "same-condition block pairs have materially different polygons; "
-                "merging three pairs to force nine would alter fixation assignment."
-                if args.provisional_formal else ""
+                "The experiment has 12 real scenes and 12 corresponding AOI files. "
+                "No scene or AOI is merged merely to reduce the file count."
             ),
             "provisional_user_authorization": bool(args.provisional_formal),
             "stage1_dir": "",
@@ -359,21 +388,33 @@ def build_inputs(args: argparse.Namespace) -> dict[str, Path]:
         "eeg": {
             "trial_file": str(args.eeg_trial_csv.resolve()),
             "preprocessing_audit_file": str(
-                output_dir / "confirmed_eeg_preprocessing_audit.xlsx"
+                preprocessing_audit_path
             ),
-            "preprocessing_confirmed": False,
-            "preprocessing_parameters": {},
+            "preprocessing_confirmed": bool(args.provisional_formal),
+            "preprocessing_parameters": preprocessing_parameters,
             "order_stage_dir": "",
             "core_metrics": ["O_theta", "F_theta", "O_alpha", "O_beta"],
             "secondary_metrics": ["P_theta", "P_alpha", "F_alpha"],
             "supplemental_metrics": ["F_beta", "P_beta"],
             "primary_measure": "relative_power",
+            "crossmodal_metrics": ["O_theta", "O_alpha"],
             "bootstrap_iterations": 5000,
         },
         "stage3": {
             "zero_rate_trigger": 0.1,
-            "s3_trial_file": "",
-            "stable_eeg_metrics": [],
+            "s3_trial_file": str(
+                (
+                    args.outputs_root
+                    / "02_questionnaire"
+                    / "questionnaire_long.csv"
+                ).resolve()
+            ),
+            "bootstrap_iterations": 5000,
+            "boundary_material_share_change": 0.05,
+            "run_boundary_sensitivity": True,
+            "run_area_composition_sensitivity": True,
+            "run_time_effects": True,
+            "run_experience_moderation": True,
         },
     }
     config_path = output_dir / "teacher_analysis.candidate.json"
@@ -392,7 +433,7 @@ def build_inputs(args: argparse.Namespace) -> dict[str, Path]:
             (
                 "Provisional formal mappings were requested by the user. Any Stage 2 "
                 "result remains provisional until identity, scene/AOI, coordinate "
-                "system, projection, ValidScene, and the 12-to-9 discrepancy are reviewed."
+                "system, projection, ValidScene, and all 12 scene/AOI mappings are reviewed."
                 if args.provisional_formal
                 else
                 "Do not create AOI_masks_approved.txt until identity, scene/AOI, "

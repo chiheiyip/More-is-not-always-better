@@ -13,10 +13,15 @@ from paper_analysis.teacher.contracts import (
     canonicalize_trials,
     normalize_participant_information,
 )
-from paper_analysis.teacher.eeg import FORBIDDEN_PRIMARY_TERMS, _metric_columns
+from paper_analysis.teacher.eeg import (
+    FORBIDDEN_PRIMARY_TERMS,
+    _metric_columns,
+    _scene_qc_mask,
+)
 from paper_analysis.teacher.eye import (
     SceneMasks,
     _eye_filename_participant_candidate,
+    _write_authorized_self_review,
     build_eye_trial_metrics,
     classify_fixations,
     deduplicate_fixations,
@@ -26,9 +31,11 @@ from paper_analysis.teacher.eye import (
 )
 from paper_analysis.teacher.state import (
     StageBlockedError,
+    method_contract_hash,
     require_approval,
     write_approval_template,
 )
+from paper_analysis.teacher.reporting import write_markdown_report
 
 
 def test_modality_registry_is_union_and_eye_does_not_require_eeg() -> None:
@@ -246,6 +253,42 @@ def test_approval_missing_unapproved_and_stale_are_blocked(tmp_path: Path) -> No
         require_approval(path, fingerprint="new", stage="eye-stage1")
 
 
+def test_authorized_self_review_refreshes_a_stale_resume_fingerprint(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "participant_retention_approved.txt"
+    _write_authorized_self_review(
+        path,
+        fingerprint="old",
+        stage="eye-stage2-retention",
+        notes=["old run"],
+    )
+    _write_authorized_self_review(
+        path,
+        fingerprint="new",
+        stage="eye-stage2-retention",
+        notes=["current run"],
+    )
+    approval = require_approval(
+        path,
+        fingerprint="new",
+        stage="eye-stage2-retention",
+    )
+    assert approval["approved_by"] == "user_authorized_codex_self_audit"
+    assert approval["notes"] == ["current run"]
+
+
+def test_method_contract_hash_covers_non_teacher_analysis_dependencies(
+    tmp_path: Path,
+) -> None:
+    dependency = tmp_path / "src" / "paper_analysis" / "stats" / "timebin.py"
+    dependency.parent.mkdir(parents=True)
+    dependency.write_text("POLICY = 'participant_complete'\n", encoding="utf-8")
+    old_hash = method_contract_hash(tmp_path)
+    dependency.write_text("POLICY = 'scene_level'\n", encoding="utf-8")
+    assert method_contract_hash(tmp_path) != old_hash
+
+
 def test_teacher_eeg_contract_forbids_three_way_and_condition_order_terms() -> None:
     assert "WWR:Complexity:ExperienceGroup" in FORBIDDEN_PRIMARY_TERMS
     assert "WWR:OrderGroup" in FORBIDDEN_PRIMARY_TERMS
@@ -262,6 +305,52 @@ def test_eeg_metric_contract_separates_relative_and_absolute_power() -> None:
     assert absolute == ["O_theta_absolute"]
 
 
+def test_eeg_structural_cohort_is_separated_from_scene_qc_model_cohort() -> None:
+    frame = pd.DataFrame({
+        "bad_eeg_quality": [False, True, False, False],
+        "eeg_subject_quality_exclusion": [False, False, True, False],
+    })
+    assert _scene_qc_mask(frame).tolist() == [True, False, False, True]
+    with pytest.raises(StageBlockedError, match="QC columns"):
+        _scene_qc_mask(pd.DataFrame({"bad_eeg_quality": [False]}))
+
+
+def test_canonicalize_trials_coalesces_equivalent_legacy_aliases() -> None:
+    frame = pd.DataFrame({
+        "subject_id": ["P01", "P01"],
+        "participant_id": ["P01", "P01"],
+        "scene_id": [1, 2],
+        "block_id": [1, 1],
+        "block": [1.0, 1.0],
+        "round": [1, 1],
+        "cycle_in_block": [1, 2],
+        "position": [1.0, 2.0],
+        "WWR": ["WWR20", "WWR40"],
+        "Complexity": ["C0", "C1"],
+    })
+    result = canonicalize_trials(frame)
+    assert result["Participant"].tolist() == ["P01", "P01"]
+    assert result["Block"].tolist() == [1, 1]
+    assert result["PositionWithinBlock"].tolist() == [1, 2]
+    assert not result.columns.duplicated().any()
+
+
+def test_teacher_reports_are_markdown_and_preserve_machine_table_preview(
+    tmp_path: Path,
+) -> None:
+    target = write_markdown_report(
+        tmp_path / "stage_report.md",
+        title="Stage report",
+        paragraphs=["Evidence-first narrative."],
+        tables=[("Results", pd.DataFrame({"estimate": [1.25], "p": [0.01]}))],
+    )
+    text = target.read_text(encoding="utf-8")
+    assert text.startswith("# Stage report")
+    assert "```csv" in text
+    assert "1.25" in text
+    assert not (tmp_path / "stage_report.docx").exists()
+
+
 def test_locked_r_scripts_encode_teacher_models_without_ols_fallback() -> None:
     root = Path(__file__).resolve().parents[1]
     eye = (root / "analysis/r/eye_stage2_analysis.R").read_text(encoding="utf-8")
@@ -271,6 +360,10 @@ def test_locked_r_scripts_encode_teacher_models_without_ols_fallback() -> None:
     assert "c(.50, .60, .70)" in eye
     assert "WWR * Complexity + WWR * ExperienceGroup" in eeg
     assert "iterations <- as.integer" in eeg
+    assert "IncludeEEGTrialValid" in eye
+    assert "input[as.logical(input$IncludeEEGValid)" not in eye
     assert 'vcov = "CR2"' in common
     assert "lm(" not in common
     assert "WWR * Complexity * ExperienceGroup" not in eeg
+    assert "09c_eeg_secondary_models.csv" in eeg
+    assert "09d_eeg_supplemental_models.csv" in eeg

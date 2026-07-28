@@ -90,12 +90,44 @@ def normalize_wwr(value: object) -> str:
 
 def _rename_known_columns(frame: pd.DataFrame, aliases: dict[str, str]) -> pd.DataFrame:
     out = frame.copy()
-    rename = {
-        source: target
-        for source, target in aliases.items()
-        if source in out.columns and target not in out.columns
-    }
-    return out.rename(columns=rename)
+    # Legacy tables may contain several synonymous columns at the same time
+    # (subject_id + participant_id, block_id + block + round, etc.). A bulk
+    # rename would create duplicate column labels, so coalesce and validate.
+    for target in dict.fromkeys(aliases.values()):
+        sources = [
+            source for source, mapped in aliases.items()
+            if mapped == target and source in out.columns
+        ]
+        if target in out.columns:
+            sources.insert(0, target)
+        if not sources:
+            continue
+        combined = out[sources[0]].copy()
+        for source in sources[1:]:
+            candidate = out[source]
+            overlap = combined.notna() & candidate.notna()
+            if overlap.any():
+                left_text = combined.loc[overlap].astype(str).str.strip()
+                right_text = candidate.loc[overlap].astype(str).str.strip()
+                equal = left_text.eq(right_text)
+                left_num = pd.to_numeric(left_text, errors="coerce")
+                right_num = pd.to_numeric(right_text, errors="coerce")
+                equal |= left_num.notna() & right_num.notna() & left_num.eq(right_num)
+                if not bool(equal.all()):
+                    examples = pd.DataFrame({
+                        "left": left_text.loc[~equal],
+                        "right": right_text.loc[~equal],
+                    }).head(3).to_dict("records")
+                    raise ValueError(
+                        f"conflicting aliases for {target}: "
+                        f"{sources[0]} vs {source}; examples={examples}"
+                    )
+            combined = combined.combine_first(candidate)
+        out[target] = combined
+        drop = [source for source in sources if source != target]
+        if drop:
+            out = out.drop(columns=drop)
+    return out
 
 
 def normalize_participant_information(frame: pd.DataFrame) -> pd.DataFrame:

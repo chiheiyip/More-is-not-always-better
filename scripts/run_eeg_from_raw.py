@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 import sys
 
+import pandas as pd
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from paper_analysis.eeg.contract import validate_eeg_scene_summary
@@ -70,6 +72,12 @@ def main() -> None:
         print(f"WARNING: {warn}")
     if result["status"] == "error":
         raise SystemExit(1)
+    if args.export_eeg_samples:
+        _write_sample_export_audit(
+            eeg_root=eeg_root,
+            cache_root=Path(args.eeg_clock_cache_root),
+            outdir=outdir,
+        )
 
 
 def _matlab_expression(
@@ -107,6 +115,65 @@ def _matlab_path(path: Path) -> str:
 def _matlab_utf8(value: str) -> str:
     numbers = " ".join(str(byte) for byte in value.encode("utf-8"))
     return f"native2unicode(uint8([{numbers}]),'UTF-8')"
+
+
+def _write_sample_export_audit(
+    *,
+    eeg_root: Path,
+    cache_root: Path,
+    outdir: Path,
+) -> None:
+    manifest_path = outdir / "summary" / "eeg_sample_file_manifest.csv"
+    if not manifest_path.is_file():
+        raise SystemExit("Sample export was requested but its manifest is missing")
+    manifest = pd.read_csv(manifest_path, encoding="utf-8-sig")
+    cache = pd.read_csv(
+        cache_root / "eeg_recording_clock.csv", encoding="utf-8-sig"
+    )
+    set_files = [eeg_root] if eeg_root.is_file() else sorted(eeg_root.glob("*.set"))
+    participants = [path.stem for path in set_files]
+    rows = []
+    for participant in participants:
+        sub = manifest.loc[
+            manifest["participant_id"].astype(str).eq(participant)
+        ]
+        cache_rows = int(
+            cache["participant_id"].astype(str).eq(participant).sum()
+        )
+        scene_count = int(sub["scene_id"].nunique()) if not sub.empty else 0
+        if cache_rows == 0:
+            status = "excluded"
+            reason = "no_validated_clock_cache_row"
+        elif scene_count != 12:
+            status = "failed"
+            reason = f"expected_12_sample_files_found_{scene_count}"
+        else:
+            status = "included"
+            reason = ""
+        rows.append({
+            "Participant": participant,
+            "ValidatedClockCacheRows": cache_rows,
+            "ExportedSceneFiles": scene_count,
+            "Status": status,
+            "ExclusionOrFailureReason": reason,
+        })
+    audit = pd.DataFrame(rows)
+    audit.to_csv(
+        outdir / "summary" / "eeg_sample_export_audit.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
+    failed = audit["Status"].eq("failed")
+    if failed.any():
+        raise SystemExit(
+            "EEG sample export incomplete for cached participants: "
+            + ", ".join(audit.loc[failed, "Participant"].astype(str))
+        )
+    print(
+        "sample_export_audit: "
+        f"included={audit['Status'].eq('included').sum()} "
+        f"excluded_no_clock={audit['Status'].eq('excluded').sum()}"
+    )
 
 
 if __name__ == "__main__":

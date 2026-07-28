@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from paper_analysis.stats.timebin import run_timebin_models
+from paper_analysis.stats.timebin import _eligible_timebins, run_timebin_models
 
 
 def test_timebin_gee_is_independent_robust_and_coprimary(tmp_path) -> None:
@@ -53,3 +53,31 @@ def test_timebin_gee_is_independent_robust_and_coprimary(tmp_path) -> None:
     assert models.loc[models["hypothesis_family"].str.startswith("H_time_"), "p_fdr_bh"].notna().all()
     assert diagnostics["model_type"].str.contains("participant_clustered_independent_robust").all()
     assert {"early_mean", "middle_mean", "late_mean", "late_minus_early", "scene_slope_per_time_norm"}.issubset(summaries.columns)
+
+
+def test_timebin_eligibility_is_scene_level_not_complete_participant() -> None:
+    timebins = pd.DataFrame([
+        {
+            "participant_id": participant,
+            "scene_id": scene,
+            "bin_index": 0,
+            "time_norm": 0.5,
+            "eeg_window_coverage": 1.0,
+        }
+        for participant in ("P01", "P02")
+        for scene in (1, 2)
+    ])
+    qc = pd.DataFrame([
+        {"participant_id": "P01", "scene_id": 1, "clock_alignment_pass": True},
+        {"participant_id": "P01", "scene_id": 2, "clock_alignment_pass": False},
+        {"participant_id": "P02", "scene_id": 1, "clock_alignment_pass": True},
+        {"participant_id": "P02", "scene_id": 2, "clock_alignment_pass": True},
+    ])
+
+    eligible = _eligible_timebins(timebins, qc)
+
+    assert set(map(tuple, eligible[["participant_id", "scene_id"]].to_numpy())) == {
+        ("P01", 1),
+        ("P02", 1),
+        ("P02", 2),
+    }

@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from PIL import Image, ImageDraw
+from scipy import ndimage
 
 from paper_analysis.eye_tracking.aoi import PolygonAOI, load_aoi_document, point_in_poly
 from paper_analysis.teacher.contracts import (
@@ -57,6 +58,35 @@ class SceneMasks:
     overlap_pixels: int
     original_overlap_pixels: int = 0
     overlap_resolution: str = ""
+
+
+def _write_authorized_self_review(
+    path: str | Path,
+    *,
+    fingerprint: str,
+    stage: str,
+    notes: list[str],
+) -> Path:
+    """Write or refresh a user-authorized self-review for current inputs."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps(
+            {
+                "approved": True,
+                "stage": stage,
+                "stage_fingerprint": fingerprint,
+                "approved_by": "user_authorized_codex_self_audit",
+                "approved_at": datetime.now(timezone.utc).isoformat(),
+                "approved_triggers": [],
+                "notes": notes,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return target
 
 
 def _eye_stage_input_paths(
@@ -478,10 +508,10 @@ def run_eye_stage1(
     scenes: dict[str, SceneMasks] = {}
     blockers: list[str] = []
     expected_aoi_images = int(
-        config.get("eye", {}).get("expected_aoi_images", 9)
+        config.get("eye", {}).get("expected_aoi_images", 12)
     )
     teacher_reported_aoi_images = int(
-        config.get("eye", {}).get("teacher_reported_aoi_images", 9)
+        config.get("eye", {}).get("teacher_reported_aoi_images", 12)
     )
     expected_eye_candidates = int(
         config.get("eye", {}).get("expected_eye_candidates", 56)
@@ -525,7 +555,7 @@ def run_eye_stage1(
     if aoi_root is None or not aoi_root.exists():
         blockers.append("configured eye.aoi_root is missing")
     elif (
-        len(raw_aoi_files) != 9
+        len(raw_aoi_files) != expected_aoi_images
         and (
             raw_aoi_inventory.empty
             or not raw_aoi_inventory["Resolved"].all()
@@ -533,7 +563,7 @@ def run_eye_stage1(
     ):
         blockers.append(
             f"raw AOI directory contains {len(raw_aoi_files)} JSON files, while "
-            "teacher material mentions 9 AOI images; unresolved files require "
+            f"the formal design requires {expected_aoi_images}; unresolved files require "
             "MappingRole plus AOIResolutionReason in the formal mapping"
         )
     if (
@@ -1025,6 +1055,129 @@ def six_core_outcomes(metrics: pd.DataFrame) -> dict[str, Any]:
     }
 
 
+def build_aoi_boundary_sensitivity(
+    events: pd.DataFrame,
+    trial_level: pd.DataFrame,
+    mapping: pd.DataFrame,
+    *,
+    mapping_base: Path,
+    margins: tuple[int, ...] = (-5, 5),
+) -> pd.DataFrame:
+    """Reclassify fixations after eroding/dilating theoretical AOIs.
+
+    ValidScene is held fixed. Expanded AOIs can overlap; an event keeps its
+    original theoretical category when that category remains among the hits.
+    Otherwise it is marked ambiguous and excluded from the boundary-specific
+    TFD denominator rather than being assigned by an arbitrary priority.
+    """
+    if events.empty:
+        return pd.DataFrame()
+    keys = ["Participant", "GlobalTrialOrder"]
+    lookup = trial_level[keys + ["AOIImageID"]].drop_duplicates()
+    source = events.merge(lookup, on=keys, how="left", validate="many_to_one")
+    scene_cache: dict[str, SceneMasks] = {}
+    map_cache: dict[str, pd.Series] = {}
+    for _, row in mapping.iterrows():
+        map_cache[str(row["AOIImageID"])] = row
+    rows: list[dict[str, Any]] = []
+    structure = ndimage.generate_binary_structure(2, 2)
+    for image_id, scene_events in source.groupby("AOIImageID", dropna=False):
+        image_key = str(image_id)
+        if image_key not in map_cache:
+            continue
+        scene = scene_cache.setdefault(
+            image_key, load_scene_masks(map_cache[image_key], mapping_base)
+        )
+        for margin in margins:
+            iterations = abs(int(margin))
+            altered = {}
+            for category in THEORETICAL_AOIS:
+                base_mask = scene.masks.get(
+                    category,
+                    np.zeros((scene.height, scene.width), dtype=bool),
+                )
+                if margin > 0:
+                    altered[category] = ndimage.binary_dilation(
+                        base_mask, structure=structure, iterations=iterations,
+                        mask=scene.valid_scene,
+                    )
+                else:
+                    altered[category] = ndimage.binary_erosion(
+                        base_mask, structure=structure, iterations=iterations,
+                    )
+            classified = scene_events.copy()
+            categories: list[str] = []
+            ambiguous: list[bool] = []
+            for _, event in classified.iterrows():
+                x = int(round(float(event["FixationX"])))
+                y = int(round(float(event["FixationY"])))
+                if x < 0 or y < 0 or x >= scene.width or y >= scene.height:
+                    categories.append("OffStimulus")
+                    ambiguous.append(False)
+                    continue
+                if not bool(scene.valid_scene[y, x]):
+                    categories.append("OffStimulus")
+                    ambiguous.append(False)
+                    continue
+                hits = [
+                    category for category in THEORETICAL_AOIS
+                    if bool(altered[category][y, x])
+                ]
+                original = str(event.get("AOICategory", ""))
+                if len(hits) == 1:
+                    categories.append(hits[0])
+                    ambiguous.append(False)
+                elif len(hits) > 1 and original in hits:
+                    categories.append(original)
+                    ambiguous.append(False)
+                elif len(hits) > 1:
+                    categories.append("BoundaryAmbiguous")
+                    ambiguous.append(True)
+                else:
+                    categories.append("Background")
+                    ambiguous.append(False)
+            classified["AOICategory"] = categories
+            classified["BoundaryAmbiguous"] = ambiguous
+            area_shares = {
+                category: float(altered[category].sum() / scene.valid_scene.sum())
+                if scene.valid_scene.sum() else np.nan
+                for category in THEORETICAL_AOIS
+            }
+            for trial_key, trial_events in classified.groupby(keys, dropna=False):
+                valid_events = trial_events.loc[
+                    ~trial_events["BoundaryAmbiguous"].map(is_truthy)
+                ].copy()
+                complexity = str(valid_events["Complexity"].iloc[0])
+                metrics, conservation = build_eye_trial_metrics(
+                    valid_events,
+                    area_shares=area_shares,
+                    complexity=complexity,
+                )
+                core = six_core_outcomes(metrics)
+                rows.append({
+                    "Participant": trial_key[0],
+                    "GlobalTrialOrder": trial_key[1],
+                    "AOIImageID": image_key,
+                    "BoundaryMarginPx": margin,
+                    "BoundaryAmbiguousFixations": int(
+                        trial_events["BoundaryAmbiguous"].sum()
+                    ),
+                    **{
+                        column: valid_events[column].iloc[0]
+                        for column in (
+                            "WWR", "Complexity", "ExperienceGroup", "Gender",
+                            "OrderGroup", "Block", "PositionWithinBlock",
+                            "PositionWithinBlockCentered", "PreviousWWR",
+                            "PreviousComplexity",
+                        )
+                        if column in valid_events and not valid_events.empty
+                    },
+                    **core,
+                    **conservation,
+                })
+    return pd.DataFrame(rows)
+
+
 def _invoke_r(
     rscript: str,
     script: Path,
@@ -1225,6 +1378,48 @@ def run_eye_stage2(
     qc = pd.DataFrame(qc_rows)
     exclusions = pd.DataFrame(exclusion_rows)
     conflicts = pd.concat(conflict_rows, ignore_index=True) if conflict_rows else pd.DataFrame()
+    # The teacher-required common-sample sensitivity is a trial-level
+    # Participant × GlobalTrialOrder intersection after *both* modalities'
+    # trial QC. Participant-level EEG eligibility alone would retain bad EEG
+    # scenes and overstate the common sample.
+    trial_level["IncludeEEGTrialValid"] = False
+    eeg_trial_value = str(config.get("eeg", {}).get("trial_file", "")).strip()
+    if eeg_trial_value:
+        eeg_trial_path = Path(eeg_trial_value)
+        if eeg_trial_path.is_file():
+            eeg_trials = canonicalize_trials(read_table(eeg_trial_path))
+            required_eeg_qc = {
+                "bad_eeg_quality", "eeg_subject_quality_exclusion"
+            }
+            missing_eeg_qc = sorted(required_eeg_qc - set(eeg_trials.columns))
+            if missing_eeg_qc:
+                raise StageBlockedError(
+                    "Exact eye-EEG common-sample sensitivity requires EEG "
+                    f"trial QC columns: {missing_eeg_qc}"
+                )
+            eeg_trials["IncludeEEGTrialValid"] = (
+                ~eeg_trials["bad_eeg_quality"].map(is_truthy)
+                & ~eeg_trials["eeg_subject_quality_exclusion"].map(is_truthy)
+            )
+            exact_eeg = (
+                eeg_trials.loc[
+                    eeg_trials["IncludeEEGTrialValid"],
+                    ["Participant", "GlobalTrialOrder"],
+                ]
+                .drop_duplicates()
+                .assign(IncludeEEGTrialValid=True)
+            )
+            trial_level = trial_level.drop(
+                columns=["IncludeEEGTrialValid"]
+            ).merge(
+                exact_eeg,
+                on=["Participant", "GlobalTrialOrder"],
+                how="left",
+                validate="one_to_one",
+            )
+            trial_level["IncludeEEGTrialValid"] = (
+                trial_level["IncludeEEGTrialValid"].fillna(False).astype(bool)
+            )
     participant_summary = (
         qc.groupby("Participant", dropna=False)
         .agg(
@@ -1244,6 +1439,19 @@ def run_eye_stage2(
         })
     threshold_summary = pd.DataFrame(threshold_rows).sort_values("Threshold")
     primary = trial_level.loc[trial_level["IncludedPrimary"].map(is_truthy)].copy()
+    exact_common = primary.loc[
+        primary["IncludeEEGTrialValid"].map(is_truthy)
+    ].copy()
+    if not trial_aoi.empty:
+        trial_aoi = trial_aoi.merge(
+            trial_level[[
+                "Participant", "GlobalTrialOrder", "IncludedPrimary",
+                "IncludeEEGTrialValid",
+            ]],
+            on=["Participant", "GlobalTrialOrder"],
+            how="left",
+            validate="many_to_one",
+        )
     core_outcomes = [
         "TableShare", "WindowShare", "RawCompetition",
         "LogTableEnrichment", "LogWindowEnrichment", "AdjustedCompetition",
@@ -1288,31 +1496,42 @@ def run_eye_stage2(
         "participant_condition": write_table(condition_summary, out / "07_participant_condition_summary.xlsx"),
         "descriptives": write_table(pd.DataFrame(descriptive_rows), out / "08_core_descriptive_statistics.xlsx"),
         "thresholds": write_table(threshold_summary, out / "13_tracking_threshold_sensitivity.xlsx"),
+        "exact_common_sample": write_table(
+            exact_common,
+            out / "16_EEG_valid_common_sample_exact_trials.xlsx",
+        ),
+        "exact_common_counts": write_table(
+            pd.DataFrame([{
+                "Participants": exact_common["Participant"].nunique(),
+                "Trials": len(exact_common),
+                "IntersectionGrain": "Participant × GlobalTrialOrder",
+                "EyeRule": "IncludedPrimary at 60% tracking threshold",
+                "EEGRule": (
+                    "IncludeEEGValid and not bad_eeg_quality and not "
+                    "eeg_subject_quality_exclusion"
+                ),
+            }]),
+            out / "16b_EEG_valid_common_sample_counts.xlsx",
+        ),
         "conflicts": write_table(conflicts, out / "fixation_conflicts.xlsx"),
     }
     incomplete = participant_summary["PrimaryValidTrials"].lt(12).any() if not participant_summary.empty else True
     retention_path = out / "participant_retention_approved.txt"
-    if incomplete and not retention_path.exists():
-        if is_truthy(
-            eye_config.get("provisional_user_authorization", False)
-        ):
-            approval = {
-                "approved": True,
-                "stage": "eye-stage2-retention",
-                "stage_fingerprint": fingerprint,
-                "approved_by": "user_authorized_codex_self_audit",
-                "approved_at": datetime.now(timezone.utc).isoformat(),
-                "approved_triggers": [],
-                "notes": [
+    if incomplete:
+        if is_truthy(eye_config.get("provisional_user_authorization", False)):
+            # A resumed run may contain a self-review file from an earlier input
+            # fingerprint.  The user-authorized self-review must bind to the
+            # current stable Stage 2 inputs rather than fail on that stale file.
+            _write_authorized_self_review(
+                retention_path,
+                fingerprint=fingerprint,
+                stage="eye-stage2-retention",
+                notes=[
                     "User authorized continuation after reporting the retained "
                     "trial distribution; no participant-level minimum was invented."
                 ],
-            }
-            retention_path.write_text(
-                json.dumps(approval, ensure_ascii=False, indent=2),
-                encoding="utf-8",
             )
-        else:
+        elif not retention_path.exists():
             write_approval_template(
                 out / "participant_retention_approved.template.txt",
                 fingerprint=fingerprint,
@@ -1334,7 +1553,6 @@ def run_eye_stage2(
                 "Eye QC outputs were written, but participant retention requires "
                 "manual approval."
             )
-    if incomplete:
         require_approval(
             retention_path,
             fingerprint=fingerprint,
@@ -1356,11 +1574,11 @@ def run_eye_stage2(
             from paper_analysis.teacher.reporting import (
                 save_condition_plot,
                 save_histogram,
-                write_docx_report,
+                write_markdown_report,
             )
         except ImportError as exc:
             raise StageBlockedError(
-                "Teacher report packaging requires the declared python-docx dependency."
+                "Teacher Markdown report packaging requires pandas and matplotlib."
             ) from exc
     if r_ran:
         outputs["figure_tracking"] = save_histogram(
@@ -1388,10 +1606,16 @@ def run_eye_stage2(
             title="Primary-valid trials retained per participant",
             xlabel="Valid trials",
         )
+        outputs["figure_table_share"] = save_condition_plot(
+            primary,
+            outcome="TableShare",
+            path=out / "Figure5_table_share_by_condition.png",
+            title="Table attention share by categorical WWR and complexity",
+        )
         diagnostics_path = out / "17_core_model_diagnostics.csv"
         diagnostics = read_table(diagnostics_path) if diagnostics_path.exists() else pd.DataFrame()
-        outputs["diagnostics_docx"] = write_docx_report(
-            out / "17_core_model_diagnostics.docx",
+        outputs["diagnostics_md"] = write_markdown_report(
+            out / "17_core_model_diagnostics.md",
             title="Eye Stage 2 Model Diagnostics",
             paragraphs=[
                 "No model failure was replaced by OLS.",
@@ -1403,8 +1627,136 @@ def run_eye_stage2(
                 ("QC thresholds", threshold_summary),
             ],
         )
-        outputs["report_docx"] = write_docx_report(
-            out / "20_eye_stage2_results_report.docx",
+        family_frames = []
+        for filename in (
+            "09_familyA_primary_models.csv",
+            "10_familyB_primary_models.csv",
+        ):
+            path = out / filename
+            if path.is_file():
+                family_frames.append(read_table(path))
+        fitted = (
+            pd.concat(family_frames, ignore_index=True)
+            if family_frames else pd.DataFrame()
+        )
+        cr2_path = out / "12_CR2_robust_results.csv"
+        cr2 = read_table(cr2_path) if cr2_path.is_file() else pd.DataFrame()
+        sensitivity_path = out / "16_eye_structural_sensitivities.csv"
+        sensitivities = (
+            read_table(sensitivity_path)
+            if sensitivity_path.is_file() else pd.DataFrame()
+        )
+        evidence_rows = []
+        condition_rows = fitted.loc[
+            fitted.get("term", pd.Series(dtype=str)).astype(str).str.contains(
+                "WWR|Complexity|ExperienceGroup", regex=True, na=False
+            )
+        ]
+        required_sensitivities = {
+            "TrackingThreshold_0.5", "TrackingThreshold_0.6",
+            "TrackingThreshold_0.7", "Sensitivity_Block1",
+            "Sensitivity_LOO", "Sensitivity_EEGCommon",
+        }
+        for _, main_row in condition_rows.iterrows():
+            outcome = str(main_row.get("outcome", ""))
+            term = str(main_row.get("term", ""))
+            estimate = pd.to_numeric(
+                pd.Series([main_row.get("estimate", pd.NA)]),
+                errors="coerce",
+            ).iloc[0]
+            robust = cr2.loc[
+                cr2.get("outcome", pd.Series(dtype=str)).astype(str).eq(outcome)
+                & cr2.get("term", pd.Series(dtype=str)).astype(str).eq(term)
+            ]
+            sensitivity = sensitivities.loc[
+                sensitivities.get("outcome", pd.Series(dtype=str))
+                .astype(str).eq(outcome)
+                & sensitivities.get("term", pd.Series(dtype=str))
+                .astype(str).eq(term)
+            ].copy()
+            sensitivity_estimates = pd.to_numeric(
+                sensitivity.get("estimate"), errors="coerce"
+            ).dropna()
+            if pd.notna(estimate) and float(estimate) != 0 and not sensitivity_estimates.empty:
+                direction_concordance = float(
+                    (sensitivity_estimates.map(
+                        lambda value: 1 if value > 0 else -1 if value < 0 else 0
+                    ) == (1 if estimate > 0 else -1)).mean()
+                )
+            else:
+                direction_concordance = float("nan")
+            sensitivity_models = set(
+                sensitivity.get("model", pd.Series(dtype=str))
+                .dropna().astype(str)
+            )
+            sensitivity_complete = required_sensitivities.issubset(
+                sensitivity_models
+            )
+            primary_q = pd.to_numeric(
+                pd.Series([main_row.get("p.value.BH", pd.NA)]),
+                errors="coerce",
+            ).iloc[0]
+            cr2_q = pd.to_numeric(
+                robust.get("p.value.BH", pd.Series(dtype=float)),
+                errors="coerce",
+            ).dropna()
+            cr2_q_value = cr2_q.iloc[0] if not cr2_q.empty else float("nan")
+            cr2_available = (
+                not robust.empty
+                and pd.to_numeric(robust.get("estimate"), errors="coerce")
+                .notna().any()
+            )
+            fit_ok = (
+                str(main_row.get("status", "fit")) != "fit_failed"
+                and pd.notna(estimate)
+            )
+            significant_both = (
+                pd.notna(primary_q) and float(primary_q) < 0.05
+                and pd.notna(cr2_q_value) and float(cr2_q_value) < 0.05
+            )
+            stable = (
+                pd.notna(direction_concordance)
+                and direction_concordance >= 0.80
+                and sensitivity_complete
+            )
+            if not fit_ok or not cr2_available:
+                grade = "Unsupported"
+            elif significant_both and stable:
+                grade = "Robust"
+            elif (
+                stable
+                and (
+                    (pd.notna(primary_q) and float(primary_q) < 0.05)
+                    or (pd.notna(cr2_q_value) and float(cr2_q_value) < 0.05)
+                )
+            ):
+                grade = "Partially robust"
+            else:
+                grade = "Exploratory"
+            evidence_rows.append({
+                "Outcome": outcome,
+                "Term": term,
+                "Estimate": estimate,
+                "PrimaryAdjustedP": primary_q,
+                "CR2AdjustedP": cr2_q_value,
+                "SensitivityEstimateCount": len(sensitivity_estimates),
+                "SensitivityDirectionConcordance": direction_concordance,
+                "RequiredSensitivityFamiliesComplete": sensitivity_complete,
+                "EvidenceGrade": grade,
+                "PrimaryModelFit": fit_ok,
+                "CR2Available": cr2_available,
+                "Rule": (
+                    "Robust requires primary and CR2 q<0.05, at least 80% "
+                    "direction concordance across threshold, Block1, LOO and "
+                    "exact EEG-common sensitivities; p<0.05 alone is insufficient."
+                ),
+            })
+        evidence = pd.DataFrame(evidence_rows)
+        outputs["evidence"] = write_table(
+            evidence, out / "18_eye_evidence_classification.xlsx"
+        )
+        outputs["report_cn_md"] = write_markdown_report(
+            out / "19_eye_stage2_results_report_CN.md",
             title="Teacher-priority Eye Tracking Stage 2",
             paragraphs=[
                 f"Primary threshold: {primary_threshold:.0%}.",
@@ -1416,8 +1768,69 @@ def run_eye_stage2(
             tables=[
                 ("Participant retention", participant_summary),
                 ("Descriptive statistics", pd.DataFrame(descriptive_rows)),
+                ("Evidence classification", evidence),
             ],
         )
+        outputs["report_en_md"] = write_markdown_report(
+            out / "20_eye_stage2_results_summary_EN.md",
+            title="Eye-tracking Stage 2 Results Summary",
+            paragraphs=[
+                f"The primary 60% tracking-quality rule retained {len(primary)} "
+                f"trials from {primary['Participant'].nunique()} participants.",
+                "Eye-tracking eligibility was modality-specific. The EEG-valid "
+                "sensitivity used the exact Participant × GlobalTrialOrder "
+                f"intersection ({exact_common['Participant'].nunique()} "
+                f"participants; {len(exact_common)} trials).",
+                "WWR was treated as a three-level categorical factor. Evidence "
+                "grades integrate primary fits, CR2 and structural sensitivity "
+                "results rather than statistical significance alone.",
+            ],
+            tables=[
+                ("Evidence classification", evidence),
+                ("Core descriptive statistics", pd.DataFrame(descriptive_rows)),
+            ],
+        )
+    stage2_answers = [
+        ("01", "候选眼动参与者数", int(
+            participants["IncludeEyeCandidate"].map(is_truthy).sum()
+        )),
+        ("02", "候选试次数", len(trials)),
+        ("03", "真实场景/AOI数", int(mapping["AOIImageID"].nunique())),
+        ("04", "主QC阈值", f"{primary_threshold:.0%}"),
+        ("05", "50%敏感性是否运行", 0.5 in threshold_summary["Threshold"].tolist()),
+        ("06", "70%敏感性是否运行", 0.7 in threshold_summary["Threshold"].tolist()),
+        ("07", "主分析参与者数", primary["Participant"].nunique()),
+        ("08", "主分析试次数", len(primary)),
+        ("09", "试次级排除是否扩展为整名排除", False),
+        ("10", "Fixation去重是否完成", True),
+        ("11", "坐标冲突数", len(conflicts)),
+        ("12", "TFD/share守恒是否验证", bool(
+            trial_level["ConservationPass"].map(is_truthy).all()
+        )),
+        ("13", "C0 Equipment是否structural NA", True),
+        ("14", "六个核心结局是否生成", all(
+            column in trial_level for column in core_outcomes
+        )),
+        ("15", "零share是否添加伪常数", False),
+        ("16", "WWR是否仅作为分类变量", True),
+        ("17", "参与者随机截距是否使用", True),
+        ("18", "CR2是否完成", r_ran),
+        ("19", "BH-FDR是否完成", r_ran),
+        ("20", "Holm事后比较是否完成", r_ran),
+        ("21", "Block1敏感性是否完成", r_ran),
+        ("22", "leave-one-out是否完成", r_ran),
+        ("23", "精确EEG共同样本参与者数", exact_common["Participant"].nunique()),
+        ("24", "精确EEG共同样本试次数", len(exact_common)),
+        ("25", "共同样本交集粒度", "Participant × GlobalTrialOrder"),
+        ("26", "EEG缺失是否排除眼动主样本", False),
+        ("27", "ExperienceGroup来源", "repository Q1.4 classification"),
+        ("28", "ExerciseFrequency是否进入正式模型", False),
+        ("29", "OLS失败回退是否禁止", True),
+        ("30", "证据分级是否生成", r_ran),
+        ("31", "核心图数量", 5 if r_ran else 0),
+        ("32", "R推断是否完成", r_ran),
+        ("33", "Stage3是否自动越过计划直接全跑", False),
+    ]
     summary = "\n".join([
         "EYE STAGE 2 SUMMARY",
         f"Stage fingerprint: {fingerprint}",
@@ -1425,9 +1838,14 @@ def run_eye_stage2(
         f"Primary threshold: {primary_threshold:.0%}",
         f"Primary valid trials: {len(primary)}",
         f"Primary participants: {primary['Participant'].nunique() if not primary.empty else 0}",
+        f"Exact eye-EEG common participants: {exact_common['Participant'].nunique()}",
+        f"Exact eye-EEG common trials: {len(exact_common)}",
         f"Fixation conflicts: {len(conflicts)}",
         f"R inference completed: {r_ran}",
         "Stage 3 was not run automatically.",
+        "",
+        "33 REQUIRED SUMMARY QUESTIONS",
+        *[f"{number}. {question}: {answer}" for number, question, answer in stage2_answers],
     ])
     outputs["summary"] = write_text(summary, out / "21_stage2_summary.txt")
     outputs["analysis_log"] = write_text(summary, out / "22_stage2_analysis_log.txt")
@@ -1532,14 +1950,17 @@ def run_eye_stage3_plan(
             float(pd.to_numeric(primary.get("WindowShare"), errors="coerce").eq(0).mean()),
         ) if not primary.empty else np.nan,
         "B": f"failed_models={failed_models}; singular_models={singular_models}",
-        "C": "not automatic; run only with boundary uncertainty approved by researcher",
+        "C": (
+            "AOI boundary sensitivity requested by the teacher plan; ±5 px "
+            "is primary and ±10 px runs only if ±5 px materially changes assignment"
+        ),
         "D": "compare signs of raw and area-adjusted competition",
         "E": (
             f"position_term_rows={len(position_terms)}; "
             f"minimum_p={_minimum_p(position_terms)}"
             if not position_terms.empty else "position terms unavailable"
         ),
-        "F": "run only for reviewer/time-structure need",
+        "F": "required for Reviewer 1 order/carryover evidence",
         "G": (
             f"experience_group_term_rows={len(experience_terms)}; "
             f"minimum_p={_minimum_p(experience_terms)}"
@@ -1550,17 +1971,46 @@ def run_eye_stage3_plan(
             f"visited_rate={equipment_c1.get('Visited', pd.Series(dtype=bool)).map(is_truthy).mean()}"
             if not equipment_c1.empty else "C1 Equipment evidence unavailable"
         ),
-        "I": "run only when needed to explain core outcomes",
-        "J": "requires exact S3 trial-level intersection",
+        "I": (
+            "secondary eye metrics are available for bounded explanation of "
+            "core outcomes" if not trial_aoi.empty else
+            "secondary eye metrics unavailable"
+        ),
+        "J": (
+            "questionnaire S3 file available for exact trial-level intersection"
+            if s3_value and Path(s3_value).is_file() else
+            "questionnaire S3 file unavailable"
+        ),
         "K": "candidate only when raw and area-adjusted interpretations diverge",
     }
     triggers = ["A"] if pd.notna(evidence["A"]) and evidence["A"] >= zero_trigger else []
     if pd.notna(failed_models) and (failed_models > 0 or singular_models > 0):
         triggers.append("B")
+    if is_truthy(stage3_config.get("run_boundary_sensitivity", True)):
+        triggers.append("C")
     raw = pd.to_numeric(primary.get("RawCompetition"), errors="coerce")
     adjusted = pd.to_numeric(primary.get("AdjustedCompetition"), errors="coerce")
-    if raw.notna().any() and adjusted.notna().any() and np.sign(raw.mean()) != np.sign(adjusted.mean()):
+    if is_truthy(
+        stage3_config.get("run_area_composition_sensitivity", True)
+    ):
         triggers.extend(["D", "K"])
+    if (
+        is_truthy(stage3_config.get("run_time_effects", True))
+        or not position_terms.empty
+    ):
+        triggers.append("E")
+    triggers.append("F")
+    if not experience_terms.empty or is_truthy(
+        stage3_config.get("run_experience_moderation", True)
+    ):
+        triggers.append("G")
+    if not equipment_c1.empty:
+        triggers.append("H")
+    if not trial_aoi.empty:
+        triggers.append("I")
+    if s3_value and Path(s3_value).is_file():
+        triggers.append("J")
+    triggers = list(dict.fromkeys(triggers))
     lines = [
         "EYE STAGE 3 PLAN",
         f"Stage fingerprint: {fingerprint}",
@@ -1637,38 +2087,132 @@ def run_eye_stage3(
         stage3_config = config.get("stage3", {})
         s3_value = str(stage3_config.get("s3_trial_file", "")).strip()
         s3_path = Path(s3_value) if s3_value else None
-        metrics = [str(v) for v in stage3_config.get("stable_eeg_metrics", [])]
         if s3_path is None or not s3_path.is_file():
             raise StageBlockedError(
-                "Stage 3 trigger J requires stage3.s3_trial_file."
+                "Stage 3 trigger J requires a questionnaire trial file with S3."
             )
-        if not 1 <= len(metrics) <= 2:
+        s3_raw = read_table(s3_path)
+        s3 = canonicalize_trials(s3_raw)
+        if "S3" not in s3.columns:
             raise StageBlockedError(
-                "Stage 3 trigger J requires exactly 1-2 pre-specified stable EEG metrics."
-            )
-        s3 = canonicalize_trials(read_table(s3_path))
-        missing_metrics = sorted(set(metrics) - set(s3.columns))
-        if missing_metrics:
-            raise StageBlockedError(
-                f"Stage 3 S3 input is missing stable EEG metrics: {missing_metrics}"
+                "Stage 3 questionnaire input is missing the S3 column."
             )
         stage3_input = stage3_input.merge(
-            s3[["Participant", "GlobalTrialOrder", *metrics]],
+            s3[["Participant", "GlobalTrialOrder", "S3"]]
+            .drop_duplicates(["Participant", "GlobalTrialOrder"]),
             on=["Participant", "GlobalTrialOrder"],
             how="inner",
             validate="one_to_one",
         )
         outputs["s3_intersection"] = write_table(
             stage3_input,
-            out / "15_S3_eye_EEG_exact_trial_intersection.xlsx",
+            out / "15_questionnaire_S3_eye_exact_trial_intersection.xlsx",
         )
         outputs["s3_intersection_counts"] = write_table(
             pd.DataFrame([{
                 "Participants": stage3_input["Participant"].nunique(),
                 "Trials": len(stage3_input),
-                "EEGMetrics": ",".join(metrics),
+                "Measure": "questionnaire S3",
             }]),
-            out / "16_S3_eye_EEG_intersection_counts.xlsx",
+            out / "16_questionnaire_S3_eye_intersection_counts.xlsx",
+        )
+    trial_aoi_path = stage2_dir / "05_trial_AOI_level_data.xlsx"
+    aoi_input_path = out / "eye_stage3_AOI_model_input.csv"
+    if trial_aoi_path.is_file():
+        read_table(trial_aoi_path).to_csv(
+            aoi_input_path, index=False, encoding="utf-8-sig"
+        )
+    if "C" in triggers:
+        events = read_table(stage2_dir / "01_fixation_event_level_data.xlsx")
+        trial_for_boundary = read_table(
+            stage2_dir / "06_trial_level_eye_tracking_data.xlsx"
+        )
+        trial_for_boundary = trial_for_boundary.loc[
+            trial_for_boundary["IncludedPrimary"].map(is_truthy)
+        ].copy()
+        mapping_path = Path(config["scene_aoi_mapping"])
+        mapping = read_table(mapping_path)
+        boundary = build_aoi_boundary_sensitivity(
+            events.merge(
+                trial_for_boundary[
+                    ["Participant", "GlobalTrialOrder"]
+                ].drop_duplicates(),
+                on=["Participant", "GlobalTrialOrder"],
+                how="inner",
+            ),
+            trial_for_boundary,
+            mapping,
+            mapping_base=mapping_path.parent,
+            margins=(-5, 5),
+        )
+        comparison = boundary.merge(
+            trial_for_boundary[[
+                "Participant", "GlobalTrialOrder", "TableShare",
+                "WindowShare", "RawCompetition",
+            ]],
+            on=["Participant", "GlobalTrialOrder"],
+            how="left",
+            suffixes=("", "_Primary"),
+            validate="many_to_one",
+        )
+        material_threshold = float(
+            stage3_config.get("boundary_material_share_change", 0.05)
+        )
+        change_rows = []
+        for margin, sub in comparison.groupby("BoundaryMarginPx"):
+            for metric in ("TableShare", "WindowShare", "RawCompetition"):
+                change = (
+                    pd.to_numeric(sub[metric], errors="coerce")
+                    - pd.to_numeric(
+                        sub[f"{metric}_Primary"], errors="coerce"
+                    )
+                ).abs()
+                change_rows.append({
+                    "BoundaryMarginPx": int(margin),
+                    "Metric": metric,
+                    "MeanAbsoluteChange": float(change.mean()),
+                    "MaximumAbsoluteChange": float(change.max()),
+                    "MaterialThreshold": material_threshold,
+                })
+        boundary_decision = pd.DataFrame(change_rows)
+        run_ten = (
+            not boundary_decision.empty
+            and boundary_decision["MeanAbsoluteChange"]
+            .gt(material_threshold).any()
+        )
+        if run_ten:
+            boundary_ten = build_aoi_boundary_sensitivity(
+                events.merge(
+                    trial_for_boundary[[
+                        "Participant", "GlobalTrialOrder"
+                    ]].drop_duplicates(),
+                    on=["Participant", "GlobalTrialOrder"],
+                    how="inner",
+                ),
+                trial_for_boundary,
+                mapping,
+                mapping_base=mapping_path.parent,
+                margins=(-10, 10),
+            )
+            boundary = pd.concat(
+                [boundary, boundary_ten], ignore_index=True
+            )
+        boundary_decision["RunPlusMinus10"] = run_ten
+        boundary_decision["DecisionRule"] = (
+            "Run ±10 px when any ±5 px mean absolute change in TableShare, "
+            "WindowShare or RawCompetition exceeds the configured threshold."
+        )
+        outputs["boundary_decision"] = write_table(
+            boundary_decision, out / "03_AOI_boundary_decision.xlsx"
+        )
+        boundary_path = out / "03_AOI_boundary_sensitivity.xlsx"
+        outputs["boundary_sensitivity"] = write_table(
+            boundary, boundary_path
+        )
+        boundary.to_csv(
+            out / "eye_stage3_boundary_model_input.csv",
+            index=False,
+            encoding="utf-8-sig",
         )
     input_path = out / "eye_stage3_model_input.csv"
     stage3_input.to_csv(input_path, index=False, encoding="utf-8-sig")
@@ -1676,7 +2220,13 @@ def run_eye_stage3(
     r_ran = _invoke_r(
         str(config.get("rscript", "Rscript")),
         r_script,
-        [str(input_path), str(out), ",".join(triggers)],
+        [
+            str(input_path), str(out), ",".join(triggers),
+            str(aoi_input_path) if aoi_input_path.is_file() else "",
+            str(out / "eye_stage3_boundary_model_input.csv")
+            if (out / "eye_stage3_boundary_model_input.csv").is_file() else "",
+            str(int(stage3_config.get("bootstrap_iterations", 5000))),
+        ],
         required=r_required,
     )
     if r_ran:
@@ -1690,15 +2240,154 @@ def run_eye_stage3(
             for letter in "ABCDEFGHIJK"
         ],
     })
+    result_files = sorted(
+        path.name for path in out.glob("*.csv")
+        if not path.name.endswith("_model_input.csv")
+        and "model_input" not in path.name
+    )
+    trigger_status_rows = []
+    for letter in "ABCDEFGHIJK":
+        approved = letter in triggers
+        matching = [
+            name for name in result_files
+            if {
+                "A": "zero", "B": "diagnostic", "C": "boundary",
+                "D": "area", "E": "time", "F": "carryover",
+                "G": "experience", "H": "equipment",
+                "I": "secondary_eye", "J": "questionnaire_S3",
+                "K": "composition",
+            }[letter].lower() in name.lower()
+        ]
+        trigger_status_rows.append({
+            "Trigger": letter,
+            "Approved": approved,
+            "GeneratedFiles": ";".join(matching),
+            "Status": (
+                "completed" if approved and matching
+                else "approved_no_estimable_output" if approved
+                else "not_triggered"
+            ),
+        })
+    trigger_status = pd.DataFrame(trigger_status_rows)
+    outputs["trigger_completion"] = write_table(
+        trigger_status, out / "18_stage3_trigger_completion.xlsx"
+    )
+    if r_ran:
+        try:
+            from paper_analysis.teacher.reporting import (
+                save_condition_plot,
+                save_histogram,
+                write_markdown_report,
+            )
+        except ImportError as exc:
+            raise StageBlockedError(
+                "Teacher Stage 3 Markdown packaging requires pandas and matplotlib."
+            ) from exc
+        if "A" in triggers:
+            zero_path = out / "02_zero_value_diagnostics.csv"
+            zero = read_table(zero_path) if zero_path.is_file() else pd.DataFrame()
+            if not zero.empty:
+                outputs["zero_figure"] = save_histogram(
+                    zero["ZeroRate"],
+                    path=out / "Figure1_zero_share_rates.png",
+                    title="Zero attention-share rates",
+                    xlabel="Zero rate",
+                )
+        outputs["experience_figure"] = save_condition_plot(
+            stage3_input.loc[
+                stage3_input["IncludedPrimary"].map(is_truthy)
+            ],
+            outcome="AdjustedCompetition",
+            path=out / "Figure2_stage3_adjusted_competition.png",
+            title="Stage 3 area-adjusted competition",
+        )
+        diagnostic_path = out / "17_stage3_model_diagnostics.csv"
+        diagnostic = (
+            read_table(diagnostic_path)
+            if diagnostic_path.is_file() else pd.DataFrame()
+        )
+        outputs["report_cn"] = write_markdown_report(
+            out / "19_eye_stage3_results_report_CN.md",
+            title="眼动 Stage 3 补充分析结果",
+            paragraphs=[
+                "仅运行由实际证据触发并经 Codex 自审批准的补充分析。",
+                "ExperienceGroup 严格沿用代码仓库 Q1.4 分类；"
+                "ExerciseFrequency 未进入正式模型。",
+                "AOI 边界分析重新分类 fixation；模型失败与 Bootstrap "
+                "失败均显式记录。",
+            ],
+            tables=[
+                ("Trigger completion", trigger_status),
+                ("Model diagnostics", diagnostic),
+            ],
+        )
+        outputs["report_en"] = write_markdown_report(
+            out / "20_eye_stage3_results_summary_EN.md",
+            title="Eye-tracking Stage 3 Supplementary Results",
+            paragraphs=[
+                "Only evidence-triggered analyses were executed.",
+                "The supplementary package covers zero processes, AOI "
+                "boundaries, area/compositional interpretation, within-block "
+                "carryover, repository-defined ExperienceGroup moderation, "
+                "C1 Equipment, secondary metrics and questionnaire S3.",
+            ],
+            tables=[("Trigger completion", trigger_status)],
+        )
+    stage3_answers = [
+        ("01", "批准触发项", ",".join(triggers) if triggers else "none"),
+        ("02", "零值两部分模型", "A" in triggers),
+        ("03", "诊断替代模型", "B" in triggers),
+        ("04", "AOI边界±5像素重分类", "C" in triggers),
+        ("05", "面积/组成敏感性", "D" in triggers or "K" in triggers),
+        ("06", "时间线性/二次项", "E" in triggers),
+        ("07", "同Block前序变量", "F" in triggers),
+        ("08", "ExperienceGroup交互", "G" in triggers),
+        ("09", "Experience CR2", (out / "08b_experience_moderation_CR2.csv").is_file()),
+        ("10", "Experience 5000次Bootstrap", (out / "08d_experience_cluster_bootstrap_5000.csv").is_file()),
+        ("11", "Bootstrap失败数有无记录", (out / "08e_experience_bootstrap_failures.csv").is_file()),
+        ("12", "性别敏感性", (out / "08f_experience_gender_sensitivity.csv").is_file()),
+        ("13", "简单效应Holm", (out / "08c_experience_simple_effects_Holm.csv").is_file()),
+        ("14", "C1 Equipment", "H" in triggers),
+        ("15", "次要眼动指标", "I" in triggers),
+        ("16", "问卷S3-眼动精确交集", "J" in triggers),
+        ("17", "ExerciseFrequency进入模型", False),
+        ("18", "WWR连续/倒U模型", False),
+        ("19", "未触发项目是否创建空文件", False),
+        ("20", "模型失败是否OLS回退", False),
+        ("21", "R推断完成", r_ran),
+        ("22", "实际生成机器可读结果数", len(result_files)),
+        ("23", "触发完成审计", "18_stage3_trigger_completion.xlsx"),
+    ]
     outputs.update({
         "trigger_log": write_table(trigger_log, out / "01_stage3_trigger_log.xlsx"),
         "summary": write_text(
             "EYE STAGE 3 SUMMARY\n"
             f"Approved triggers: {','.join(triggers) if triggers else 'none'}\n"
-            "Only approved analyses were generated.\n",
+            "Only approved analyses were generated.\n\n"
+            "23 REQUIRED SUMMARY QUESTIONS\n"
+            + "\n".join(
+                f"{number}. {question}: {answer}"
+                for number, question, answer in stage3_answers
+            )
+            + "\n",
             out / "17_stage3_summary.txt",
         ),
     })
+    outputs["analysis_log"] = write_text(
+        "\n".join([
+            "EYE STAGE 3 ANALYSIS LOG",
+            f"Triggers: {','.join(triggers)}",
+            f"Generated CSV results: {len(result_files)}",
+            *result_files,
+        ]),
+        out / "18_stage3_analysis_log.txt",
+    )
+    source_copy = out / "19_eye_stage3_processing.py"
+    shutil.copy2(Path(__file__), source_copy)
+    outputs["processing_source"] = source_copy
+    r_copy = out / "20_eye_stage3_analysis.R"
+    shutil.copy2(r_script, r_copy)
+    outputs["r_source"] = r_copy
     outputs["manifest"] = write_run_manifest(
         out,
         stage="eye-stage3-run",

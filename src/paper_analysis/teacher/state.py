@@ -78,6 +78,27 @@ def git_commit(cwd: str | Path) -> str:
     return result.stdout.strip()
 
 
+def method_contract_hash(repo_root: str | Path) -> str:
+    root = Path(repo_root)
+    files = [
+        *sorted((root / "src" / "paper_analysis").rglob("*.py")),
+        *sorted((root / "analysis" / "r").glob("*.R")),
+        *sorted((root / "matlab" / "eeg_bandpower_pipeline").glob("*.m")),
+        root / "scripts" / "run_teacher_analysis.py",
+        root / "scripts" / "build_teacher_candidate_inputs.py",
+        root / "scripts" / "run_eeg_from_raw.py",
+        root / "scripts" / "repair_eeg_clock_cache_encoding.py",
+        root / "scripts" / "run_clock_synchronized_fusion.py",
+    ]
+    digest = hashlib.sha256()
+    for path in files:
+        if not path.is_file():
+            continue
+        digest.update(str(path.relative_to(root)).encode("utf-8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
 def new_run_directory(outputs_root: str | Path, run_id: str | None = None) -> Path:
     stamp = run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out = Path(outputs_root) / "teacher_runs" / stamp
@@ -102,6 +123,7 @@ def write_run_manifest(
         "config_path": str(Path(config_path).resolve()),
         "arguments": arguments,
         "git_commit": git_commit(repo_root),
+        "method_contract_hash": method_contract_hash(repo_root),
         "python": sys.version,
         "python_packages": {
             name: _package_version(name)

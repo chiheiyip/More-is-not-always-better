@@ -6,13 +6,30 @@
 
 order1/order2/neworder2 的权威场景顺序、简化眼动文件夹语义、`C0/C1` 复杂度编码及问卷跨模态共同剔除规则，统一见 [`docs/EXPERIMENT_DESIGN.md`](docs/EXPERIMENT_DESIGN.md)。
 
-## 一键运行
+## 老师规范的一键运行
 
-```bash
-python scripts/run_all.py --config configs/paths.example.json
+```powershell
+python scripts/run_teacher_analysis.py all-results `
+  --config configs/teacher_analysis.local.json `
+  --outputs-root "E:\26\补\数据分析结果" `
+  --self-review --reuse-valid --resume --promote
 ```
 
-真实数据运行时，复制 `configs/paths.example.json` 为 `configs/paths.local.json`，并把问卷、眼动、EEG 和输出路径改成本地真实路径。`configs/local_paths.example.json` 只保留安全占位路径，不提交可识别原始数据。
+该命令先写入 `teacher_runs/<run-id>`，只有完整性和数字一致性 QA
+通过后才提升到 `12_teacher_analysis`。`--self-review` 允许代码记录并
+跳过中间人工审批等待；`--reuse-valid` 只复用输入、配置、方法契约和
+关键表结构均验证通过的历史结果；`--resume` 支持断点续跑；
+`--promote` 控制正式结果更新。旧的 `scripts/run_all.py` 仅作为兼容
+工作流保留。
+
+眼动真实设计固定为 12 个场景和 12 套 AOI，不压缩成 9 套。眼动主
+样本按眼动 Stage 1+2 QC 独立确定；EEG 有效样本只用于精确
+`Participant × GlobalTrialOrder` 共同试次敏感性。高低经验组统一使用
+仓库 Q1.4 规则生成的 `ExperienceGroup`，不使用 ExerciseFrequency。
+问卷正式分析使用 EEG 有效的 42 人/504试次，并从最新总问卷工作簿
+重新准备；眼动主分析仍使用独立 QC 得到的 A 人样本。
+各阶段正式叙述报告采用 Markdown，机器可读表、图片、日志和代码副本
+仍按老师清单交付。
 
 ## 输出结构
 
@@ -27,6 +44,11 @@ python scripts/run_all.py --config configs/paths.example.json
 - `outputs/08_reviewer_response/`：审稿意见到证据文件的回应索引和 reviewer issue matrix。
 - `outputs/09_data_package/`：Nature-style 数据可用性索引和 Data Availability 草稿。
 - `outputs/10_figures/`：Nature-style SVG/PDF/TIFF/PNG 成图、panel source CSV、figure manifest、图注说明和 QA。
+- `teacher_runs/<run-id>/`：每次老师流程的完整可追溯运行归档。
+- `12_teacher_analysis/`：最近一次通过 QA 并正式提升的老师流程结果。
+- 顶层 `论文数据分析结果报告.md`、`结果文件总索引.xlsx`、
+  `老师任务完成矩阵.xlsx` 和 `artifact_reuse_manifest.xlsx`：完整成果包
+  的阅读入口与审计入口。
 
 ## 问卷方法口径
 
@@ -49,7 +71,15 @@ python scripts/run_all.py --config configs/paths.example.json
 
 - `analysis_master_long.csv`：问卷 + EEG + 眼动的论文统计主表。
 - `aligned_scene_table.csv`：保留原仓库 EEG+AOI 场景级融合逻辑。
-- `aligned_timebin_table.csv`：time-bin 级眼动 AOI 指标，并附加对应场景 EEG 指标。
+- `aligned_timebin_table.csv`：旧兼容表；场景级 EEG 值在眼动 bin 中重复，
+  明确标记为 `legacy_not_for_temporal_inference`，不能作为真正时序同步证据。
+- `aligned_synchronized_timebin_table.csv`：使用同一绝对时钟窗口计算的
+  window-specific EEG 与眼动指标，是正式时序同步分析输入。
+
+历史 EEG 时钟缓存若含有旧版 latin1/GBK 乱码，运行
+`scripts/repair_eeg_clock_cache_encoding.py` 在本次运行目录生成 UTF-8
+副本；原缓存不会被修改。没有通过时钟缓存验证的参与者会写明排除原因，
+不会阻断其他已验证参与者的同步样本导出。
 - `sync_qc.csv`：眼动时长、EEG 时长、差值、mismatch、场景数量检查。
 - `alignment_scene_qc.csv`、`alignment_landmarks.csv`、`time_sync_map.csv`：眼动时间到 EEG 时间的精细仿射映射诊断。
 

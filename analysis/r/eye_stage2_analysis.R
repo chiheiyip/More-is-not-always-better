@@ -119,10 +119,14 @@ write_csv_utf8(diag, file.path(outdir, "17_core_model_diagnostics.csv"))
 # Required, explicitly labelled sensitivity fits.
 block1 <- input[input$Block == 1, , drop = FALSE]
 write_csv_utf8(block1, file.path(outdir, "14_block1_sensitivity_input.csv"))
-common <- input[as.logical(input$IncludeEEGValid), , drop = FALSE]
-write_csv_utf8(common, file.path(outdir, "15_EEG_valid_common_sample_input.csv"))
+common <- input[as.logical(input$IncludeEEGTrialValid), , drop = FALSE]
+write_csv_utf8(common, file.path(outdir, "EEG_valid_common_sample_model_input.csv"))
 
 sensitivity_rows <- list()
+threshold_rows <- list()
+block1_rows <- list()
+common_rows <- list()
+loo_rows <- list()
 thresholds <- c(.50, .60, .70)
 for (threshold in thresholds) {
   data_threshold <- all_input[
@@ -142,12 +146,13 @@ for (threshold in thresholds) {
     } else tidy_mixed(model, outcome, paste0("TrackingThreshold_", threshold))
     row$Threshold <- threshold
     sensitivity_rows[[length(sensitivity_rows) + 1]] <- row
+    threshold_rows[[length(threshold_rows) + 1]] <- row
   }
 }
 for (label in c("Block1", "EEGCommon")) {
   subset <- if (label == "Block1") {
     input[input$Block == 1, , drop = FALSE]
-  } else input[as.logical(input$IncludeEEGValid), , drop = FALSE]
+  } else input[as.logical(input$IncludeEEGTrialValid), , drop = FALSE]
   for (outcome in c(outcomes_a, outcomes_b)) {
     data <- subset[is.finite(subset[[outcome]]), , drop = FALSE]
     model <- fit_lmer_or_record(
@@ -156,6 +161,12 @@ for (label in c("Block1", "EEGCommon")) {
     sensitivity_rows[[length(sensitivity_rows) + 1]] <-
       if (inherits(model, "teacher_model_failure")) failure_row(model) else
         tidy_mixed(model, outcome, paste0("Sensitivity_", label))
+    labelled <- sensitivity_rows[[length(sensitivity_rows)]]
+    if (label == "Block1") {
+      block1_rows[[length(block1_rows) + 1]] <- labelled
+    } else {
+      common_rows[[length(common_rows) + 1]] <- labelled
+    }
   }
 }
 for (excluded in levels(input$Participant)) {
@@ -170,10 +181,27 @@ for (excluded in levels(input$Participant)) {
     } else tidy_mixed(model, outcome, "Sensitivity_LOO")
     row$ExcludedParticipant <- excluded
     sensitivity_rows[[length(sensitivity_rows) + 1]] <- row
+    loo_rows[[length(loo_rows) + 1]] <- row
   }
 }
 write_csv_utf8(
   bind_rows_fill(sensitivity_rows),
   file.path(outdir, "16_eye_structural_sensitivities.csv")
+)
+write_csv_utf8(
+  bind_rows_fill(threshold_rows),
+  file.path(outdir, "13_tracking_threshold_sensitivity_models.csv")
+)
+write_csv_utf8(
+  bind_rows_fill(block1_rows),
+  file.path(outdir, "14_block1_sensitivity_models.csv")
+)
+write_csv_utf8(
+  bind_rows_fill(loo_rows),
+  file.path(outdir, "15_leave_one_participant_out.csv")
+)
+write_csv_utf8(
+  bind_rows_fill(common_rows),
+  file.path(outdir, "16_EEG_valid_common_sample_sensitivity.csv")
 )
 write_session_info(outdir)
