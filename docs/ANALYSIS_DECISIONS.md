@@ -1,5 +1,20 @@
 # Analysis Decisions
 
+## EEG scene-onset transition policy (2026-08-02)
+
+- Estimand: sustained-state EEG rather than the complete scene-entry response.
+- Primary onset trim: 10 s before PSD and EEG QC.
+- Robustness: 15 s primary robustness, 5 s mild sensitivity, 0 s historical
+  audit only.
+- Formal 10-vs-15 s equivalence uses the 5/10/15 common-QC trial set,
+  participant-clustered paired bootstrap, a +/-0.20 SD bound, 90% interval,
+  TOST and BH-FDR. Fewer than 90% successful bootstrap replicates blocks an
+  equivalence claim.
+- Independent eye scene metrics are unchanged. Clock-synchronized eye and EEG
+  bins share the exact onset boundary and are re-anchored there.
+- Wording is bounded: trimming and previous-condition models mitigate and
+  evaluate transition influence; they do not prove carryover is absent.
+
 ## Teacher-priority superseding decisions (2026-07-26)
 
 These rules supersede conflicting historical entries below:

@@ -11,6 +11,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from paper_analysis.eeg.contract import validate_eeg_scene_summary
+from paper_analysis.eeg.onset import load_eeg_analysis_config
 
 
 DEFAULT_EEG_ROOT = r"E:\26\补\脑电数据"
@@ -27,12 +28,14 @@ def main() -> None:
     parser.add_argument("--eeg-clock-cache-root", default="", help="E-drive EEG clock cache created by build_eeg_clock_cache.py.")
     parser.add_argument("--export-eeg-samples", action="store_true", help="Export one preprocessed 500-Hz CSV per participant-scene.")
     parser.add_argument("--participants", default="", help="Comma-separated participant IDs for a bounded export.")
+    parser.add_argument("--eeg-analysis-config", default="configs/eeg_analysis.json")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
     eeg_root = Path(args.eeg_root)
     eeglab_root = Path(args.eeglab_root)
     outdir = Path(args.outdir)
+    analysis_config = load_eeg_analysis_config(args.eeg_analysis_config)
     if not eeg_root.exists():
         raise SystemExit(f"EEG input not found: {eeg_root}")
     if not eeglab_root.exists():
@@ -54,23 +57,39 @@ def main() -> None:
         clock_cache_root=Path(args.eeg_clock_cache_root) if args.eeg_clock_cache_root else None,
         export_samples=args.export_eeg_samples,
         participants=[v.strip() for v in args.participants.split(",") if v.strip()],
+        config_path=Path(args.eeg_analysis_config).resolve(),
     )
     cmd = [args.matlab_command, "-batch", matlab_expr]
     if args.dry_run:
+        print(
+            "EEG onset trim: primary="
+            f"{analysis_config['primary_onset_trim_s']:g}s variants="
+            + ",".join(f"{value:g}s" for value in analysis_config["onset_trim_variants_s"])
+        )
         print(" ".join(cmd))
         return
 
     outdir.mkdir(parents=True, exist_ok=True)
     subprocess.run(cmd, check=True)
     summary_csv = outdir / "summary" / "all_subjects_scene_level.csv"
-    result = validate_eeg_scene_summary(summary_csv)
+    result = validate_eeg_scene_summary(
+        summary_csv,
+        expected_onset_trim_s=analysis_config["primary_onset_trim_s"],
+        require_onset_metadata=True,
+    )
+    sensitivity_csv = outdir / "summary" / "all_subjects_scene_level_onset_sensitivity.csv"
+    sensitivity_result = validate_eeg_scene_summary(
+        sensitivity_csv, require_onset_metadata=True, sensitivity=True
+    )
     print(f"eeg_scene_csv: {summary_csv}")
     print(f"validation_status: {result['status']}")
     for err in result["errors"]:
         print(f"ERROR: {err}")
     for warn in result["warnings"]:
         print(f"WARNING: {warn}")
-    if result["status"] == "error":
+    for err in sensitivity_result["errors"]:
+        print(f"ERROR: onset sensitivity: {err}")
+    if result["status"] == "error" or sensitivity_result["status"] == "error":
         raise SystemExit(1)
     if args.export_eeg_samples:
         _write_sample_export_audit(
@@ -87,11 +106,14 @@ def _matlab_expression(
     clock_cache_root: Path | None = None,
     export_samples: bool = False,
     participants: list[str] | None = None,
+    config_path: Path | None = None,
 ) -> str:
     eeglab = _matlab_utf8(_matlab_path(eeglab_root))
     eeg = _matlab_utf8(_matlab_path(eeg_root))
     out = _matlab_utf8(_matlab_path(outdir))
     args = [eeg, out]
+    if config_path is not None:
+        args.extend(["'ConfigPath'", _matlab_utf8(_matlab_path(config_path))])
     if export_samples:
         cache = _matlab_utf8(_matlab_path(clock_cache_root or Path()))
         args.extend(["'ClockCacheRoot'", cache, "'ExportSamples'", "true"])

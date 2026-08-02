@@ -20,6 +20,12 @@
       "evidence_file": "outputs/08_reviewer_response/reviewer_order_fatigue_evidence.md"
     },
     {
+      "issue_id": "R1.11_ONSET_TRANSITION",
+      "reviewer_concern": "Questionnaire-related movement and the short gray interval may contaminate the beginning of the next EEG scene.",
+      "action": "Trim scene onset before PSD/QC and report 0/5/10/15-s window sensitivity plus formal 10-vs-15-s equivalence on the common-QC set.",
+      "evidence_file": "outputs/08_reviewer_response/reviewer_onset_transition_evidence.md"
+    },
+    {
       "issue_id": "R2.5",
       "reviewer_concern": "Fatigue or attention dispersion across repeated trials may affect questionnaire, eye-tracking, and EEG indicators.",
       "action": "Report modality-specific order/fatigue-proxy models, FDR, time stability, carryover sensitivity, and bounded limitations.",

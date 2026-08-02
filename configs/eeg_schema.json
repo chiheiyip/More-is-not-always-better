@@ -1,6 +1,9 @@
 {
   "id_columns": ["participant_id", "scene_id"],
   "alternate_subject_column": "subject_id",
+  "formal_primary_key": ["participant_id", "scene_id"],
+  "onset_sensitivity_key": ["participant_id", "scene_id", "onset_trim_s"],
+  "onset_metadata": ["onset_trim_s", "analysis_start_s", "analysis_end_s", "analysis_dur_s", "onset_samples_removed", "trim_status"],
   "primary_metrics": [
     "F_theta",
     "F_alpha",

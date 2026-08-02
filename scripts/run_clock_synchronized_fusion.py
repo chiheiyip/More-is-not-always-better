@@ -8,6 +8,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from paper_analysis.fusion.clock_sync import run_clock_synchronized_fusion
+from paper_analysis.eeg.onset import load_eeg_analysis_config
 
 
 def main() -> None:
@@ -22,7 +23,9 @@ def main() -> None:
     parser.add_argument("--timezone", default="Asia/Shanghai")
     parser.add_argument("--no-pointwise", action="store_true")
     parser.add_argument("--no-timebins", action="store_true")
+    parser.add_argument("--eeg-analysis-config", default="configs/eeg_analysis.json")
     args = parser.parse_args()
+    onset = load_eeg_analysis_config(args.eeg_analysis_config)
     outputs = run_clock_synchronized_fusion(
         scene_manifest_csv=args.scene_manifest,
         eeg_sample_manifest_csv=args.eeg_sample_manifest,
@@ -32,6 +35,8 @@ def main() -> None:
         timezone_name=args.timezone,
         export_pointwise=not args.no_pointwise,
         build_timebins=not args.no_timebins,
+        onset_trim_s=onset["primary_onset_trim_s"],
+        onset_trim_variants_s=onset["onset_trim_variants_s"],
     )
     for name, path in outputs.items():
         print(f"{name}: {path}")

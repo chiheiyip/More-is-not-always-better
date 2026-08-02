@@ -16,6 +16,7 @@ from paper_analysis.teacher.contracts import (
 from paper_analysis.teacher.eeg import (
     FORBIDDEN_PRIMARY_TERMS,
     _metric_columns,
+    _onset_contract_errors,
     _scene_qc_mask,
 )
 from paper_analysis.teacher.eye import (
@@ -313,6 +314,23 @@ def test_eeg_structural_cohort_is_separated_from_scene_qc_model_cohort() -> None
     assert _scene_qc_mask(frame).tolist() == [True, False, False, True]
     with pytest.raises(StageBlockedError, match="QC columns"):
         _scene_qc_mask(pd.DataFrame({"bad_eeg_quality": [False]}))
+
+
+def test_teacher_eeg_requires_locked_formal_onset_contract_when_configured() -> None:
+    config = {
+        "primary_onset_trim_s": 10,
+        "onset_trim_variants_s": [0, 5, 10, 15],
+        "equivalence_bound_sd": 0.20,
+        "onset_random_seed": 20260802,
+    }
+    valid = pd.DataFrame({
+        "onset_trim_s": [10], "analysis_start_s": [10],
+        "analysis_end_s": [60], "analysis_dur_s": [50],
+        "onset_samples_removed": [5000], "trim_status": ["ok"],
+    })
+    assert _onset_contract_errors(valid, config) == []
+    invalid = valid.drop(columns=["analysis_dur_s"])
+    assert "onset-trim metadata" in _onset_contract_errors(invalid, config)[0]
 
 
 def test_canonicalize_trials_coalesces_equivalent_legacy_aliases() -> None:

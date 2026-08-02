@@ -1,5 +1,17 @@
 # Data Dictionary
 
+## EEG onset and synchronized-time fields
+
+| Field | Meaning |
+|---|---|
+| `onset_trim_s` | Seconds removed before EEG PSD/QC; 10 s is formal primary. |
+| `analysis_start_s` / `analysis_end_s` | Recording-relative post-trim EEG boundaries. |
+| `analysis_dur_s` | Duration used for EEG metrics and hard duration QC. |
+| `onset_samples_removed` | Exact number of leading EEG samples removed in MATLAB. |
+| `trim_status` | `ok` or an explicit failure such as `insufficient_post_trim_duration`. |
+| `scene_elapsed_s` | Synchronized-bin start relative to the original scene marker. |
+| `analysis_elapsed_s` | Bin start relative to the selected onset boundary. |
+
 ## Core Keys
 
 | Field | Meaning |

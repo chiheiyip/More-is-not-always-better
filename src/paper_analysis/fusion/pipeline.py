@@ -48,6 +48,8 @@ def run_fusion_pipeline(
     run_synchronized_timebins: bool = False,
     clock_timezone: str = "Asia/Shanghai",
     clock_match_tolerance_ms: int = 2,
+    onset_trim_s: float = 0.0,
+    onset_trim_variants_s: tuple[float, ...] | list[float] | None = None,
 ) -> dict[str, Path]:
     questionnaire = read_table(questionnaire_long)
     eye = read_table(eye_aoi_trial_long)
@@ -137,6 +139,8 @@ def run_fusion_pipeline(
             eye_screen_h=eye_screen_h,
             eye_validity_accepted=eye_validity_accepted,
             eye_timestamp_gap_ms=eye_timestamp_gap_ms,
+            onset_trim_s=onset_trim_s,
+            onset_trim_variants_s=onset_trim_variants_s,
         ))
     return outputs
 

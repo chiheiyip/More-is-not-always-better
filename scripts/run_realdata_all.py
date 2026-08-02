@@ -22,6 +22,7 @@ from more_is_not_always_better.discovery import (  # noqa: E402
 from paper_analysis.diagnostics.pipeline import run_diagnostics  # noqa: E402
 from paper_analysis.eeg.contract import validate_eeg_scene_summary  # noqa: E402
 from paper_analysis.eeg.pipeline import run_eeg_pipeline  # noqa: E402
+from paper_analysis.eeg.onset import load_eeg_analysis_config  # noqa: E402
 from paper_analysis.eye_tracking.pipeline import run_eye_pipeline  # noqa: E402
 from paper_analysis.figures import run_figure_pipeline  # noqa: E402
 from paper_analysis.fusion.pipeline import run_fusion_pipeline  # noqa: E402
@@ -32,6 +33,7 @@ from paper_analysis.reporting.pipeline import build_paper_outputs  # noqa: E402
 from paper_analysis.stats.canonical import run_canonical_analysis  # noqa: E402
 from paper_analysis.stats.models import run_statistical_models  # noqa: E402
 from paper_analysis.stats.timebin import run_timebin_models  # noqa: E402
+from paper_analysis.stats.onset_sensitivity import run_onset_sensitivity_analysis  # noqa: E402
 
 
 DEFAULT_QUESTIONNAIRE = r"E:\26\补\VR+EEG实验问卷-补-原始数据-2026-06-14.xlsx"
@@ -65,6 +67,7 @@ def main() -> None:
     parser.add_argument("--aligned_timebin_csv", default=None, help="Reuse an existing aligned_timebin_table.csv instead of recomputing time-bin eye metrics.")
     parser.add_argument("--model-config", default="configs/model_families.json")
     parser.add_argument("--eeg-qc-config", default="configs/eeg_qc.json")
+    parser.add_argument("--eeg-analysis-config", default="configs/eeg_analysis.json")
     parser.add_argument("--eye-qc-config", default="configs/eye_qc.json")
     parser.add_argument("--figure-contracts", default="configs/figure_contracts.json")
     parser.add_argument("--reviewer-map", default="configs/reviewer_response_map.json")
@@ -86,6 +89,7 @@ def main() -> None:
 
 def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
     _validate_requested_workflow(args)
+    eeg_analysis = load_eeg_analysis_config(args.eeg_analysis_config)
     outputs_root = Path(args.outputs_root)
     scratch_dir = outputs_root / "_raw_intake"
     _assert_output_not_inside_raw_inputs(outputs_root, [args.questionnaire_xlsx, args.eye_root, args.eeg_root])
@@ -103,6 +107,8 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
             "max_participants": args.max_participants,
             "steps": planned_steps,
             "raw_inputs_read_only": True,
+            "primary_onset_trim_s": eeg_analysis["primary_onset_trim_s"],
+            "onset_trim_variants_s": eeg_analysis["onset_trim_variants_s"],
         }
 
     outputs_root.mkdir(parents=True, exist_ok=True)
@@ -160,7 +166,14 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
         _cleanup_scratch(args, scratch_dir)
         return summary
 
-    eeg_contract = validate_eeg_scene_summary(eeg_scene_csv)
+    formal_onset_required = not args.skip_models or args.run_synchronized_timebins
+    eeg_contract = validate_eeg_scene_summary(
+        eeg_scene_csv,
+        expected_onset_trim_s=(
+            eeg_analysis["primary_onset_trim_s"] if formal_onset_required else None
+        ),
+        require_onset_metadata=formal_onset_required,
+    )
     if eeg_contract["status"] == "error":
         raise SystemExit("EEG scene CSV failed contract validation: " + "; ".join(eeg_contract["errors"]))
 
@@ -170,6 +183,8 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
         eeg_scene_csv=eeg_scene_csv,
         outdir=outputs_root / "04_eeg",
         eeg_qc_config=args.eeg_qc_config,
+        eeg_analysis_config=eeg_analysis,
+        require_onset_metadata=formal_onset_required,
     )
     fusion = run_fusion_pipeline(
         questionnaire_long=questionnaire["questionnaire_long"],
@@ -188,6 +203,8 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
         ),
         export_pointwise_alignment=args.export_pointwise_alignment,
         run_synchronized_timebins=args.run_synchronized_timebins,
+        onset_trim_s=eeg_analysis["primary_onset_trim_s"],
+        onset_trim_variants_s=eeg_analysis["onset_trim_variants_s"],
     )
     questionnaire = run_questionnaire_pipeline(
         participants_csv=intake["participants_standardized"],
@@ -217,6 +234,15 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
             scene_manifest_csv=intake["scene_manifest_standardized"],
             trimodal_qc_csv=fusion["analysis_qc_exclusions"],
         )
+        onset_stats = run_onset_sensitivity_analysis(
+            sensitivity_trial_csv=eeg["eeg_onset_sensitivity_trial_long"],
+            common_qc_csv=eeg["eeg_onset_common_qc"],
+            participants_csv=intake["participants_standardized"],
+            scene_manifest_csv=intake["scene_manifest_standardized"],
+            outdir=outputs_root / "06_robustness" / "eeg_onset",
+            eeg_analysis_config=eeg_analysis,
+        )
+        stats.update({f"onset_{name}": path for name, path in onset_stats.items()})
         if args.legacy_models:
             legacy = run_statistical_models(fusion["analysis_master_long"], args.model_config, outputs_root / "06_models" / "legacy")
             stats.update({f"legacy_{name}": path for name, path in legacy.items()})
@@ -230,6 +256,17 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
                 scene_model_results_csv=stats["model_results"],
             )
             stats.update(temporal)
+            sensitivity_timebins = fusion.get(
+                "aligned_synchronized_timebin_onset_sensitivity"
+            )
+            if sensitivity_timebins:
+                temporal_15 = run_timebin_models(
+                    synchronized_timebin_csv=sensitivity_timebins,
+                    clock_scene_qc_csv=fusion["clock_alignment_scene_qc"],
+                    outdir=outputs_root / "06_models" / "onset_15s_timebin",
+                    onset_trim_filter_s=15.0,
+                )
+                stats.update({f"onset15_{name}": path for name, path in temporal_15.items()})
     if not args.skip_diagnostics:
         diagnostics = run_diagnostics(
             fusion["analysis_master_long"],
@@ -308,6 +345,8 @@ def _prepare_eeg_scene_csv(args: argparse.Namespace, outputs_root: Path) -> Path
         str(args.eeglab_root),
         "--matlab_command",
         str(args.matlab_command),
+        "--eeg-analysis-config",
+        str(args.eeg_analysis_config),
     ]
     if args.export_eeg_samples:
         cmd.extend(["--export-eeg-samples", "--eeg-clock-cache-root", str(args.eeg_clock_cache_root)])

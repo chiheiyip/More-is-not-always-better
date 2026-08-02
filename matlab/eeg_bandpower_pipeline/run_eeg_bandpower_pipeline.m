@@ -31,6 +31,8 @@ addParameter(p, 'Rois', default_rois());
 addParameter(p, 'ClockCacheRoot', '', @(x) ischar(x) || isstring(x));
 addParameter(p, 'ExportSamples', false, @(x) islogical(x) || isnumeric(x));
 addParameter(p, 'ParticipantFilter', strings(0, 1));
+addParameter(p, 'PrimaryOnsetTrimS', 0, @(x) isnumeric(x) && isscalar(x) && x >= 0);
+addParameter(p, 'OnsetTrimVariantsS', 0, @(x) isnumeric(x) && isvector(x) && all(x >= 0));
 parse(p, input_path, outdir, varargin{:});
 opts = p.Results;
 opts = apply_config(opts);
@@ -59,6 +61,7 @@ if logical(opts.ExportSamples)
 end
 
 all_scene = table();
+all_scene_sensitivity = table();
 all_qc = table();
 all_pairs = table();
 all_sample_manifest = table();
@@ -74,9 +77,10 @@ for i = 1:numel(files)
     EEG = eeg_checkset(EEG);
     sub_out = fullfile(subject_dir, base);
     if ~exist(sub_out, 'dir'), mkdir(sub_out); end
-    [segments, scene_rows, qc_rows, pairs] = export_subject(EEG, base, opts);
+    [segments, scene_rows, scene_sensitivity, qc_rows, pairs] = export_subject(EEG, base, opts);
     writetable(segments, fullfile(sub_out, [base '_bandpower_roi.csv']));
     writetable(scene_rows, fullfile(sub_out, [base '_scene_level.csv']));
+    writetable(scene_sensitivity, fullfile(sub_out, [base '_scene_level_onset_sensitivity.csv']));
     writetable(qc_rows, fullfile(sub_out, [base '_qc.csv']));
     writetable(pairs, fullfile(sub_out, [base '_pairs_check.csv']));
     write_methods_snapshot(fullfile(sub_out, [base '_methods_snapshot.md']), opts);
@@ -87,16 +91,19 @@ for i = 1:numel(files)
         all_sample_manifest = [all_sample_manifest; sample_manifest]; %#ok<AGROW>
     end
     all_scene = [all_scene; scene_rows]; %#ok<AGROW>
+    all_scene_sensitivity = [all_scene_sensitivity; scene_sensitivity]; %#ok<AGROW>
     all_qc = [all_qc; qc_rows]; %#ok<AGROW>
     all_pairs = [all_pairs; pairs]; %#ok<AGROW>
 end
 
 outputs = struct();
 outputs.all_subjects_scene_level = fullfile(summary_dir, 'all_subjects_scene_level.csv');
+outputs.all_subjects_scene_level_onset_sensitivity = fullfile(summary_dir, 'all_subjects_scene_level_onset_sensitivity.csv');
 outputs.all_subjects_qc = fullfile(summary_dir, 'all_subjects_qc.csv');
 outputs.all_subjects_pairs_check = fullfile(summary_dir, 'all_subjects_pairs_check.csv');
 outputs.eeg_sample_file_manifest = fullfile(summary_dir, 'eeg_sample_file_manifest.csv');
 writetable(all_scene, outputs.all_subjects_scene_level);
+writetable(all_scene_sensitivity, outputs.all_subjects_scene_level_onset_sensitivity);
 writetable(all_qc, outputs.all_subjects_qc);
 writetable(all_pairs, outputs.all_subjects_pairs_check);
 if logical(opts.ExportSamples)
@@ -211,11 +218,12 @@ if scene_id ~= 12
 end
 end
 
-function [segments, scene_rows, qc_rows, pairs] = export_subject(EEG, subject_id, opts)
+function [segments, scene_rows, scene_sensitivity, qc_rows, pairs] = export_subject(EEG, subject_id, opts)
 events = EEG.event;
 types = arrayfun(@(e) marker_to_string(e.type), events, 'UniformOutput', false);
 latencies = arrayfun(@(e) double(e.latency), events);
 segments = table();
+scene_sensitivity = table();
 view_count = 0;
 for i = 1:(numel(events) - 1)
     m0 = marker_to_string(types{i});
@@ -246,18 +254,53 @@ for i = 1:(numel(events) - 1)
     row = append_bandpower_columns(row, segment, EEG, opts);
     row = append_qc_columns(row, segment, EEG.srate, dur_s, opts);
     segments = [segments; row]; %#ok<AGROW>
+    if strcmp(cond, 'view')
+        variants = unique(double(opts.OnsetTrimVariantsS(:)'), 'sorted');
+        if ~any(abs(variants - double(opts.PrimaryOnsetTrimS)) < 1e-9)
+            error('PrimaryOnsetTrimS must appear in OnsetTrimVariantsS.');
+        end
+        for onset_trim_s = variants
+            onset_samples_removed = min(round(onset_trim_s * EEG.srate), size(segment, 2));
+            analysis_dur_s = max(dur_s - onset_trim_s, 0);
+            analysis_start_s = min(end_sample / EEG.srate, start_sample / EEG.srate + onset_trim_s);
+            analysis_end_s = end_sample / EEG.srate;
+            valid_duration = analysis_dur_s >= opts.MinSegmentDurationS;
+            if valid_duration
+                analysis_segment = segment(:, (onset_samples_removed + 1):end);
+                trim_status = "ok";
+            else
+                analysis_segment = nan(size(segment, 1), 0);
+                trim_status = "insufficient_post_trim_duration";
+            end
+            variant = table(string(subject_id), string(subject_id), scene_id, ...
+                ceil(max(scene_id, 1) / 6), mod(max(scene_id, 1) - 1, 6) + 1, ...
+                start_sample / EEG.srate, end_sample / EEG.srate, dur_s, ...
+                onset_trim_s, analysis_start_s, analysis_end_s, analysis_dur_s, ...
+                onset_samples_removed, trim_status, ...
+                'VariableNames', {'subject_id','participant_id','scene_id','block_id', ...
+                'cycle_in_block','view_start_s','view_end_s','view_dur_s', ...
+                'onset_trim_s','analysis_start_s','analysis_end_s','analysis_dur_s', ...
+                'onset_samples_removed','trim_status'});
+            variant.m0 = string(m0);
+            variant.m1 = string(m1);
+            variant = append_bandpower_columns(variant, analysis_segment, EEG, opts);
+            variant = append_qc_columns(variant, analysis_segment, EEG.srate, analysis_dur_s, opts);
+            variant.segment_valid_duration = valid_duration;
+            scene_sensitivity = [scene_sensitivity; variant]; %#ok<AGROW>
+        end
+    end
 end
 
 if opts.StrictStructure && view_count ~= 12
     warning('Subject %s has %d view segments; expected 12.', subject_id, view_count);
 end
 
-scene_rows = segments(strcmp(string(segments.cond), 'view'), :);
-if ~isempty(scene_rows)
-    scene_rows.view_start_s = scene_rows.start_s;
-    scene_rows.view_end_s = scene_rows.end_s;
-    scene_rows.view_dur_s = scene_rows.dur_s;
+scene_rows = table();
+if ~isempty(scene_sensitivity)
+    primary = abs(double(scene_sensitivity.onset_trim_s) - double(opts.PrimaryOnsetTrimS)) < 1e-9;
+    scene_rows = scene_sensitivity(primary, :);
     scene_rows = scene_rows(:, scene_level_columns(scene_rows));
+    scene_sensitivity = scene_sensitivity(:, scene_level_columns(scene_sensitivity));
 end
 qc_rows = segments(:, qc_columns(segments));
 pairs = build_pairs_table(segments);
@@ -305,6 +348,17 @@ end
 end
 
 function row = append_qc_columns(row, segment, fs, dur_s, opts)
+if isempty(segment)
+    row.hf_ratio_20_40Hz = NaN;
+    row.rms_mean_uV = NaN;
+    row.peak_to_peak_uV = NaN;
+    row.nan_fraction = NaN;
+    row.flat_fraction = NaN;
+    row.near_boundary = contains(lower(string(row.m0)), 'boundary') || contains(lower(string(row.m1)), 'boundary');
+    row.segment_valid_duration = false;
+    row.eeg_legacy_hf_flag = false;
+    return;
+end
 all_signal = mean(segment, 1, 'omitnan');
 hf = bandpower_welch(all_signal, fs, [20 40]);
 total = bandpower_welch(all_signal, fs, opts.Bands.totalBand40);
@@ -400,7 +454,8 @@ end
 end
 
 function cols = scene_level_columns(T)
-base = {'subject_id','participant_id','scene_id','block_id','cycle_in_block','view_start_s','view_end_s','view_dur_s'};
+base = {'subject_id','participant_id','scene_id','block_id','cycle_in_block','view_start_s','view_end_s','view_dur_s', ...
+    'onset_trim_s','analysis_start_s','analysis_end_s','analysis_dur_s','onset_samples_removed','trim_status'};
 metric_cols = T.Properties.VariableNames(contains(T.Properties.VariableNames, {'_theta','_alpha','_beta','_low_beta','_high_beta','_low_gamma','_TAR','_TBR','_BA'}));
 qc = {'hf_ratio_20_40Hz','rms_mean_uV','peak_to_peak_uV','nan_fraction','flat_fraction','near_boundary','segment_valid_duration','eeg_legacy_hf_flag'};
 cols = [base, metric_cols, qc];
@@ -509,6 +564,8 @@ try
     end
     if isfield(cfg, 'strict_structure'), opts.StrictStructure = logical(cfg.strict_structure); end
     if isfield(cfg, 'qc_hf_threshold'), opts.LegacyHfThreshold = double(cfg.qc_hf_threshold); end
+    if isfield(cfg, 'primary_onset_trim_s'), opts.PrimaryOnsetTrimS = double(cfg.primary_onset_trim_s); end
+    if isfield(cfg, 'onset_trim_variants_s'), opts.OnsetTrimVariantsS = double(cfg.onset_trim_variants_s); end
 catch ME
     warning('Could not read EEG config %s: %s', char(opts.ConfigPath), ME.message);
 end
@@ -527,6 +584,9 @@ if fid == -1, return; end
 fprintf(fid, '# EEG Bandpower Methods Snapshot\n\n');
 fprintf(fid, '- Input: preprocessed EEGLAB .set files.\n');
 fprintf(fid, '- Segmentation: marker state machine with 7->8 as scene viewing.\n');
+fprintf(fid, '- Estimand: sustained-state activity after scene entry.\n');
+fprintf(fid, '- Primary onset trim: %.3f s before PSD and QC.\n', opts.PrimaryOnsetTrimS);
+fprintf(fid, '- Onset sensitivity trims (s): %s.\n', strjoin(string(opts.OnsetTrimVariantsS), ', '));
 fprintf(fid, '- Bandpower: Welch PSD integrated within configured bands.\n');
 fprintf(fid, '- QC metrics: HF ratio, RMS, peak-to-peak, NaN fraction, flat fraction, boundary flag, valid duration.\n');
 fprintf(fid, '- Legacy HF threshold: %.3f, exported for audit/sensitivity only.\n', opts.LegacyHfThreshold);

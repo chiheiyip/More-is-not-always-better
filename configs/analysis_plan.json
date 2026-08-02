@@ -5,6 +5,14 @@
     "between_subject": ["ExperienceGroup"],
     "covariates": ["Gender", "Age", "block", "position", "RecruitmentBatch"]
   },
+  "eeg_onset_policy": {
+    "estimand": "sustained-state activity after scene entry",
+    "config": "configs/eeg_analysis.json",
+    "primary_onset_trim_s": 10,
+    "main_robustness_onset_trim_s": 15,
+    "mild_sensitivity_onset_trim_s": 5,
+    "historical_audit_onset_trim_s": 0
+  },
   "primary_eeg_metrics": [
     "eeg_F_theta",
     "eeg_F_alpha",

@@ -38,6 +38,8 @@ def run_clock_synchronized_fusion(
     eye_screen_h: int | None = None,
     eye_validity_accepted: tuple[str, ...] | None = None,
     eye_timestamp_gap_ms: float = 5000.0,
+    onset_trim_s: float = 0.0,
+    onset_trim_variants_s: tuple[float, ...] | list[float] | None = None,
 ) -> dict[str, Path]:
     scene = read_table(scene_manifest_csv)
     eeg_manifest = read_table(eeg_sample_manifest_csv)
@@ -55,6 +57,7 @@ def run_clock_synchronized_fusion(
     pointwise_root = outdir / "aligned_pointwise"
     qc_rows: list[dict] = []
     timebin_rows: list[dict] = []
+    sensitivity_timebin_rows: list[dict] = []
     pointwise_rows: list[dict] = []
     for _, trial in merged.sort_values(["participant_id", "scene_id"]).iterrows():
         participant_id = str(trial["participant_id"])
@@ -92,7 +95,18 @@ def run_clock_synchronized_fusion(
                 eye_point_source=eye_point_source, eye_screen_w=eye_screen_w,
                 eye_screen_h=eye_screen_h, eye_validity_accepted=eye_validity_accepted,
                 eye_timestamp_gap_ms=eye_timestamp_gap_ms,
+                onset_trim_s=onset_trim_s,
             ))
+            for sensitivity_trim in onset_trim_variants_s or ():
+                if np.isclose(float(sensitivity_trim), float(onset_trim_s)):
+                    continue
+                sensitivity_timebin_rows.extend(synchronized_timebins(
+                    eye, eeg, trial, bin_size_ms=bin_size_ms,
+                    eye_point_source=eye_point_source, eye_screen_w=eye_screen_w,
+                    eye_screen_h=eye_screen_h, eye_validity_accepted=eye_validity_accepted,
+                    eye_timestamp_gap_ms=eye_timestamp_gap_ms,
+                    onset_trim_s=float(sensitivity_trim),
+                ))
 
     scene_qc = pd.DataFrame(qc_rows)
     outputs = {
@@ -103,6 +117,11 @@ def run_clock_synchronized_fusion(
         outputs["aligned_synchronized_timebin"] = write_table(
             pd.DataFrame(timebin_rows), outdir / "aligned_synchronized_timebin_table.csv"
         )
+        if onset_trim_variants_s is not None:
+            outputs["aligned_synchronized_timebin_onset_sensitivity"] = write_table(
+                pd.DataFrame(sensitivity_timebin_rows),
+                outdir / "aligned_synchronized_timebin_onset_sensitivity.csv",
+            )
     if export_pointwise:
         outputs["aligned_pointwise_index"] = write_table(
             pd.DataFrame(pointwise_rows), outdir / "aligned_pointwise_index.csv"
@@ -229,6 +248,7 @@ def synchronized_timebins(
     eye_screen_h: int | None = None,
     eye_validity_accepted: tuple[str, ...] | None = None,
     eye_timestamp_gap_ms: float = 5000.0,
+    onset_trim_s: float = 0.0,
 ) -> list[dict]:
     eeg = eeg.copy()
     eye = eye.copy()
@@ -239,7 +259,10 @@ def synchronized_timebins(
         return []
     srate = _sample_rate(eeg)
     eye_interval_ms = _eye_sample_interval(eye)
-    start = int(eeg["eeg_epoch_ms"].min())
+    if onset_trim_s < 0:
+        raise ValueError("onset_trim_s must be non-negative")
+    scene_start = float(eeg["eeg_epoch_ms"].min())
+    start = scene_start + float(onset_trim_s) * 1000.0
     stop = int(eeg["eeg_epoch_ms"].max() + round(1000.0 / srate))
     n_bins = int((stop - start) // bin_size_ms)
     aoi_path = Path(str(trial.get("aoi_json_path", "")))
@@ -277,6 +300,9 @@ def synchronized_timebins(
                 "bin_index": bin_index, "bin_start_epoch_ms": bin_start, "bin_end_epoch_ms": bin_end,
                 "bin_start_ms": bin_index * bin_size_ms,
                 "bin_end_ms": bin_index * bin_size_ms + duration_ms,
+                "scene_elapsed_s": (bin_start - scene_start) / 1000.0,
+                "analysis_elapsed_s": bin_index * bin_size_ms / 1000.0,
+                "onset_trim_s": float(onset_trim_s),
                 "time_norm": bin_index / max(n_bins - 1, 1),
                 "eeg_sample_count": int(len(eeg_sub)),
                 "eeg_window_coverage": float(len(eeg_sub) / expected_eeg) if expected_eeg else 0.0,
@@ -342,8 +368,19 @@ def _eeg_window_metrics(eeg: pd.DataFrame, srate: float) -> dict:
         freq, density = welch(signal, fs=srate, nperseg=nperseg, noverlap=nperseg // 2)
         for band, (low, high) in BANDS.items():
             mask = (freq >= low) & (freq <= high)
-            out[f"eeg_{roi}_{band}"] = float(np.trapezoid(density[mask], freq[mask])) if mask.any() else np.nan
+            out[f"eeg_{roi}_{band}"] = (
+                _trapezoidal_integral(density[mask], freq[mask])
+                if mask.any()
+                else np.nan
+            )
     return out
+
+
+def _trapezoidal_integral(y: np.ndarray, x: np.ndarray) -> float:
+    """Integrate without relying on NumPy's removed ``np.trapz`` alias."""
+    if len(y) < 2 or len(x) < 2:
+        return 0.0
+    return float(np.sum((y[1:] + y[:-1]) * np.diff(x) / 2.0))
 
 
 def _sample_rate(eeg: pd.DataFrame) -> float:

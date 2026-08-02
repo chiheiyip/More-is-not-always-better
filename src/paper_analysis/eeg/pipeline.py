@@ -6,6 +6,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from paper_analysis.eeg.onset import (
+    assert_primary_matches_sensitivity,
+    build_common_qc_table,
+    load_eeg_analysis_config,
+    onset_qc_sample_flow,
+    validate_onset_metadata,
+)
 from paper_analysis.utils.io import read_table, require_columns, write_table
 
 DEFAULT_EEG_QC_CONFIG = {
@@ -27,27 +34,133 @@ def run_eeg_pipeline(
     eeg_scene_csv: str | Path,
     outdir: str | Path = "outputs/04_eeg",
     eeg_qc_config: str | Path | dict | None = "configs/eeg_qc.json",
+    eeg_analysis_config: str | Path | dict | None = None,
+    eeg_onset_sensitivity_csv: str | Path | None = None,
+    require_onset_metadata: bool = False,
 ) -> dict[str, Path]:
     participants = read_table(participants_csv)
     scene = read_table(scene_manifest_csv)
-    eeg = read_table(eeg_scene_csv)
     qc_config = load_eeg_qc_config(eeg_qc_config)
-    eeg = normalize_eeg_ids(eeg, participants)
-    require_columns(eeg, ["participant_id", "scene_id"], "EEG scene table")
-    eeg = filter_eeg_to_scene(eeg, scene)
+    analysis_config = load_eeg_analysis_config(eeg_analysis_config)
     scene_cols = [c for c in ["participant_id", "scene_id", "WWR", "Complexity", "Cond", "block", "position", "round", "condition_id"] if c in scene.columns]
-    out = eeg.merge(scene[scene_cols], on=["participant_id", "scene_id"], how="left", suffixes=("", "_scene"))
-    out = add_eeg_derived_metrics(out)
+    out = _prepare_eeg_table(
+        read_table(eeg_scene_csv), participants, scene, scene_cols,
+        expected_onset_trim_s=analysis_config["primary_onset_trim_s"] if require_onset_metadata else None,
+        require_onset_metadata=require_onset_metadata,
+    )
     out, scene_qc, subject_qc, thresholds = apply_eeg_quality_qc(out, qc_config)
     qc = eeg_qc(out)
     outdir = Path(outdir)
-    return {
+    outputs = {
         "eeg_trial_long": write_table(out, outdir / "eeg_trial_long.csv"),
         "eeg_qc_summary": write_table(qc, outdir / "eeg_qc_summary.csv"),
         "eeg_scene_qc": write_table(scene_qc, outdir / "eeg_scene_qc.csv"),
         "eeg_subject_qc": write_table(subject_qc, outdir / "eeg_subject_qc.csv"),
         "eeg_qc_thresholds": write_table(thresholds, outdir / "eeg_qc_thresholds.csv"),
     }
+    sensitivity_path = _resolve_sensitivity_path(eeg_scene_csv, eeg_onset_sensitivity_csv)
+    if sensitivity_path is None:
+        if require_onset_metadata:
+            raise ValueError(
+                "Formal sustained-state EEG analysis requires "
+                "all_subjects_scene_level_onset_sensitivity.csv"
+            )
+        return outputs
+
+    sensitivity_raw = _prepare_eeg_table(
+        read_table(sensitivity_path), participants, scene, scene_cols,
+        require_onset_metadata=True, sensitivity=True,
+    )
+    observed = sorted(pd.to_numeric(sensitivity_raw["onset_trim_s"], errors="coerce").dropna().unique())
+    expected = analysis_config["onset_trim_variants_s"]
+    if observed != expected:
+        raise ValueError(f"Onset sensitivity trims must be {expected}; observed {observed}")
+    trial_parts: list[pd.DataFrame] = []
+    scene_parts: list[pd.DataFrame] = []
+    subject_parts: list[pd.DataFrame] = []
+    threshold_parts: list[pd.DataFrame] = []
+    for trim, sub in sensitivity_raw.groupby("onset_trim_s", sort=True):
+        trial, scene_part, subject_part, threshold_part = apply_eeg_quality_qc(
+            sub.reset_index(drop=True), qc_config
+        )
+        for table in (scene_part, subject_part, threshold_part):
+            if "onset_trim_s" in table:
+                table["onset_trim_s"] = float(trim)
+            else:
+                table.insert(0, "onset_trim_s", float(trim))
+        trial_parts.append(trial)
+        scene_parts.append(scene_part)
+        subject_parts.append(subject_part)
+        threshold_parts.append(threshold_part)
+    sensitivity_trials = pd.concat(trial_parts, ignore_index=True)
+    sensitivity_scene_qc = pd.concat(scene_parts, ignore_index=True)
+    sensitivity_subject_qc = pd.concat(subject_parts, ignore_index=True)
+    sensitivity_thresholds = pd.concat(threshold_parts, ignore_index=True)
+    assert_primary_matches_sensitivity(
+        out, sensitivity_trials, analysis_config["primary_onset_trim_s"]
+    )
+    common_qc = build_common_qc_table(sensitivity_trials)
+    outputs.update({
+        "eeg_onset_sensitivity_trial_long": write_table(
+            sensitivity_trials, outdir / "eeg_onset_sensitivity_trial_long.csv"
+        ),
+        "eeg_onset_sensitivity_scene_qc": write_table(
+            sensitivity_scene_qc, outdir / "eeg_onset_sensitivity_scene_qc.csv"
+        ),
+        "eeg_onset_sensitivity_subject_qc": write_table(
+            sensitivity_subject_qc, outdir / "eeg_onset_sensitivity_subject_qc.csv"
+        ),
+        "eeg_onset_sensitivity_qc_thresholds": write_table(
+            sensitivity_thresholds, outdir / "eeg_onset_sensitivity_qc_thresholds.csv"
+        ),
+        "eeg_onset_common_qc": write_table(common_qc, outdir / "eeg_onset_common_qc.csv"),
+        "eeg_onset_qc_sample_flow": write_table(
+            onset_qc_sample_flow(sensitivity_trials, common_qc),
+            outdir / "eeg_onset_qc_sample_flow.csv",
+        ),
+    })
+    return outputs
+
+
+def _prepare_eeg_table(
+    eeg: pd.DataFrame,
+    participants: pd.DataFrame,
+    scene: pd.DataFrame,
+    scene_cols: list[str],
+    *,
+    expected_onset_trim_s: float | None = None,
+    require_onset_metadata: bool = False,
+    sensitivity: bool = False,
+) -> pd.DataFrame:
+    eeg = normalize_eeg_ids(eeg, participants)
+    require_columns(eeg, ["participant_id", "scene_id"], "EEG scene table")
+    errors = validate_onset_metadata(
+        eeg,
+        expected_trim_s=expected_onset_trim_s,
+        sensitivity=sensitivity,
+        require=require_onset_metadata,
+    )
+    if errors:
+        raise ValueError("EEG onset-trim contract failed: " + "; ".join(errors))
+    eeg = filter_eeg_to_scene(eeg, scene)
+    out = eeg.merge(
+        scene[scene_cols], on=["participant_id", "scene_id"], how="left",
+        suffixes=("", "_scene"),
+    )
+    return add_eeg_derived_metrics(out)
+
+
+def _resolve_sensitivity_path(
+    primary_path: str | Path,
+    explicit_path: str | Path | None,
+) -> Path | None:
+    if explicit_path is not None:
+        path = Path(explicit_path)
+        if not path.is_file():
+            raise FileNotFoundError(f"EEG onset sensitivity table not found: {path}")
+        return path
+    adjacent = Path(primary_path).with_name("all_subjects_scene_level_onset_sensitivity.csv")
+    return adjacent if adjacent.is_file() else None
 
 
 def load_eeg_qc_config(config: str | Path | dict | None) -> dict:
@@ -172,8 +285,9 @@ def standardize_qc_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def _hard_qc_reasons(df: pd.DataFrame, config: dict) -> list[list[str]]:
     reasons = [[] for _ in range(len(df))]
-    if "view_dur_s" in df.columns:
-        dur = pd.to_numeric(df["view_dur_s"], errors="coerce")
+    duration_column = "analysis_dur_s" if "analysis_dur_s" in df.columns else "view_dur_s"
+    if duration_column in df.columns:
+        dur = pd.to_numeric(df[duration_column], errors="coerce")
         min_dur = float(config.get("min_segment_duration_s", 1.0))
         for i, is_bad in enumerate(dur.isna() | (dur < min_dur)):
             if bool(is_bad):
@@ -247,7 +361,9 @@ def _apply_subject_quality_exclusion(df: pd.DataFrame, config: dict, policy: str
 
 def _scene_qc_table(df: pd.DataFrame) -> pd.DataFrame:
     cols = [
-        "participant_id", "scene_id", "eeg_qc_policy", "eeg_quality_available", "bad_eeg_quality",
+        "participant_id", "scene_id", "onset_trim_s", "analysis_start_s", "analysis_end_s",
+        "analysis_dur_s", "onset_samples_removed", "trim_status", "eeg_qc_policy",
+        "eeg_quality_available", "bad_eeg_quality",
         "eeg_subject_quality_exclusion", "eeg_qc_reasons", "eeg_qc_candidate_reasons",
         "eeg_legacy_hf_flag", "hf_ratio_20_40Hz", "rms_mean_uV", "peak_to_peak_uV",
         "nan_fraction", "flat_fraction", "near_boundary", "segment_valid_duration",

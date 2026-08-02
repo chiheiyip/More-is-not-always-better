@@ -39,6 +39,9 @@ def build_paper_outputs(
     reviewer_order_evidence = reviewer_order_fatigue_evidence(
         models, diagnostics_dir, sample_flow, reviewer_matrix
     )
+    reviewer_onset_evidence = reviewer_onset_transition_evidence(
+        diagnostics_dir, reviewer_matrix
+    )
     summary = paper_summary_markdown(paper_tables, claim_strength, figure_contracts, data_availability, sample_flow, metric_samples)
     outputs = {
         "table_model_results": write_table(paper_tables, outdir / "table_model_results.csv"),
@@ -54,6 +57,10 @@ def build_paper_outputs(
         "reviewer_order_fatigue_evidence": write_text(
             reviewer_order_evidence,
             response_dir / "reviewer_order_fatigue_evidence.md",
+        ),
+        "reviewer_onset_transition_evidence": write_text(
+            reviewer_onset_evidence,
+            response_dir / "reviewer_onset_transition_evidence.md",
         ),
         "data_availability_index": write_table(data_availability, data_package_dir / "data_availability_index.csv"),
         "data_availability_statement": write_text(data_statement, data_package_dir / "data_availability_statement.md"),
@@ -146,7 +153,86 @@ def reviewer_issue_matrix(
         )
         out.loc[strict_ids, "response_readiness"] = readiness
         out.loc[strict_ids, "readiness_reason"] = reason
+    onset_ids = out["issue_id"].astype(str).eq("R1.11_ONSET_TRANSITION")
+    if onset_ids.any():
+        readiness, reason = _onset_readiness(diagnostics_dir)
+        out.loc[onset_ids, "response_readiness"] = readiness
+        out.loc[onset_ids, "readiness_reason"] = reason
     return out
+
+
+def reviewer_onset_transition_evidence(
+    diagnostics_dir: Path,
+    reviewer_matrix: pd.DataFrame,
+) -> str:
+    onset_dir = diagnostics_dir / "eeg_onset"
+    flow = _read_optional(diagnostics_dir.parent / "04_eeg" / "eeg_onset_qc_sample_flow.csv")
+    comparisons = _read_optional(onset_dir / "onset_window_comparisons.csv")
+    equivalence = _read_optional(onset_dir / "onset_equivalence_10_vs_15.csv")
+    failures = _read_optional(onset_dir / "onset_variant_model_diagnostics.csv")
+    bootstrap_failures = _read_optional(onset_dir / "onset_bootstrap_failures.csv")
+    readiness = reviewer_matrix.loc[
+        reviewer_matrix.get("issue_id", pd.Series(dtype=str)).astype(str).eq(
+            "R1.11_ONSET_TRANSITION"
+        )
+    ]
+    sections = [
+        "# Reviewer R1.11: EEG scene-onset transition evidence",
+        "",
+        "The target estimand is sustained-state EEG after scene entry. The first "
+        "10 s are removed before PSD and QC; 15 s is the main robustness window, "
+        "5 s is a mild sensitivity window, and 0 s is historical audit only.",
+        "",
+        "A fixed trim can mitigate scene-transition and questionnaire-related "
+        "contamination. It cannot prove that residual carryover was eliminated.",
+        "",
+        "## Readiness gate", "",
+        dataframe_to_markdown(readiness) if not readiness.empty else "Onset readiness row missing.",
+        "", "## QC sample flow", "",
+        dataframe_to_markdown(flow) if not flow.empty else "Onset QC flow missing.",
+        "", "## Window comparisons", "",
+        dataframe_to_markdown(comparisons) if not comparisons.empty else "Onset comparison table missing.",
+        "", "## Formal 10-vs-15 s equivalence", "",
+        dataframe_to_markdown(equivalence) if not equivalence.empty else "Equivalence evidence missing.",
+        "", "## Model and bootstrap diagnostics", "",
+        dataframe_to_markdown(failures) if not failures.empty else "Diagnostics missing.",
+        "", "## Bootstrap failures", "",
+        dataframe_to_markdown(bootstrap_failures) if not bootstrap_failures.empty else "No bootstrap failure rows.",
+    ]
+    return "\n".join(sections)
+
+
+def _onset_readiness(diagnostics_dir: Path | None) -> tuple[str, str]:
+    if diagnostics_dir is None:
+        return "needs_revision", "diagnostics directory missing"
+    onset_dir = diagnostics_dir / "eeg_onset"
+    required = {
+        "window comparisons": onset_dir / "onset_window_comparisons.csv",
+        "formal equivalence": onset_dir / "onset_equivalence_10_vs_15.csv",
+        "model diagnostics": onset_dir / "onset_variant_model_diagnostics.csv",
+        "readiness audit": onset_dir / "onset_reviewer_readiness.csv",
+        "bootstrap failure audit": onset_dir / "onset_bootstrap_failures.csv",
+    }
+    failures = [
+        label for label, path in required.items()
+        if not path.is_file()
+        or (label != "bootstrap failure audit" and _read_optional(path).empty)
+    ]
+    audit = _read_optional(required["readiness audit"])
+    if not audit.empty:
+        complete = audit.loc[
+            audit.get("check", pd.Series(dtype=str)).astype(str).eq(
+                "reviewer_evidence_complete"
+            ), "pass"
+        ]
+        if complete.empty or not complete.astype(str).str.lower().isin({"true", "1", "yes"}).all():
+            failures.append("reviewer evidence gate did not pass")
+    if failures:
+        return "needs_revision", "; ".join(dict.fromkeys(failures))
+    return (
+        "ready_to_draft_response",
+        "0/5/10/15-s extraction, common QC, 10-vs-15-s equivalence and diagnostics present; bounded wording required",
+    )
 
 
 def reviewer_order_fatigue_evidence(

@@ -32,6 +32,34 @@ FORBIDDEN_PRIMARY_TERMS = (
 )
 
 
+def _onset_contract_errors(frame: pd.DataFrame, eeg_config: dict[str, Any]) -> list[str]:
+    """Validate the sustained-state trial contract when it is configured."""
+    if "primary_onset_trim_s" not in eeg_config:
+        return []
+    expected = float(eeg_config["primary_onset_trim_s"])
+    required = {
+        "onset_trim_s", "analysis_start_s", "analysis_end_s",
+        "analysis_dur_s", "onset_samples_removed", "trim_status",
+    }
+    errors = []
+    missing = sorted(required - set(frame.columns))
+    if missing:
+        return [f"EEG trial file is missing onset-trim metadata: {missing}."]
+    observed = pd.to_numeric(frame["onset_trim_s"], errors="coerce")
+    if observed.isna().any() or not np.isclose(observed, expected).all():
+        errors.append(
+            f"Formal EEG trial file must declare onset_trim_s={expected:g} for every row."
+        )
+    configured = sorted(float(value) for value in eeg_config.get("onset_trim_variants_s", []))
+    if configured != [0.0, 5.0, 10.0, 15.0]:
+        errors.append("eeg.onset_trim_variants_s must be [0, 5, 10, 15].")
+    if not np.isclose(float(eeg_config.get("equivalence_bound_sd", np.nan)), 0.20):
+        errors.append("eeg.equivalence_bound_sd must be 0.20.")
+    if int(eeg_config.get("onset_random_seed", -1)) != 20260802:
+        errors.append("eeg.onset_random_seed must be 20260802.")
+    return errors
+
+
 def _contract_value_equal(observed: object, expected: object) -> bool:
     try:
         return bool(np.isclose(float(observed), float(expected)))
@@ -167,6 +195,85 @@ def _sequence_tables(trials: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return sequence, balance
 
 
+def _run_onset_variant_order_models(
+    config: dict[str, Any],
+    registry: pd.DataFrame,
+    out: Path,
+    repo_root: str | Path,
+    r_required: bool,
+) -> dict[str, Path]:
+    """Run the locked Model0/Model1/PreviousScene/Block1 suite per trim."""
+    eeg_config = config["eeg"]
+    if "primary_onset_trim_s" not in eeg_config:
+        return {}
+    path = Path(str(eeg_config.get("onset_sensitivity_trial_file", "")))
+    if not path.is_file():
+        raise StageBlockedError(
+            "Formal EEG onset sensitivity file is missing. Re-run MATLAB and "
+            "Python EEG extraction before teacher-priority modeling."
+        )
+    raw = read_table(path)
+    observed = sorted(
+        pd.to_numeric(raw.get("onset_trim_s"), errors="coerce").dropna().unique()
+    )
+    expected = sorted(float(value) for value in eeg_config["onset_trim_variants_s"])
+    if observed != expected:
+        raise StageBlockedError(
+            f"EEG onset sensitivity trims must be {expected}; observed {observed}."
+        )
+    root = out / "onset_window_models"
+    rows = []
+    outputs: dict[str, Path] = {}
+    core = [str(value) for value in eeg_config.get("core_metrics", [])]
+    for trim in expected:
+        selected = raw.loc[
+            np.isclose(pd.to_numeric(raw["onset_trim_s"], errors="coerce"), trim)
+        ].copy()
+        trials = canonicalize_trials(selected)
+        covariates = [
+            column for column in (
+                "Participant", "Gender", "ExperienceGroup", "OrderGroup",
+                "IncludeEEGValid",
+            ) if column not in trials
+        ]
+        if covariates:
+            trials = trials.merge(
+                registry[["Participant", *covariates]], on="Participant",
+                how="left", validate="many_to_one",
+            )
+        trials = trials.loc[
+            trials["IncludeEEGValid"].map(is_truthy) & _scene_qc_mask(trials)
+        ].copy()
+        relative, _ = _metric_columns(trials, core)
+        if len(relative) != len(core):
+            raise StageBlockedError(
+                f"Trim {trim:g} s is missing one or more core relative-power outcomes."
+            )
+        trim_dir = root / f"trim_{trim:g}s"
+        trim_dir.mkdir(parents=True, exist_ok=True)
+        input_path = trim_dir / "eeg_onset_order_model_input.csv"
+        trials.to_csv(input_path, index=False, encoding="utf-8-sig")
+        r_script = Path(repo_root) / "analysis" / "r" / "eeg_order_analysis.R"
+        ran = _invoke_r(
+            str(config.get("rscript", "Rscript")), r_script,
+            [str(input_path), str(trim_dir), ",".join(relative)], r_required,
+        )
+        if ran:
+            _package_r_csv_outputs(trim_dir)
+        rows.append({
+            "onset_trim_s": trim,
+            "participants": trials["Participant"].nunique(),
+            "trials": len(trials),
+            "model_suite": "Model0;Model1;PreviousScene;Block1;CR2",
+            "r_completed": ran,
+            "output_dir": str(trim_dir),
+        })
+    outputs["onset_variant_model_index"] = write_table(
+        pd.DataFrame(rows), root / "onset_variant_model_index.xlsx"
+    )
+    return outputs
+
+
 def run_eeg_order(
     config: dict[str, Any],
     *,
@@ -217,6 +324,7 @@ def run_eeg_order(
         blockers.append(f"Expected three OrderGroup levels; observed {order_groups}.")
     if not bool(eeg_config.get("preprocessing_confirmed", False)):
         blockers.append("EEG preprocessing parameters are not confirmed in config.")
+    blockers.extend(_onset_contract_errors(structural_trials, eeg_config))
     if not audit_path.exists():
         blockers.append(f"Preprocessing audit file is missing: {audit_path}")
     expected_preprocessing = eeg_config.get("preprocessing_parameters", {})
@@ -423,6 +531,9 @@ def run_eeg_primary(
         all_trials["IncludeEEGValid"].map(is_truthy)
     ].copy()
     trials = structural_trials.loc[_scene_qc_mask(structural_trials)].copy()
+    onset_errors = _onset_contract_errors(structural_trials, eeg_config)
+    if onset_errors:
+        raise StageBlockedError(" ".join(onset_errors))
     if trials.empty:
         raise StageBlockedError(
             "No EEG trials remain after participant eligibility and scene-level QC."
@@ -490,6 +601,12 @@ def run_eeg_primary(
             "Forbidden": ";".join(FORBIDDEN_PRIMARY_TERMS),
             "PrimaryMeasure": "relative_power",
             "BootstrapIterations": int(eeg_config.get("bootstrap_iterations", 5000)),
+            "PrimaryOnsetTrimS": eeg_config.get("primary_onset_trim_s", np.nan),
+            "OnsetTrimVariantsS": ",".join(
+                map(str, eeg_config.get("onset_trim_variants_s", []))
+            ),
+            "EquivalenceBoundSD": eeg_config.get("equivalence_bound_sd", np.nan),
+            "OnsetRandomSeed": eeg_config.get("onset_random_seed", np.nan),
         }
     ])
     outputs = {
@@ -626,6 +743,9 @@ def run_eeg_primary(
     )
     if r_ran:
         _package_r_csv_outputs(out)
+        outputs.update(_run_onset_variant_order_models(
+            config, registry, out, repo_root, r_required
+        ))
         crossmodal_base = [
             str(v) for v in eeg_config.get(
                 "crossmodal_metrics", ["O_theta", "O_alpha"]
@@ -716,6 +836,11 @@ def run_eeg_primary(
                 "and log10 absolute power is a fixed sensitivity analysis.",
                 "The structural audit cohort and scene-QC model cohort are "
                 "reported separately.",
+                "The formal estimand is sustained-state EEG: the first 10 s of "
+                "each scene are removed before PSD and QC; 15 s is the main "
+                "robustness window, with 5 s and 0 s used for sensitivity audit.",
+                "A fixed onset trim mitigates transition influence but cannot "
+                "demonstrate that residual carryover is eliminated.",
             ],
             tables=[
                 ("Preprocessing and extraction audit", preprocessing),
@@ -745,6 +870,9 @@ def run_eeg_primary(
                 "主要度量为 relative power，log10 absolute power 仅作敏感性。",
                 "ExperienceGroup 严格沿用代码仓库 Q1.4 分类，"
                 "未使用 ExerciseFrequency。",
+                "正式估计对象为持续稳态EEG：PSD与QC前剔除场景前10秒，"
+                "并以15秒、5秒和0秒版本审计窗口敏感性。固定截断不能证明"
+                "残余carryover完全消失。",
             ],
             tables=[
                 ("结局预注册", classification),
@@ -812,6 +940,8 @@ def run_eeg_primary(
         f"Scene-QC model cohort: {trials['Participant'].nunique()} participants / "
         f"{len(trials)} trials\n"
         f"Core metrics: {', '.join(core)}\n"
+        f"Primary onset trim: {eeg_config.get('primary_onset_trim_s', 'legacy_unspecified')} s\n"
+        f"Onset sensitivity trims: {eeg_config.get('onset_trim_variants_s', [])}\n"
         "Relative power was the primary measure; absolute power was sensitivity only.\n"
         "No three-way interaction or condition-by-OrderGroup term was permitted.\n",
         out / "25_eeg_summary.txt",

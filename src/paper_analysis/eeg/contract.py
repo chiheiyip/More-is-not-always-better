@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from paper_analysis.eeg.onset import ONSET_METADATA_COLUMNS, validate_onset_metadata
+
 
 ID_COLUMN_OPTIONS = ("participant_id", "subject_id")
 REQUIRED_COLUMNS = ("scene_id",)
@@ -20,7 +22,13 @@ QC_RECOMMENDED_COLUMNS = (
 )
 
 
-def validate_eeg_scene_summary(path: str | Path) -> dict:
+def validate_eeg_scene_summary(
+    path: str | Path,
+    *,
+    expected_onset_trim_s: float | None = None,
+    require_onset_metadata: bool = False,
+    sensitivity: bool = False,
+) -> dict:
     eeg_path = Path(path)
     if not eeg_path.exists():
         return {
@@ -30,12 +38,26 @@ def validate_eeg_scene_summary(path: str | Path) -> dict:
             "warnings": [],
             "rows": 0,
             "columns": [],
+            "compatibility_mode": False,
         }
     df = pd.read_csv(eeg_path, encoding="utf-8-sig")
-    return validate_eeg_scene_summary_frame(df, path=eeg_path)
+    return validate_eeg_scene_summary_frame(
+        df,
+        path=eeg_path,
+        expected_onset_trim_s=expected_onset_trim_s,
+        require_onset_metadata=require_onset_metadata,
+        sensitivity=sensitivity,
+    )
 
 
-def validate_eeg_scene_summary_frame(df: pd.DataFrame, path: str | Path | None = None) -> dict:
+def validate_eeg_scene_summary_frame(
+    df: pd.DataFrame,
+    path: str | Path | None = None,
+    *,
+    expected_onset_trim_s: float | None = None,
+    require_onset_metadata: bool = False,
+    sensitivity: bool = False,
+) -> dict:
     columns = set(df.columns)
     errors: list[str] = []
     warnings: list[str] = []
@@ -54,12 +76,23 @@ def validate_eeg_scene_summary_frame(df: pd.DataFrame, path: str | Path | None =
     missing_qc = [col for col in QC_RECOMMENDED_COLUMNS if col not in columns]
     if missing_qc:
         warnings.append("missing recommended QC columns: " + ",".join(missing_qc))
+    onset_missing = [column for column in ONSET_METADATA_COLUMNS if column not in columns]
+    compatibility_mode = bool(onset_missing and not require_onset_metadata)
+    errors.extend(validate_onset_metadata(
+        df,
+        expected_trim_s=expected_onset_trim_s,
+        sensitivity=sensitivity,
+        require=require_onset_metadata,
+    ))
     duplicate_count = 0
     id_col = "participant_id" if "participant_id" in columns else "subject_id" if "subject_id" in columns else None
     if id_col and "scene_id" in columns:
-        duplicate_count = int(df.duplicated([id_col, "scene_id"]).sum())
+        key = [id_col, "scene_id"] + (["onset_trim_s"] if sensitivity and "onset_trim_s" in columns else [])
+        duplicate_count = int(df.duplicated(key).sum())
         if duplicate_count:
-            errors.append(f"duplicate {id_col}+scene_id rows: {duplicate_count}")
+            message = f"duplicate {'+'.join(key)} rows: {duplicate_count}"
+            if message not in errors:
+                errors.append(message)
     status = "error" if errors else "warning" if warnings else "pass"
     return {
         "path": str(path) if path is not None else "<dataframe>",
@@ -69,4 +102,5 @@ def validate_eeg_scene_summary_frame(df: pd.DataFrame, path: str | Path | None =
         "rows": int(len(df)),
         "columns": sorted(df.columns.tolist()),
         "duplicate_key_rows": duplicate_count,
+        "compatibility_mode": compatibility_mode,
     }

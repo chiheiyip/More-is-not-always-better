@@ -16,8 +16,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Validate an EEG scene-level summary CSV against the Python pipeline contract.")
     parser.add_argument("eeg_scene_csv")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--formal-onset-trim-s", type=float, default=None)
+    parser.add_argument("--sensitivity", action="store_true")
     args = parser.parse_args()
-    result = validate_eeg_scene_summary(args.eeg_scene_csv)
+    result = validate_eeg_scene_summary(
+        args.eeg_scene_csv,
+        expected_onset_trim_s=args.formal_onset_trim_s,
+        require_onset_metadata=args.formal_onset_trim_s is not None or args.sensitivity,
+        sensitivity=args.sensitivity,
+    )
     if args.json:
         print(json.dumps(_json_safe(result), ensure_ascii=False, indent=2))
         return

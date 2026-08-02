@@ -331,6 +331,11 @@ def build_inputs(args: argparse.Namespace) -> dict[str, Path]:
         "parietal_roi": "P3,PZ,P4",
         "occipital_roi": "O1,OZ,O2",
         "power_estimator": "Welch PSD integrated over band",
+        "estimand": "sustained-state activity after scene entry",
+        "primary_onset_trim_s": 10,
+        "onset_trim_variants_s": "0,5,10,15",
+        "onset_equivalence_bound_sd": 0.20,
+        "onset_random_seed": 20260802,
     }
     preprocessing_audit_path = (
         output_dir / "confirmed_eeg_preprocessing_audit.xlsx"
@@ -387,6 +392,16 @@ def build_inputs(args: argparse.Namespace) -> dict[str, Path]:
         },
         "eeg": {
             "trial_file": str(args.eeg_trial_csv.resolve()),
+            "onset_sensitivity_trial_file": str(
+                args.eeg_trial_csv.resolve().with_name(
+                    "eeg_onset_sensitivity_trial_long.csv"
+                )
+            ),
+            "primary_onset_trim_s": 10,
+            "onset_trim_variants_s": [0, 5, 10, 15],
+            "equivalence_bound_sd": 0.20,
+            "onset_random_seed": 20260802,
+            "onset_analysis_dir": "",
             "preprocessing_audit_file": str(
                 preprocessing_audit_path
             ),

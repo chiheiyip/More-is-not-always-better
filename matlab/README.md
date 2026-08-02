@@ -1,5 +1,11 @@
 # MATLAB EEG Export Contract
 
+Formal raw-data export uses `configs/eeg_analysis.json`: 10 s is the primary
+scene-onset trim and 0/5/10/15 s are all re-extracted before bandpower and QC.
+Direct MATLAB calls remain backward compatible (`PrimaryOnsetTrimS = 0`,
+`OnsetTrimVariantsS = 0`) unless a config or explicit name-value arguments are
+provided.
+
 The fusion pipeline reads EEG results from:
 
 ```text

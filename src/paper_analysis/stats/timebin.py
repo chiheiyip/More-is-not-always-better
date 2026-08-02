@@ -32,6 +32,7 @@ MODEL_COLUMNS = [
     "n_subjects", "n_trials", "model_type", "formula", "status",
     "analysis_resolution", "analysis_status", "hypothesis_family",
     "clock_qc_policy",
+    "onset_trim_s",
 ]
 
 
@@ -40,19 +41,41 @@ def run_timebin_models(
     clock_scene_qc_csv: str | Path,
     outdir: str | Path = "outputs/06_models",
     scene_model_results_csv: str | Path | None = None,
+    onset_trim_filter_s: float | None = None,
 ) -> dict[str, Path]:
     """Fit participant-clustered GEE models at synchronized 2-second resolution."""
     timebins = read_table(synchronized_timebin_csv)
+    if onset_trim_filter_s is not None:
+        if "onset_trim_s" not in timebins:
+            raise ValueError("Synchronized time-bin table lacks onset_trim_s")
+        timebins = timebins.loc[
+            np.isclose(
+                pd.to_numeric(timebins["onset_trim_s"], errors="coerce"),
+                float(onset_trim_filter_s),
+            )
+        ].copy()
     qc = read_table(clock_scene_qc_csv)
     work = _eligible_timebins(timebins, qc)
     rows: list[dict] = []
     diagnostics: list[dict] = []
 
-    eeg = work.drop_duplicates(KEYS + ["bin_index"]).copy()
-    for outcome in EEG_OUTCOMES:
-        _fit_outcome(eeg, outcome, "eeg", rows, diagnostics)
-    for outcome in EYE_OUTCOMES:
-        _fit_outcome(work, outcome, "eye", rows, diagnostics, aoi=True)
+    grouped = (
+        work.groupby("onset_trim_s", dropna=False)
+        if "onset_trim_s" in work.columns
+        else [(np.nan, work)]
+    )
+    for onset_trim_s, window in grouped:
+        row_start = len(rows)
+        diagnostic_start = len(diagnostics)
+        eeg = window.drop_duplicates(KEYS + ["bin_index"]).copy()
+        for outcome in EEG_OUTCOMES:
+            _fit_outcome(eeg, outcome, "eeg", rows, diagnostics)
+        for outcome in EYE_OUTCOMES:
+            _fit_outcome(window, outcome, "eye", rows, diagnostics, aoi=True)
+        for row in rows[row_start:]:
+            row["onset_trim_s"] = onset_trim_s
+        for row in diagnostics[diagnostic_start:]:
+            row["onset_trim_s"] = onset_trim_s
 
     models = _apply_fdr(pd.DataFrame(rows)).reindex(columns=MODEL_COLUMNS)
     summaries = temporal_scene_summaries(work)
@@ -206,7 +229,8 @@ def _timebin_formula(data: pd.DataFrame, outcome: str, *, aoi: bool) -> str:
 
 def temporal_scene_summaries(data: pd.DataFrame) -> pd.DataFrame:
     rows: list[dict] = []
-    eeg = data.drop_duplicates(KEYS + ["bin_index"]).copy()
+    onset = ["onset_trim_s"] if "onset_trim_s" in data.columns else []
+    eeg = data.drop_duplicates(KEYS + onset + ["bin_index"]).copy()
     specs = [(eeg, outcome, "eeg", []) for outcome in EEG_OUTCOMES if outcome in eeg.columns]
     specs += [
         (data, outcome, "eye", ["class_name"] if "class_name" in data.columns else [])
@@ -222,7 +246,7 @@ def temporal_scene_summaries(data: pd.DataFrame) -> pd.DataFrame:
             labels=["early", "middle", "late"],
             right=False,
         )
-        grouping = KEYS + extra
+        grouping = KEYS + onset + extra
         for key, sub in work.groupby(grouping, dropna=False):
             key_tuple = key if isinstance(key, tuple) else (key,)
             base = dict(zip(grouping, key_tuple))

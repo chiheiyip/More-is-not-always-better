@@ -1,5 +1,28 @@
 # EEG Scene-Level Summary Contract
 
+## Sustained-state onset-window contract
+
+The formal EEG estimand is sustained-state activity after scene entry. The
+MATLAB exporter removes the first 10 s of every `7 -> 8` scene before Welch PSD
+and all EEG QC metrics are computed. It also re-extracts 0, 5, 10 and 15 s
+variants from the same loaded waveform.
+
+- `all_subjects_scene_level.csv` is the 10 s primary projection and is unique by
+  `participant_id + scene_id`.
+- `all_subjects_scene_level_onset_sensitivity.csv` is long-form and unique by
+  `participant_id + scene_id + onset_trim_s`.
+- `view_start_s`, `view_end_s` and `view_dur_s` always describe the complete
+  marker interval. They remain the duration-matching source for eye–EEG sync.
+- `analysis_start_s`, `analysis_end_s` and `analysis_dur_s` describe the signal
+  used for PSD/QC. Hard EEG duration QC uses `analysis_dur_s` first.
+- Rows with less than 1 s remaining are retained with `trim_status =
+  insufficient_post_trim_duration`, missing signal metrics, and
+  `segment_valid_duration = false`.
+
+Legacy scene CSVs without onset metadata remain readable by non-formal tools.
+The real-data formal modeling entry point rejects them and requests a MATLAB
+re-export.
+
 This repository treats raw EEGLAB `.set/.fdt` files as read-only inputs. Formal Python analysis starts from a scene-level EEG CSV, usually exported by `matlab/run_eeg_bandpower_from_set.m` to `summary/all_subjects_scene_level.csv`.
 
 Minimum required columns:
