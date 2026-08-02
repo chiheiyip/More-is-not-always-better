@@ -23,6 +23,7 @@ def test_timebin_gee_is_independent_robust_and_coprimary(tmp_path) -> None:
                 rows.append({
                     "participant_id": f"P{subject:02d}", "scene_id": scene_id,
                     "bin_index": bin_index, "time_norm": time_norm,
+                    "onset_trim_s": 10.0,
                     "eeg_window_coverage": 1.0, "WWR": wwr,
                     "Complexity": complexity,
                     "ExperienceGroup": "High" if subject % 2 else "Low",
@@ -53,6 +54,7 @@ def test_timebin_gee_is_independent_robust_and_coprimary(tmp_path) -> None:
     assert models.loc[models["hypothesis_family"].str.startswith("H_time_"), "p_fdr_bh"].notna().all()
     assert diagnostics["model_type"].str.contains("participant_clustered_independent_robust").all()
     assert {"early_mean", "middle_mean", "late_mean", "late_minus_early", "scene_slope_per_time_norm"}.issubset(summaries.columns)
+    assert summaries["onset_trim_s"].eq(10.0).all()
 
 
 def test_timebin_eligibility_is_scene_level_not_complete_participant() -> None:

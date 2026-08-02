@@ -238,7 +238,7 @@ def temporal_scene_summaries(data: pd.DataFrame) -> pd.DataFrame:
     ]
     for frame, outcome, modality, extra in specs:
         value = _truthy(frame[outcome]).astype(float) if outcome == "visited" else pd.to_numeric(frame[outcome], errors="coerce")
-        work = frame[KEYS + ["time_norm", *extra]].copy()
+        work = frame[KEYS + onset + ["time_norm", *extra]].copy()
         work["value"] = value
         work["phase"] = pd.cut(
             pd.to_numeric(work["time_norm"], errors="coerce"),
