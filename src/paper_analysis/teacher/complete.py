@@ -1472,7 +1472,7 @@ def _build_top_report(outputs_root: Path, run_root: Path) -> Path:
 
 {eye_effect_text}
 
-#### 六场景AOI与Fig. 6眼动热图
+### 3.1 六场景AOI与Fig. 6眼动热图
 
 {eye_figure_text}
 
