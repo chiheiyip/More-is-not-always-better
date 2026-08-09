@@ -35,7 +35,7 @@ def main() -> None:
         timezone_name=args.timezone,
         export_pointwise=not args.no_pointwise,
         build_timebins=not args.no_timebins,
-        onset_trim_s=onset["primary_onset_trim_s"],
+        onset_trim_s=onset["reference_onset_trim_s"],
         onset_trim_variants_s=onset["onset_trim_variants_s"],
     )
     for name, path in outputs.items():

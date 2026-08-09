@@ -45,7 +45,7 @@ def run_eeg_pipeline(
     scene_cols = [c for c in ["participant_id", "scene_id", "WWR", "Complexity", "Cond", "block", "position", "round", "condition_id"] if c in scene.columns]
     out = _prepare_eeg_table(
         read_table(eeg_scene_csv), participants, scene, scene_cols,
-        expected_onset_trim_s=analysis_config["primary_onset_trim_s"] if require_onset_metadata else None,
+        expected_onset_trim_s=analysis_config["reference_onset_trim_s"] if require_onset_metadata else None,
         require_onset_metadata=require_onset_metadata,
     )
     out, scene_qc, subject_qc, thresholds = apply_eeg_quality_qc(out, qc_config)
@@ -97,7 +97,7 @@ def run_eeg_pipeline(
     sensitivity_subject_qc = pd.concat(subject_parts, ignore_index=True)
     sensitivity_thresholds = pd.concat(threshold_parts, ignore_index=True)
     assert_primary_matches_sensitivity(
-        out, sensitivity_trials, analysis_config["primary_onset_trim_s"]
+        out, sensitivity_trials, analysis_config["reference_onset_trim_s"]
     )
     common_qc = build_common_qc_table(sensitivity_trials)
     outputs.update({

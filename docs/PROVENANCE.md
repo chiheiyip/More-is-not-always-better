@@ -38,7 +38,7 @@ formal stages stop when R or its packages are unavailable.
 | Scene manifest | `scene_manifest` | `participant_id + scene_id` trial index, WWR, complexity, order, eye/AOI paths. |
 | Questionnaire export | `questionnaire_wide` or `questionnaire_long` | S1-S5, B1-B3, IPQ, subjective outcomes. |
 | Eye-tracking CSV and AOI JSON | `scene_manifest.eye_csv_path`, `scene_manifest.aoi_json_path` | AOI metrics, time-bin metrics, AOI validity. |
-| EEG scene export | `eeg_scene_csv` | Formal 10-s sustained-state EEG metrics plus full-view timing landmarks; the adjacent onset-sensitivity export contains 0/5/10/15-s waveform re-extractions. |
+| EEG scene export | `eeg_scene_csv` | Reference projection plus full-view timing landmarks; the adjacent onset-sensitivity export contains the equal-status 0/5/10/15-s waveform re-extractions used for parallel inference. |
 
 ## Standardization Layer
 
@@ -57,7 +57,7 @@ All later tables must preserve these keys.
 | Questionnaire | `outputs/02_questionnaire/questionnaire_long.csv` | Subjective outcomes attached to trial index. |
 | Questionnaire analysis | `outputs/02_questionnaire/questionnaire_long.csv` | Canonical questionnaire-specific source using all available questionnaire scene trials; EEG QC is not applied. |
 | Eye tracking | `outputs/03_eye_tracking/eye_aoi_trial_long.csv` | AOI metrics attached to trial index. |
-| EEG | `outputs/04_eeg/eeg_trial_long.csv` | Formal 10-s EEG scene metrics attached to trial index. `eeg_onset_sensitivity_trial_long.csv` and `eeg_onset_common_qc.csv` provide window-specific QC and the 5/10/15 common set. |
+| EEG | `outputs/04_eeg/eeg_trial_long.csv` | Compatibility/reference projection for scene-level consumers. `eeg_onset_sensitivity_trial_long.csv` and `eeg_onset_common_qc.csv` provide the equal-status 0/5/10/15-s parallel analysis set and common QC. |
 
 ## Fusion Layer
 
@@ -66,8 +66,8 @@ All later tables must preserve these keys.
 - `analysis_master_long.csv` for statistical models.
 - `aligned_scene_table.csv` for scene-level EEG+AOI fusion.
 - `aligned_timebin_table.csv` for legacy compatibility only; EEG is scene-repeated and the table is not used for temporal inference.
-- `aligned_synchronized_timebin_table.csv` for window-specific eye/EEG features from identical absolute-clock intervals.
-- `aligned_synchronized_timebin_onset_sensitivity.csv` for the re-anchored 0/5/15-s synchronized sensitivity windows; the primary synchronized table uses 10 s.
+- `aligned_synchronized_timebin_table.csv` for all four equal-status 0/5/10/15-s windows, with eye/EEG features calculated from identical absolute-clock intervals and placed on the original scene time axis.
+- `aligned_synchronized_timebin_onset_sensitivity` remains only as an in-process compatibility alias to the same canonical four-window table; no duplicate sensitivity file is written.
 - `clock_alignment_scene_qc.csv` and `clock_alignment_participant_qc.csv` for clock eligibility.
 - `aligned_pointwise/` for the auditable nearest-sample match at ≤2 ms.
 

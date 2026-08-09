@@ -35,8 +35,81 @@ from paper_analysis.teacher.state import (
     method_contract_hash,
     require_approval,
     write_approval_template,
+    stage_method_contract_hash,
+)
+from paper_analysis.teacher.complete import (
+    _all_files_index,
+    _manifest_complete,
+    _parallel_order_carryover_audit,
 )
 from paper_analysis.teacher.reporting import write_markdown_report
+
+
+def test_all_files_index_excludes_its_own_output(tmp_path: Path) -> None:
+    (tmp_path / "result.csv").write_text("value\n1\n", encoding="utf-8")
+    (tmp_path / "结果文件总索引.xlsx").write_bytes(b"stale index")
+
+    index = _all_files_index(tmp_path)
+
+    assert index["RelativePath"].tolist() == ["result.csv"]
+
+
+@pytest.mark.parametrize(
+    ("stage", "status", "required_file"),
+    [
+        ("eye-stage1", "review_required", "AOI_masks_approved.txt"),
+        ("eye-stage3-plan", "approval_required", "stage3_plan.txt"),
+    ],
+)
+def test_validated_gate_stage_can_be_reused(
+    tmp_path: Path, stage: str, status: str, required_file: str
+) -> None:
+    stage_dir = tmp_path / stage
+    stage_dir.mkdir()
+    (stage_dir / required_file).write_text("approved", encoding="utf-8")
+    (stage_dir / "input_hashes.json").write_text("[]", encoding="utf-8")
+    (stage_dir / "run_manifest.json").write_text(json.dumps({
+        "status": status,
+        "stage_method_contract_hash": stage_method_contract_hash(
+            Path(__file__).resolve().parents[1], stage
+        ),
+    }), encoding="utf-8")
+    assert _manifest_complete(
+        stage_dir / "run_manifest.json",
+        Path(__file__).resolve().parents[1],
+        stage,
+    )
+
+
+def test_parallel_order_carryover_audit_applies_joint_fdr(tmp_path: Path) -> None:
+    for trim, p_value in zip((0, 5, 10, 15), (0.20, 0.04, 0.01, 0.30)):
+        folder = tmp_path / "onset_window_models" / f"trim_{trim}s"
+        folder.mkdir(parents=True)
+        pd.DataFrame([
+            {
+                "outcome": "O_theta_relative",
+                "model": "PreviousScene",
+                "term": "PreviousWWRWWR75",
+                "estimate": 0.01,
+                "std.error": 0.01,
+                "df": 30,
+                "p.value": p_value,
+            },
+            {
+                "outcome": "O_theta_relative",
+                "model": "Model1",
+                "term": "Block",
+                "estimate": 0.01,
+                "std.error": 0.01,
+                "df": 30,
+                "p.value": 0.001,
+            },
+        ]).to_csv(folder / "09_eeg_order_CR2.csv", index=False)
+    audit = _parallel_order_carryover_audit(tmp_path)
+    assert len(audit) == 4
+    assert audit["detected_raw_0_05"].sum() == 2
+    assert audit["detected_parallel_fdr_0_05"].sum() == 1
+    assert audit["term"].eq("PreviousWWRWWR75").all()
 
 
 def test_modality_registry_is_union_and_eye_does_not_require_eeg() -> None:
@@ -318,7 +391,8 @@ def test_eeg_structural_cohort_is_separated_from_scene_qc_model_cohort() -> None
 
 def test_teacher_eeg_requires_locked_formal_onset_contract_when_configured() -> None:
     config = {
-        "primary_onset_trim_s": 10,
+        "onset_trim_strategy": "parallel",
+        "reference_onset_trim_s": 10,
         "onset_trim_variants_s": [0, 5, 10, 15],
         "equivalence_bound_sd": 0.20,
         "onset_random_seed": 20260802,

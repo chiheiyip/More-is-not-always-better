@@ -74,7 +74,8 @@ def test_primary_and_long_onset_tables_have_locked_contract_and_independent_qc(t
             "bad_scene_fraction_threshold": 1.0,
         },
         eeg_analysis_config={
-            "primary_onset_trim_s": 10,
+            "onset_trim_strategy": "parallel",
+            "reference_onset_trim_s": 10,
             "onset_trim_variants_s": [0, 5, 10, 15],
             "equivalence_bound_sd": 0.2,
             "bootstrap_iterations": 10,
@@ -92,7 +93,10 @@ def test_primary_and_long_onset_tables_have_locked_contract_and_independent_qc(t
     pd.testing.assert_frame_equal(trial.reset_index(drop=True), expected, check_dtype=False)
     common = pd.read_csv(outputs["eeg_onset_common_qc"])
     assert len(common) == 8
-    assert {"qc_pass_trim_5", "qc_pass_trim_10", "qc_pass_trim_15", "onset_common_qc_pass"}.issubset(common)
+    assert {
+        "qc_pass_trim_0", "qc_pass_trim_5", "qc_pass_trim_10",
+        "qc_pass_trim_15", "onset_common_qc_pass",
+    }.issubset(common)
 
 
 def test_analysis_duration_takes_priority_over_full_view_duration_for_hard_qc() -> None:
@@ -126,7 +130,7 @@ def test_legacy_csv_is_compatible_but_formal_contract_requires_trim_metadata() -
     assert any("onset-trim metadata" in error for error in formal["errors"])
 
 
-def test_synchronized_bins_reanchor_both_modalities_at_exact_trim() -> None:
+def test_synchronized_bins_preserve_original_scene_axis_for_all_parallel_trims() -> None:
     srate = 500
     seconds = 20
     epoch = 1_800_000_000_000 + np.arange(seconds * srate) * 2
@@ -142,8 +146,12 @@ def test_synchronized_bins_reanchor_both_modalities_at_exact_trim() -> None:
         "Gaze Point Y[px]": 100.0,
     })
     trial = pd.Series({"participant_id": "P01", "scene_id": 1, "aoi_json_path": ""})
-    bins10 = pd.DataFrame(synchronized_timebins(eye, eeg, trial, onset_trim_s=10))
-    bins15 = pd.DataFrame(synchronized_timebins(eye, eeg, trial, onset_trim_s=15))
+    windows = {
+        trim: pd.DataFrame(synchronized_timebins(eye, eeg, trial, onset_trim_s=trim))
+        for trim in (0, 5, 10, 15)
+    }
+    bins10 = windows[10]
+    bins15 = windows[15]
     assert bins10["bin_index"].drop_duplicates().tolist() == [0, 1, 2, 3, 4]
     assert bins15["bin_index"].drop_duplicates().tolist() == [0, 1]
     assert bins10["bin_start_epoch_ms"].min() == epoch[0] + 10_000
@@ -151,6 +159,16 @@ def test_synchronized_bins_reanchor_both_modalities_at_exact_trim() -> None:
     assert bins10["scene_elapsed_s"].min() == 10
     assert bins10["analysis_elapsed_s"].min() == 0
     assert bins10["onset_trim_s"].eq(10).all()
+    assert [windows[trim]["scene_elapsed_s"].min() for trim in windows] == [0, 5, 10, 15]
+    assert [windows[trim]["scene_time_norm"].min() for trim in windows] == [0, 0.25, 0.5, 0.75]
+    overlap10 = windows[10].loc[
+        windows[10]["bin_start_epoch_ms"].isin(windows[0]["bin_start_epoch_ms"])
+    ]
+    overlap0 = windows[0].loc[
+        windows[0]["bin_start_epoch_ms"].isin(overlap10["bin_start_epoch_ms"])
+    ]
+    assert overlap10["eeg_sample_count"].tolist() == overlap0["eeg_sample_count"].tolist()
+    assert overlap10["eye_sample_count"].tolist() == overlap0["eye_sample_count"].tolist()
 
 
 def _equivalence_frame(slope_change: float) -> pd.DataFrame:
@@ -198,7 +216,7 @@ def test_paired_bootstrap_equivalence_equivalent_non_equivalent_and_failure() ->
 
 
 def test_common_qc_excludes_any_window_or_subject_failure() -> None:
-    frame = _onset_rows().loc[lambda value: value["onset_trim_s"].isin([5, 10, 15])].copy()
+    frame = _onset_rows().copy()
     frame["bad_eeg_quality"] = False
     frame["eeg_subject_quality_exclusion"] = False
     frame.loc[

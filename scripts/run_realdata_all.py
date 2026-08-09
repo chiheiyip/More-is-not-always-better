@@ -107,7 +107,8 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
             "max_participants": args.max_participants,
             "steps": planned_steps,
             "raw_inputs_read_only": True,
-            "primary_onset_trim_s": eeg_analysis["primary_onset_trim_s"],
+            "reference_onset_trim_s": eeg_analysis["reference_onset_trim_s"],
+            "onset_trim_strategy": eeg_analysis["onset_trim_strategy"],
             "onset_trim_variants_s": eeg_analysis["onset_trim_variants_s"],
         }
 
@@ -170,7 +171,7 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
     eeg_contract = validate_eeg_scene_summary(
         eeg_scene_csv,
         expected_onset_trim_s=(
-            eeg_analysis["primary_onset_trim_s"] if formal_onset_required else None
+            eeg_analysis["reference_onset_trim_s"] if formal_onset_required else None
         ),
         require_onset_metadata=formal_onset_required,
     )
@@ -203,7 +204,7 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
         ),
         export_pointwise_alignment=args.export_pointwise_alignment,
         run_synchronized_timebins=args.run_synchronized_timebins,
-        onset_trim_s=eeg_analysis["primary_onset_trim_s"],
+        onset_trim_s=eeg_analysis["reference_onset_trim_s"],
         onset_trim_variants_s=eeg_analysis["onset_trim_variants_s"],
     )
     questionnaire = run_questionnaire_pipeline(
@@ -254,19 +255,10 @@ def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
                 clock_scene_qc_csv=fusion["clock_alignment_scene_qc"],
                 outdir=outputs_root / "06_models",
                 scene_model_results_csv=stats["model_results"],
+                expected_onset_trims_s=eeg_analysis["onset_trim_variants_s"],
+                time_column="scene_time_norm",
             )
             stats.update(temporal)
-            sensitivity_timebins = fusion.get(
-                "aligned_synchronized_timebin_onset_sensitivity"
-            )
-            if sensitivity_timebins:
-                temporal_15 = run_timebin_models(
-                    synchronized_timebin_csv=sensitivity_timebins,
-                    clock_scene_qc_csv=fusion["clock_alignment_scene_qc"],
-                    outdir=outputs_root / "06_models" / "onset_15s_timebin",
-                    onset_trim_filter_s=15.0,
-                )
-                stats.update({f"onset15_{name}": path for name, path in temporal_15.items()})
     if not args.skip_diagnostics:
         diagnostics = run_diagnostics(
             fusion["analysis_master_long"],

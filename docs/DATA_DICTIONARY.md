@@ -4,7 +4,7 @@
 
 | Field | Meaning |
 |---|---|
-| `onset_trim_s` | Seconds removed before EEG PSD/QC; 10 s is formal primary. |
+| `onset_trim_s` | Seconds removed before EEG PSD/QC; 0, 5, 10 and 15 s are equal-status parallel windows. |
 | `analysis_start_s` / `analysis_end_s` | Recording-relative post-trim EEG boundaries. |
 | `analysis_dur_s` | Duration used for EEG metrics and hard duration QC. |
 | `onset_samples_removed` | Exact number of leading EEG samples removed in MATLAB. |

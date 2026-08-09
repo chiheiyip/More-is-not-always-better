@@ -34,9 +34,14 @@ FORBIDDEN_PRIMARY_TERMS = (
 
 def _onset_contract_errors(frame: pd.DataFrame, eeg_config: dict[str, Any]) -> list[str]:
     """Validate the sustained-state trial contract when it is configured."""
-    if "primary_onset_trim_s" not in eeg_config:
+    if not any(
+        key in eeg_config
+        for key in ("reference_onset_trim_s", "primary_onset_trim_s")
+    ):
         return []
-    expected = float(eeg_config["primary_onset_trim_s"])
+    expected = float(eeg_config.get(
+        "reference_onset_trim_s", eeg_config.get("primary_onset_trim_s")
+    ))
     required = {
         "onset_trim_s", "analysis_start_s", "analysis_end_s",
         "analysis_dur_s", "onset_samples_removed", "trim_status",
@@ -53,6 +58,8 @@ def _onset_contract_errors(frame: pd.DataFrame, eeg_config: dict[str, Any]) -> l
     configured = sorted(float(value) for value in eeg_config.get("onset_trim_variants_s", []))
     if configured != [0.0, 5.0, 10.0, 15.0]:
         errors.append("eeg.onset_trim_variants_s must be [0, 5, 10, 15].")
+    if str(eeg_config.get("onset_trim_strategy", "parallel")).lower() != "parallel":
+        errors.append("eeg.onset_trim_strategy must be parallel.")
     if not np.isclose(float(eeg_config.get("equivalence_bound_sd", np.nan)), 0.20):
         errors.append("eeg.equivalence_bound_sd must be 0.20.")
     if int(eeg_config.get("onset_random_seed", -1)) != 20260802:
@@ -204,7 +211,7 @@ def _run_onset_variant_order_models(
 ) -> dict[str, Path]:
     """Run the locked Model0/Model1/PreviousScene/Block1 suite per trim."""
     eeg_config = config["eeg"]
-    if "primary_onset_trim_s" not in eeg_config:
+    if "onset_trim_variants_s" not in eeg_config:
         return {}
     path = Path(str(eeg_config.get("onset_sensitivity_trial_file", "")))
     if not path.is_file():
@@ -225,6 +232,7 @@ def _run_onset_variant_order_models(
     rows = []
     outputs: dict[str, Path] = {}
     core = [str(value) for value in eeg_config.get("core_metrics", [])]
+    prepared: dict[float, pd.DataFrame] = {}
     for trim in expected:
         selected = raw.loc[
             np.isclose(pd.to_numeric(raw["onset_trim_s"], errors="coerce"), trim)
@@ -244,6 +252,28 @@ def _run_onset_variant_order_models(
         trials = trials.loc[
             trials["IncludeEEGValid"].map(is_truthy) & _scene_qc_mask(trials)
         ].copy()
+        prepared[trim] = trials
+
+    common_keys: set[tuple[str, int]] | None = None
+    for trials in prepared.values():
+        keys = set(zip(
+            trials["Participant"].astype(str),
+            pd.to_numeric(trials["GlobalTrialOrder"], errors="coerce").astype(int),
+        ))
+        common_keys = keys if common_keys is None else common_keys & keys
+    common_keys = common_keys or set()
+    if not common_keys:
+        raise StageBlockedError(
+            "No Participant x Trial rows pass EEG QC in all four onset windows."
+        )
+
+    for trim in expected:
+        trials = prepared[trim]
+        row_keys = pd.Series(list(zip(
+            trials["Participant"].astype(str),
+            pd.to_numeric(trials["GlobalTrialOrder"], errors="coerce").astype(int),
+        )), index=trials.index)
+        trials = trials.loc[row_keys.isin(common_keys)].copy()
         relative, _ = _metric_columns(trials, core)
         if len(relative) != len(core):
             raise StageBlockedError(
@@ -264,6 +294,7 @@ def _run_onset_variant_order_models(
             "onset_trim_s": trim,
             "participants": trials["Participant"].nunique(),
             "trials": len(trials),
+            "sample_strategy": "parallel_common_qc",
             "model_suite": "Model0;Model1;PreviousScene;Block1;CR2",
             "r_completed": ran,
             "output_dir": str(trim_dir),
@@ -601,7 +632,11 @@ def run_eeg_primary(
             "Forbidden": ";".join(FORBIDDEN_PRIMARY_TERMS),
             "PrimaryMeasure": "relative_power",
             "BootstrapIterations": int(eeg_config.get("bootstrap_iterations", 5000)),
-            "PrimaryOnsetTrimS": eeg_config.get("primary_onset_trim_s", np.nan),
+            "ReferenceOnsetTrimS": eeg_config.get(
+                "reference_onset_trim_s",
+                eeg_config.get("primary_onset_trim_s", np.nan),
+            ),
+            "OnsetTrimStrategy": eeg_config.get("onset_trim_strategy", "parallel"),
             "OnsetTrimVariantsS": ",".join(
                 map(str, eeg_config.get("onset_trim_variants_s", []))
             ),
@@ -836,11 +871,13 @@ def run_eeg_primary(
                 "and log10 absolute power is a fixed sensitivity analysis.",
                 "The structural audit cohort and scene-QC model cohort are "
                 "reported separately.",
-                "The formal estimand is sustained-state EEG: the first 10 s of "
-                "each scene are removed before PSD and QC; 15 s is the main "
-                "robustness window, with 5 s and 0 s used for sensitivity audit.",
-                "A fixed onset trim mitigates transition influence but cannot "
-                "demonstrate that residual carryover is eliminated.",
+                "Sustained-state EEG is estimated in four equal-status parallel "
+                "windows after removing 0, 5, 10 or 15 s before PSD and QC. "
+                "All windows use the same Participant x Trial set; none is "
+                "selected post hoc as the primary window.",
+                "Changing the onset trim tests sensitivity to transition "
+                "influence but cannot demonstrate that residual carryover is "
+                "eliminated.",
             ],
             tables=[
                 ("Preprocessing and extraction audit", preprocessing),
@@ -870,9 +907,10 @@ def run_eeg_primary(
                 "主要度量为 relative power，log10 absolute power 仅作敏感性。",
                 "ExperienceGroup 严格沿用代码仓库 Q1.4 分类，"
                 "未使用 ExerciseFrequency。",
-                "正式估计对象为持续稳态EEG：PSD与QC前剔除场景前10秒，"
-                "并以15秒、5秒和0秒版本审计窗口敏感性。固定截断不能证明"
-                "残余carryover完全消失。",
+                "持续稳态EEG采用0、5、10、15秒四个同等地位的并行窗口："
+                "分别在PSD与QC前剔除相应时长，并使用共同Participant × Trial"
+                "样本；不从四组中事后指定主窗口。改变截断时长只能检验结果"
+                "对场景切换影响的敏感性，不能证明残余carryover完全消失。",
             ],
             tables=[
                 ("结局预注册", classification),
@@ -940,7 +978,8 @@ def run_eeg_primary(
         f"Scene-QC model cohort: {trials['Participant'].nunique()} participants / "
         f"{len(trials)} trials\n"
         f"Core metrics: {', '.join(core)}\n"
-        f"Primary onset trim: {eeg_config.get('primary_onset_trim_s', 'legacy_unspecified')} s\n"
+        f"Onset trim strategy: {eeg_config.get('onset_trim_strategy', 'parallel')}\n"
+        f"Reference export trim: {eeg_config.get('reference_onset_trim_s', eeg_config.get('primary_onset_trim_s', 'legacy_unspecified'))} s\n"
         f"Onset sensitivity trims: {eeg_config.get('onset_trim_variants_s', [])}\n"
         "Relative power was the primary measure; absolute power was sensitivity only.\n"
         "No three-way interaction or condition-by-OrderGroup term was permitted.\n",

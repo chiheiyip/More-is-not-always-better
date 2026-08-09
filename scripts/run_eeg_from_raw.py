@@ -63,7 +63,7 @@ def main() -> None:
     if args.dry_run:
         print(
             "EEG onset trim: primary="
-            f"{analysis_config['primary_onset_trim_s']:g}s variants="
+            f"reference={analysis_config['reference_onset_trim_s']:g}s parallel_variants="
             + ",".join(f"{value:g}s" for value in analysis_config["onset_trim_variants_s"])
         )
         print(" ".join(cmd))
@@ -74,7 +74,7 @@ def main() -> None:
     summary_csv = outdir / "summary" / "all_subjects_scene_level.csv"
     result = validate_eeg_scene_summary(
         summary_csv,
-        expected_onset_trim_s=analysis_config["primary_onset_trim_s"],
+        expected_onset_trim_s=analysis_config["reference_onset_trim_s"],
         require_onset_metadata=True,
     )
     sensitivity_csv = outdir / "summary" / "all_subjects_scene_level_onset_sensitivity.csv"

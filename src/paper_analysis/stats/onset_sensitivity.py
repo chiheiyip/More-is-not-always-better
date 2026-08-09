@@ -1,14 +1,15 @@
-"""Scene-onset window sensitivity and equivalence analysis for EEG.
+"""Equal-status parallel scene-onset window analysis for EEG.
 
 This module consumes already re-extracted waveform metrics.  It cannot and does
-not trim scene-level EEG values.  Formal equivalence is limited to the paired
-5/10/15-s common-QC set and the predeclared 10-vs-15-s comparison.
+not trim scene-level EEG values.  The 0/5/10/15-s windows use a common-QC set;
+the retained 10-vs-15 equivalence output is compatibility evidence only.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Iterable
+from itertools import combinations
 
 import numpy as np
 import pandas as pd
@@ -17,6 +18,7 @@ import statsmodels.formula.api as smf
 from scipy.stats import norm
 
 from paper_analysis.eeg.onset import load_eeg_analysis_config
+from paper_analysis.eeg.onset import build_common_qc_table, onset_qc_sample_flow
 from paper_analysis.utils.io import read_table, write_table
 
 
@@ -35,14 +37,32 @@ def run_onset_sensitivity_analysis(
     scene_manifest_csv: str | Path,
     outdir: str | Path,
     eeg_analysis_config: str | Path | dict = "configs/eeg_analysis.json",
+    reuse_equivalence_csv: str | Path | None = None,
 ) -> dict[str, Path]:
     config = load_eeg_analysis_config(eeg_analysis_config)
+    raw_trials = read_table(sensitivity_trial_csv)
     trials = _prepare_design(
-        read_table(sensitivity_trial_csv),
+        raw_trials,
         read_table(participants_csv),
         read_table(scene_manifest_csv),
     )
     common = read_table(common_qc_csv)
+    expected_common_label = ",".join(
+        f"{float(value):g}" for value in config["onset_trim_variants_s"]
+    )
+    required_pass_columns = {
+        f"qc_pass_trim_{float(value):g}".replace(".", "p")
+        for value in config["onset_trim_variants_s"]
+    }
+    common_contract_valid = (
+        required_pass_columns.issubset(common.columns)
+        and "common_qc_variants_s" in common
+        and common["common_qc_variants_s"].astype(str).eq(expected_common_label).all()
+    )
+    if not common_contract_valid:
+        common = build_common_qc_table(
+            raw_trials, config["onset_trim_variants_s"]
+        )
     trials = trials.merge(
         common[KEYS + ["onset_common_qc_pass"]], on=KEYS, how="left",
         validate="many_to_one",
@@ -53,16 +73,29 @@ def run_onset_sensitivity_analysis(
 
     models, diagnostics = fit_variant_model_suite(trials, outcomes)
     common_trials = trials.loc[_truthy(trials["onset_common_qc_pass"])].copy()
-    equivalence = paired_cluster_bootstrap_equivalence(
-        common_trials,
-        outcomes=outcomes,
-        trim_a=10.0,
-        trim_b=15.0,
-        bound_sd=config["equivalence_bound_sd"],
-        iterations=config["bootstrap_iterations"],
-        seed=config["random_seed"],
-    )
-    comparisons = descriptive_window_comparisons(models, reference_trim_s=10.0)
+    if reuse_equivalence_csv is not None:
+        equivalence = read_table(reuse_equivalence_csv)
+        if (
+            equivalence.empty
+            or "outcome" not in equivalence
+            or not set(equivalence["outcome"]).issubset(outcomes)
+        ):
+            raise ValueError("Reusable equivalence table has an invalid outcome contract")
+        equivalence["reuse_status"] = "reused_compatibility_evidence"
+        equivalence["reuse_source"] = str(Path(reuse_equivalence_csv).resolve())
+    else:
+        equivalence = paired_cluster_bootstrap_equivalence(
+            common_trials,
+            outcomes=outcomes,
+            trim_a=10.0,
+            trim_b=15.0,
+            bound_sd=config["equivalence_bound_sd"],
+            iterations=config["bootstrap_iterations"],
+            seed=config["random_seed"],
+        )
+        equivalence["reuse_status"] = "recomputed"
+        equivalence["reuse_source"] = ""
+    comparisons = descriptive_window_comparisons(models)
     bootstrap_failures = equivalence.loc[
         ~equivalence.get("status", pd.Series(index=equivalence.index, dtype=str)).eq("tested")
         | pd.to_numeric(
@@ -78,18 +111,25 @@ def run_onset_sensitivity_analysis(
         expected_variants=config["onset_trim_variants_s"],
     )
     methods = (
-        "为估计场景进入后的持续稳态活动，在功率谱密度（PSD）与质量控制（QC）计算前，"
-        "剔除每个场景前10秒；以15秒作为主要稳健性窗口，并以5秒和未截断（0秒）版本"
-        "审计窗口敏感性。5、10和15秒版本分别重算QC，并在三者共同通过QC的参与者–场景"
-        "试次上正式比较10秒与15秒结果。"
+        "在功率谱密度（PSD）与质量控制（QC）计算前，分别按0、5、10和15秒剔除"
+        "场景起始片段。四个窗口具有同等分析地位，分别重算QC，并在四者共同通过QC的"
+        "参与者–场景试次上使用相同模型并行估计。10秒与15秒的等价性表仅作为历史"
+        "兼容证据，不决定任何窗口的优先级。"
     )
     limitations = (
         "固定起始截断只能降低场景切换及问卷后运动伪迹的影响，不能证明残余carryover完全"
-        "消失。最初10秒的真实场景反应不属于本研究的持续稳态估计对象；5秒灰屏未被视为"
-        "独立干净基线；前序条件模型只覆盖可观测的一阶PreviousWWR和PreviousComplexity。"
+        "消失。四个窗口对应不同的起始数据保留范围；5秒灰屏未被视为独立干净基线；"
+        "前序条件模型只覆盖可观测的一阶PreviousWWR和PreviousComplexity。"
     )
     outdir = Path(outdir)
     outputs = {
+        "onset_common_qc_parallel": write_table(
+            common, outdir / "onset_common_qc_parallel.csv"
+        ),
+        "onset_parallel_sample_flow": write_table(
+            onset_qc_sample_flow(raw_trials, common),
+            outdir / "onset_parallel_sample_flow.csv",
+        ),
         "onset_variant_model_results": write_table(models, outdir / "onset_variant_model_results.csv"),
         "onset_variant_model_diagnostics": write_table(diagnostics, outdir / "onset_variant_model_diagnostics.csv"),
         "onset_window_comparisons": write_table(comparisons, outdir / "onset_window_comparisons.csv"),
@@ -130,10 +170,34 @@ def fit_variant_model_suite(
             eligible.loc[pd.to_numeric(eligible.get("block"), errors="coerce").eq(1)],
             outcomes, float(trim), "block1", False, rows, diagnostics,
         )
-        if float(trim) in {5.0, 10.0, 15.0}:
-            common = eligible.loc[_truthy(eligible.get("onset_common_qc_pass", pd.Series(False, index=eligible.index)))]
-            _fit_scope(common, outcomes, float(trim), "common_5_10_15_qc", False, rows, diagnostics)
-    return pd.DataFrame(rows), pd.DataFrame(diagnostics)
+        common = eligible.loc[
+            _truthy(eligible.get(
+                "onset_common_qc_pass", pd.Series(False, index=eligible.index)
+            ))
+        ]
+        _fit_scope(
+            common, outcomes, float(trim), "parallel_common_qc",
+            False, rows, diagnostics,
+        )
+    return _apply_parallel_model_fdr(pd.DataFrame(rows)), pd.DataFrame(diagnostics)
+
+
+def _apply_parallel_model_fdr(models: pd.DataFrame) -> pd.DataFrame:
+    if models.empty:
+        return models
+    out = models.copy()
+    tested = ~out["term"].astype(str).str.contains("Intercept", case=False, na=False)
+    out["p_fdr_bh_window"] = np.nan
+    for _, index in out.loc[tested].groupby(
+        ["sample_strategy", "onset_trim_s"], dropna=False
+    ).groups.items():
+        out.loc[index, "p_fdr_bh_window"] = _bh(out.loc[index, "p_value"])
+    out["p_fdr_bh_parallel"] = np.nan
+    for _, index in out.loc[tested].groupby("sample_strategy").groups.items():
+        out.loc[index, "p_fdr_bh_parallel"] = _bh(out.loc[index, "p_value"])
+    out["significant_window_fdr_0_05"] = out["p_fdr_bh_window"].lt(0.05)
+    out["significant_parallel_fdr_0_05"] = out["p_fdr_bh_parallel"].lt(0.05)
+    return out
 
 
 def _fit_scope(
@@ -301,36 +365,30 @@ def paired_cluster_bootstrap_equivalence(
     return out
 
 
-def descriptive_window_comparisons(models: pd.DataFrame, reference_trim_s: float = 10.0) -> pd.DataFrame:
+def descriptive_window_comparisons(models: pd.DataFrame) -> pd.DataFrame:
     if models.empty:
         return pd.DataFrame()
-    primary = models.loc[
-        models["sample_strategy"].eq("common_5_10_15_qc")
-        & np.isclose(models["onset_trim_s"], reference_trim_s)
-    ]
+    common = models.loc[models["sample_strategy"].eq("parallel_common_qc")]
     rows = []
-    for trim in (0.0, 5.0, 15.0):
-        strategy = "common_5_10_15_qc" if trim in {5.0, 15.0} else "variant_specific_qc"
-        comparison = models.loc[
-            models["sample_strategy"].eq(strategy) & np.isclose(models["onset_trim_s"], trim)
-        ]
-        reference = primary if strategy == "common_5_10_15_qc" else models.loc[
-            models["sample_strategy"].eq("variant_specific_qc")
-            & np.isclose(models["onset_trim_s"], reference_trim_s)
-        ]
-        merged = comparison.merge(reference, on=["outcome", "term"], suffixes=("_comparison", "_reference"))
+    trims = sorted(pd.to_numeric(common["onset_trim_s"], errors="coerce").dropna().unique())
+    for trim_a, trim_b in combinations(trims, 2):
+        comparison = common.loc[np.isclose(common["onset_trim_s"], trim_a)]
+        reference = common.loc[np.isclose(common["onset_trim_s"], trim_b)]
+        merged = comparison.merge(
+            reference, on=["outcome", "term"], suffixes=("_a", "_b")
+        )
         for _, row in merged.iterrows():
-            difference = row["estimate_comparison"] - row["estimate_reference"]
-            se = np.sqrt(row["std_error_comparison"] ** 2 + row["std_error_reference"] ** 2)
+            difference = row["estimate_a"] - row["estimate_b"]
+            se = np.sqrt(row["std_error_a"] ** 2 + row["std_error_b"] ** 2)
             rows.append({
-                "comparison": f"{trim:g}s_minus_{reference_trim_s:g}s",
-                "sample_strategy": strategy,
+                "comparison": f"{trim_a:g}s_minus_{trim_b:g}s",
+                "sample_strategy": "parallel_common_qc",
                 "outcome": row["outcome"], "term": row["term"],
                 "estimate_difference": difference,
                 "ci95_low": difference - 1.96 * se,
                 "ci95_high": difference + 1.96 * se,
-                "direction_consistent": np.sign(row["estimate_comparison"]) == np.sign(row["estimate_reference"]),
-                "inference_role": "formal_equivalence_reported_separately" if trim == 15 else "descriptive_only",
+                "direction_consistent": np.sign(row["estimate_a"]) == np.sign(row["estimate_b"]),
+                "inference_role": "parallel_descriptive_pairwise",
             })
     return pd.DataFrame(rows)
 
@@ -349,7 +407,7 @@ def onset_reviewer_readiness(
         for trim in (0.0, 5.0, 10.0, 15.0)
         for scope in ("variant_specific_qc", "previous_scene", "block1")
     } | {
-        (trim, "common_5_10_15_qc") for trim in (5.0, 10.0, 15.0)
+        (trim, "parallel_common_qc") for trim in (0.0, 5.0, 10.0, 15.0)
     }
     observed_scopes = set(zip(
         pd.to_numeric(models.get("onset_trim_s"), errors="coerce"),
@@ -358,17 +416,8 @@ def onset_reviewer_readiness(
     checks = [
         ("all_onset_variants_exported", observed == sorted(float(v) for v in expected_variants)),
         ("variant_specific_qc_present", not trials.empty and "bad_eeg_quality" in trials),
-        ("common_5_10_15_qc_present", not common.empty and "onset_common_qc_pass" in common),
+        ("parallel_common_qc_present", not common.empty and "onset_common_qc_pass" in common),
         ("model_suite_present", required_scopes.issubset(observed_scopes)),
-        ("formal_10_vs_15_equivalence_present", not equivalence.empty),
-        (
-            "formal_equivalence_rows_tested",
-            not equivalence.empty and equivalence["status"].eq("tested").all(),
-        ),
-        (
-            "bootstrap_success_at_least_90pct",
-            not equivalence.empty and equivalence["bootstrap_success_rate"].ge(0.90).all(),
-        ),
     ]
     complete = all(passed for _, passed in checks)
     rows = [{"check": name, "pass": bool(passed)} for name, passed in checks]

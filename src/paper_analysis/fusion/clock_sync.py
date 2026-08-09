@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from itertools import combinations
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -57,7 +58,17 @@ def run_clock_synchronized_fusion(
     pointwise_root = outdir / "aligned_pointwise"
     qc_rows: list[dict] = []
     timebin_rows: list[dict] = []
-    sensitivity_timebin_rows: list[dict] = []
+    parallel_trims = tuple(dict.fromkeys(
+        float(value)
+        for value in (
+            onset_trim_variants_s
+            if onset_trim_variants_s is not None
+            else (onset_trim_s,)
+        )
+    ))
+    if not any(np.isclose(value, float(onset_trim_s)) for value in parallel_trims):
+        parallel_trims = (*parallel_trims, float(onset_trim_s))
+    parallel_trims = tuple(sorted(parallel_trims))
     pointwise_rows: list[dict] = []
     for _, trial in merged.sort_values(["participant_id", "scene_id"]).iterrows():
         participant_id = str(trial["participant_id"])
@@ -90,22 +101,13 @@ def run_clock_synchronized_fusion(
                 "pointwise_output_path": str(pointwise_path),
             })
         if build_timebins:
-            timebin_rows.extend(synchronized_timebins(
-                eye, eeg, trial, bin_size_ms=bin_size_ms,
-                eye_point_source=eye_point_source, eye_screen_w=eye_screen_w,
-                eye_screen_h=eye_screen_h, eye_validity_accepted=eye_validity_accepted,
-                eye_timestamp_gap_ms=eye_timestamp_gap_ms,
-                onset_trim_s=onset_trim_s,
-            ))
-            for sensitivity_trim in onset_trim_variants_s or ():
-                if np.isclose(float(sensitivity_trim), float(onset_trim_s)):
-                    continue
-                sensitivity_timebin_rows.extend(synchronized_timebins(
+            for parallel_trim in parallel_trims:
+                timebin_rows.extend(synchronized_timebins(
                     eye, eeg, trial, bin_size_ms=bin_size_ms,
                     eye_point_source=eye_point_source, eye_screen_w=eye_screen_w,
                     eye_screen_h=eye_screen_h, eye_validity_accepted=eye_validity_accepted,
                     eye_timestamp_gap_ms=eye_timestamp_gap_ms,
-                    onset_trim_s=float(sensitivity_trim),
+                    onset_trim_s=float(parallel_trim),
                 ))
 
     scene_qc = pd.DataFrame(qc_rows)
@@ -118,15 +120,178 @@ def run_clock_synchronized_fusion(
             pd.DataFrame(timebin_rows), outdir / "aligned_synchronized_timebin_table.csv"
         )
         if onset_trim_variants_s is not None:
-            outputs["aligned_synchronized_timebin_onset_sensitivity"] = write_table(
-                pd.DataFrame(sensitivity_timebin_rows),
-                outdir / "aligned_synchronized_timebin_onset_sensitivity.csv",
-            )
+            # Compatibility alias: the canonical synchronized table now
+            # contains every parallel onset window, so a second 0/5/15-only
+            # copy would be both ambiguous and unnecessarily large.
+            outputs["aligned_synchronized_timebin_onset_sensitivity"] = outputs[
+                "aligned_synchronized_timebin"
+            ]
     if export_pointwise:
         outputs["aligned_pointwise_index"] = write_table(
             pd.DataFrame(pointwise_rows), outdir / "aligned_pointwise_index.csv"
         )
     return outputs
+
+
+def combine_parallel_synchronized_timebins(
+    reference_timebin_csv: str | Path,
+    variant_timebin_csv: str | Path,
+    eeg_onset_trial_csv: str | Path,
+    outdir: str | Path,
+    expected_onset_trims_s: tuple[float, ...] | list[float] = (0, 5, 10, 15),
+) -> dict[str, Path]:
+    """Combine previously validated synchronized exports without recomputation.
+
+    The legacy workflow wrote the 10-second reference export separately from
+    the 0/5/15-second sensitivity export.  Both files were calculated from the
+    same absolute-clock bins.  This function verifies their overlap, restores
+    the common scene-relative time axis from the EEG trial duration table, and
+    emits one canonical four-window table.
+    """
+    reference = read_table(reference_timebin_csv)
+    variants = read_table(variant_timebin_csv)
+    required = {
+        "participant_id", "scene_id", "onset_trim_s", "class_name",
+        "bin_start_epoch_ms", "bin_end_epoch_ms", "scene_elapsed_s",
+        "analysis_elapsed_s",
+    }
+    for name, frame in (("reference", reference), ("variants", variants)):
+        missing = required - set(frame.columns)
+        if missing:
+            raise ValueError(f"{name} synchronized table missing {sorted(missing)}")
+
+    combined = pd.concat([reference, variants], ignore_index=True, sort=False)
+    combined["onset_trim_s"] = pd.to_numeric(
+        combined["onset_trim_s"], errors="coerce"
+    )
+    expected = tuple(sorted({float(value) for value in expected_onset_trims_s}))
+    observed = tuple(sorted(combined["onset_trim_s"].dropna().unique().tolist()))
+    if observed != expected:
+        raise ValueError(
+            f"Expected parallel onset trims {expected}, observed {observed}"
+        )
+    unique_keys = [
+        "participant_id", "scene_id", "onset_trim_s", "class_name",
+        "bin_start_epoch_ms", "bin_end_epoch_ms",
+    ]
+    duplicated = combined.duplicated(unique_keys, keep=False)
+    if duplicated.any():
+        sample = combined.loc[duplicated, unique_keys].head(10).to_dict("records")
+        raise ValueError(f"Duplicate synchronized parallel bins: {sample}")
+
+    duration = read_table(eeg_onset_trial_csv)
+    duration_required = {
+        "participant_id", "scene_id", "onset_trim_s", "view_dur_s"
+    }
+    missing_duration = duration_required - set(duration.columns)
+    if missing_duration:
+        raise ValueError(
+            f"EEG onset trial table missing {sorted(missing_duration)}"
+        )
+    duration["onset_trim_s"] = pd.to_numeric(
+        duration["onset_trim_s"], errors="coerce"
+    )
+    duration["view_dur_s"] = pd.to_numeric(duration["view_dur_s"], errors="coerce")
+    duration = (
+        duration.loc[np.isclose(duration["onset_trim_s"], expected[0]),
+                     ["participant_id", "scene_id", "view_dur_s"]]
+        .drop_duplicates(["participant_id", "scene_id"])
+        .rename(columns={"view_dur_s": "scene_duration_s"})
+    )
+    combined = combined.drop(
+        columns=["scene_duration_s", "scene_time_norm"], errors="ignore"
+    ).merge(
+        duration,
+        on=["participant_id", "scene_id"],
+        how="left",
+        validate="many_to_one",
+    )
+    if combined["scene_duration_s"].isna().any():
+        missing = combined.loc[
+            combined["scene_duration_s"].isna(), ["participant_id", "scene_id"]
+        ].drop_duplicates().head(10).to_dict("records")
+        raise ValueError(f"Missing exact EEG scene duration for synchronized trials: {missing}")
+    combined["scene_time_norm"] = (
+        pd.to_numeric(combined["scene_elapsed_s"], errors="coerce")
+        / combined["scene_duration_s"]
+    )
+    combined["analysis_status"] = "parallel"
+    combined["hypothesis_family"] = "parallel_synchronized_time_dynamics"
+
+    feature_columns = [
+        column for column in combined.columns
+        if column.startswith("eeg_") or column in {
+            "eeg_sample_count", "eeg_window_coverage", "eye_sample_count",
+            "eye_window_coverage", "eye_valid_sample_count",
+            "eye_valid_sample_coverage", "polygon_count", "samples", "TFD_ms",
+            "TFD", "fixation_count", "FC", "TTFF_ms", "TTFF", "FFD_ms",
+            "FFD", "MFD_ms", "MFD", "RFF", "MPD", "visited",
+            "attention_share", "share", "share_pct", "FC_share", "FC_prop",
+            "FC_rate", "FCR", "TFD_total_trial", "FC_total_trial",
+        }
+    ]
+    combined["_feature_hash"] = pd.util.hash_pandas_object(
+        combined[feature_columns], index=False
+    ).astype("uint64")
+    absolute_keys = [
+        "participant_id", "scene_id", "class_name",
+        "bin_start_epoch_ms", "bin_end_epoch_ms",
+    ]
+    audit_rows: list[dict] = []
+    for left_trim, right_trim in combinations(expected, 2):
+        left = combined.loc[np.isclose(combined["onset_trim_s"], left_trim)]
+        right = combined.loc[np.isclose(combined["onset_trim_s"], right_trim)]
+        overlap = left[absolute_keys + ["_feature_hash"]].merge(
+            right[absolute_keys + ["_feature_hash"]],
+            on=absolute_keys,
+            how="inner",
+            suffixes=("_left", "_right"),
+            validate="one_to_one",
+        )
+        mismatches = int(
+            overlap["_feature_hash_left"].ne(overlap["_feature_hash_right"]).sum()
+        )
+        audit_rows.append({
+            "left_onset_trim_s": left_trim,
+            "right_onset_trim_s": right_trim,
+            "overlap_rows": int(len(overlap)),
+            "feature_mismatch_rows": mismatches,
+            # A 5-second trim shifts a 2-second bin lattice by one second, so
+            # some window pairs legitimately have no identical bin interval.
+            # Their placement is checked by the scene-axis residual below.
+            "absolute_clock_alignment_pass": bool(mismatches == 0),
+        })
+    audit = pd.DataFrame(audit_rows)
+    if not audit["absolute_clock_alignment_pass"].all():
+        raise ValueError(
+            "Legacy synchronized exports failed absolute-clock overlap validation"
+        )
+    alignment_residual = (
+        pd.to_numeric(combined["scene_elapsed_s"], errors="coerce")
+        - pd.to_numeric(combined["analysis_elapsed_s"], errors="coerce")
+        - combined["onset_trim_s"]
+    ).abs()
+    if alignment_residual.max() > 1e-9:
+        raise ValueError(
+            "Parallel bins are not positioned on the same scene-relative axis"
+        )
+    audit["max_scene_axis_residual_s"] = float(alignment_residual.max())
+    audit["validation_status"] = "pass"
+
+    combined = combined.drop(columns="_feature_hash").sort_values(
+        ["participant_id", "scene_id", "onset_trim_s", "bin_start_epoch_ms", "class_name"]
+    )
+    outdir = Path(outdir)
+    table_path = write_table(
+        combined, outdir / "aligned_synchronized_timebin_table.csv"
+    )
+    return {
+        "aligned_synchronized_timebin": table_path,
+        "aligned_synchronized_timebin_onset_sensitivity": table_path,
+        "parallel_timebin_alignment_audit": write_table(
+            audit, outdir / "parallel_timebin_alignment_audit.csv"
+        ),
+    }
 
 
 def add_eye_epoch_ms(df: pd.DataFrame, trial: pd.Series | dict, timezone_name: str = "Asia/Shanghai") -> pd.DataFrame:
@@ -265,6 +430,7 @@ def synchronized_timebins(
     start = scene_start + float(onset_trim_s) * 1000.0
     stop = int(eeg["eeg_epoch_ms"].max() + round(1000.0 / srate))
     n_bins = int((stop - start) // bin_size_ms)
+    scene_duration_ms = max(float(stop) - scene_start, 0.0)
     aoi_path = Path(str(trial.get("aoi_json_path", "")))
     aois = load_aoi_json(aoi_path) if aoi_path.is_file() else None
     rows: list[dict] = []
@@ -303,6 +469,11 @@ def synchronized_timebins(
                 "scene_elapsed_s": (bin_start - scene_start) / 1000.0,
                 "analysis_elapsed_s": bin_index * bin_size_ms / 1000.0,
                 "onset_trim_s": float(onset_trim_s),
+                "scene_duration_s": scene_duration_ms / 1000.0,
+                "scene_time_norm": (
+                    (bin_start - scene_start) / scene_duration_ms
+                    if scene_duration_ms > 0 else np.nan
+                ),
                 "time_norm": bin_index / max(n_bins - 1, 1),
                 "eeg_sample_count": int(len(eeg_sub)),
                 "eeg_window_coverage": float(len(eeg_sub) / expected_eeg) if expected_eeg else 0.0,
@@ -312,8 +483,8 @@ def synchronized_timebins(
                 "eye_valid_sample_coverage": float(valid_eye_samples / expected_eye) if np.isfinite(expected_eye) and expected_eye else np.nan,
                 "eeg_temporal_resolution": "window_specific",
                 "analysis_resolution": "synchronized_timebin",
-                "analysis_status": "primary",
-                "hypothesis_family": "primary_synchronized_time_dynamics",
+                "analysis_status": "parallel",
+                "hypothesis_family": "parallel_synchronized_time_dynamics",
                 "clock_qc_policy": "same_clock_epoch_nearest_2ms",
                 **metric, **eeg_metrics,
             })

@@ -332,7 +332,8 @@ def build_inputs(args: argparse.Namespace) -> dict[str, Path]:
         "occipital_roi": "O1,OZ,O2",
         "power_estimator": "Welch PSD integrated over band",
         "estimand": "sustained-state activity after scene entry",
-        "primary_onset_trim_s": 10,
+        "onset_trim_strategy": "parallel",
+        "reference_onset_trim_s": 10,
         "onset_trim_variants_s": "0,5,10,15",
         "onset_equivalence_bound_sd": 0.20,
         "onset_random_seed": 20260802,
@@ -397,7 +398,8 @@ def build_inputs(args: argparse.Namespace) -> dict[str, Path]:
                     "eeg_onset_sensitivity_trial_long.csv"
                 )
             ),
-            "primary_onset_trim_s": 10,
+            "onset_trim_strategy": "parallel",
+            "reference_onset_trim_s": 10,
             "onset_trim_variants_s": [0, 5, 10, 15],
             "equivalence_bound_sd": 0.20,
             "onset_random_seed": 20260802,

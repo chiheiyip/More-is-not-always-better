@@ -3,12 +3,13 @@
 ## Sustained-state onset-window contract
 
 The formal EEG estimand is sustained-state activity after scene entry. The
-MATLAB exporter removes the first 10 s of every `7 -> 8` scene before Welch PSD
-and all EEG QC metrics are computed. It also re-extracts 0, 5, 10 and 15 s
-variants from the same loaded waveform.
+MATLAB exporter extracts 0, 5, 10 and 15 s onset variants from the same loaded
+waveform for equal-status parallel analysis. Welch PSD and EEG QC are computed
+after the corresponding trim in each variant.
 
-- `all_subjects_scene_level.csv` is the 10 s primary projection and is unique by
-  `participant_id + scene_id`.
+- `all_subjects_scene_level.csv` is the backwards-compatible 10 s reference
+  projection and is unique by `participant_id + scene_id`; it does not define
+  a statistically preferred window.
 - `all_subjects_scene_level_onset_sensitivity.csv` is long-form and unique by
   `participant_id + scene_id + onset_trim_s`.
 - `view_start_s`, `view_end_s` and `view_dur_s` always describe the complete

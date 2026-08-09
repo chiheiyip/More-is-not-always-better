@@ -1,17 +1,18 @@
 # Analysis Decisions
 
-## EEG scene-onset transition policy (2026-08-02)
+## EEG scene-onset transition policy (updated 2026-08-04)
 
 - Estimand: sustained-state EEG rather than the complete scene-entry response.
-- Primary onset trim: 10 s before PSD and EEG QC.
-- Robustness: 15 s primary robustness, 5 s mild sensitivity, 0 s historical
-  audit only.
-- Formal 10-vs-15 s equivalence uses the 5/10/15 common-QC trial set,
-  participant-clustered paired bootstrap, a +/-0.20 SD bound, 90% interval,
-  TOST and BH-FDR. Fewer than 90% successful bootstrap replicates blocks an
-  equivalence claim.
+- Parallel onset trims: 0, 5, 10 and 15 s before PSD and EEG QC, with no
+  post-hoc primary-window selection. The 10 s export is retained only as a
+  backwards-compatible reference file.
+- All four windows use a common Participant × Trial QC set and are reported
+  with both within-window and joint four-window multiplicity correction.
+- The historical 10-vs-15 s equivalence table is retained as compatibility
+  evidence only; it is not used to choose a preferred window.
 - Independent eye scene metrics are unchanged. Clock-synchronized eye and EEG
-  bins share the exact onset boundary and are re-anchored there.
+  bins share exact absolute-clock boundaries and remain positioned on the
+  original scene-relative time axis after trimming.
 - Wording is bounded: trimming and previous-condition models mitigate and
   evaluate transition influence; they do not prove carryover is absent.
 
@@ -77,7 +78,8 @@ These rules supersede conflicting historical entries below:
 25. The canonical model table contains participant-clustered GEE fits and visible failure diagnostics. Model failure or non-finite covariance never triggers an OLS fallback. Legacy models require an explicit compatibility flag and write only below `06_models/legacy/`.
 26. Formal order models retain `block + position`; theta/alpha EEG, prespecified eye fatigue proxies, and questionnaire outcomes receive separate BH-FDR families. EEG beta order effects are exploratory.
 27. Time-stability sensitivity models test `WWR × trial_index` and `Complexity × trial_index`. Carryover models add previous WWR, previous complexity, order scheme, and the block-2 break marker. These analyses assess risk but cannot prove that fatigue, distraction, or carryover was eliminated.
-28. Scene-level models and absolute-clock synchronized 2-second models are parallel, co-primary analysis layers. The former estimates whole-scene average effects; the latter estimates within-scene change, `WWR × time_norm`, and `Complexity × time_norm`. Neither layer overrides the other.
+28. Scene-level models and absolute-clock synchronized 2-second models are parallel, co-primary analysis layers. The former estimates whole-scene average effects; the latter estimates within-scene change, `WWR × scene_time_norm`, and `Complexity × scene_time_norm`. Neither layer overrides the other.
+29. The 0, 5, 10 and 15 s scene-onset trims are equal-status parallel windows. They use a common Participant × Trial set and the original-scene `scene_time_norm` axis. Window-specific FDR and four-window joint FDR are both reported; no window is selected post hoc as primary.
 29. Synchronized models use participant-clustered GEE with an independent working correlation and robust sandwich standard errors. Scene and synchronized hypothesis families receive separate BH-FDR correction.
 30. EEG absolute time is established once from validated `.easy/.info` provenance and cached beside the `.set/.fdt` data. Routine analysis fails when the cache is absent and never silently rereads the D-drive acquisition archive.
 31. Per-sample EEG exports contain the preprocessed `.set/.fdt` waveform in µV. They are not described as raw nV. Scenes are half-open consecutive trigger intervals `[7, 8)`.

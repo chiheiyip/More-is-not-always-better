@@ -1,5 +1,6 @@
 {
-  "primary_onset_trim_s": 10,
+  "onset_trim_strategy": "parallel",
+  "reference_onset_trim_s": 10,
   "onset_trim_variants_s": [0, 5, 10, 15],
   "equivalence_bound_sd": 0.20,
   "bootstrap_iterations": 5000,

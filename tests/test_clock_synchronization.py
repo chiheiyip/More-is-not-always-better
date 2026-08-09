@@ -74,7 +74,8 @@ def test_synchronized_eeg_windows_are_window_specific() -> None:
     assert bins["bin_index"].tolist() == [0, 1]
     assert bins.loc[1, "eeg_F_theta"] > bins.loc[0, "eeg_F_theta"] * 5
     assert bins["eeg_temporal_resolution"].eq("window_specific").all()
-    assert bins["analysis_status"].eq("primary").all()
+    assert bins["analysis_status"].eq("parallel").all()
+    assert bins["scene_time_norm"].between(0, 1, inclusive="left").all()
 
 
 def test_synchronized_timebins_exclude_trailing_partial_window() -> None:

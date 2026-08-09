@@ -8,10 +8,9 @@
   "eeg_onset_policy": {
     "estimand": "sustained-state activity after scene entry",
     "config": "configs/eeg_analysis.json",
-    "primary_onset_trim_s": 10,
-    "main_robustness_onset_trim_s": 15,
-    "mild_sensitivity_onset_trim_s": 5,
-    "historical_audit_onset_trim_s": 0
+    "strategy": "parallel",
+    "parallel_onset_trim_s": [0, 5, 10, 15],
+    "reference_export_onset_trim_s": 10
   },
   "primary_eeg_metrics": [
     "eeg_F_theta",

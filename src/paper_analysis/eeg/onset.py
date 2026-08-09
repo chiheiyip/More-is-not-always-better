@@ -24,7 +24,8 @@ ONSET_METADATA_COLUMNS = (
     "trim_status",
 )
 DEFAULT_EEG_ANALYSIS_CONFIG = {
-    "primary_onset_trim_s": 10.0,
+    "onset_trim_strategy": "parallel",
+    "reference_onset_trim_s": 10.0,
     "onset_trim_variants_s": [0.0, 5.0, 10.0, 15.0],
     "equivalence_bound_sd": 0.20,
     "bootstrap_iterations": 5000,
@@ -43,12 +44,18 @@ def load_eeg_analysis_config(config: str | Path | dict | None) -> dict:
             raise FileNotFoundError(f"EEG analysis config not found: {path}")
         out.update(json.loads(path.read_text(encoding="utf-8")))
 
-    primary = float(out["primary_onset_trim_s"])
+    strategy = str(out.get("onset_trim_strategy", "parallel")).strip().lower()
+    if strategy != "parallel":
+        raise ValueError("onset_trim_strategy must be 'parallel'")
+    reference = float(out.get(
+        "reference_onset_trim_s",
+        out.get("primary_onset_trim_s", 10.0),
+    ))
     variants = sorted({float(value) for value in out["onset_trim_variants_s"]})
-    if primary < 0 or any(value < 0 for value in variants):
+    if reference < 0 or any(value < 0 for value in variants):
         raise ValueError("EEG onset trims must be non-negative")
-    if primary not in variants:
-        raise ValueError("primary_onset_trim_s must appear in onset_trim_variants_s")
+    if reference not in variants:
+        raise ValueError("reference_onset_trim_s must appear in onset_trim_variants_s")
     bound = float(out["equivalence_bound_sd"])
     if not 0 < bound < 1:
         raise ValueError("equivalence_bound_sd must lie between 0 and 1")
@@ -56,7 +63,8 @@ def load_eeg_analysis_config(config: str | Path | dict | None) -> dict:
     if iterations < 1:
         raise ValueError("bootstrap_iterations must be positive")
     out.update({
-        "primary_onset_trim_s": primary,
+        "onset_trim_strategy": strategy,
+        "reference_onset_trim_s": reference,
         "onset_trim_variants_s": variants,
         "equivalence_bound_sd": bound,
         "bootstrap_iterations": iterations,
@@ -135,9 +143,9 @@ def assert_primary_matches_sensitivity(
 
 def build_common_qc_table(
     sensitivity_trials: pd.DataFrame,
-    variants: Iterable[float] = (5.0, 10.0, 15.0),
+    variants: Iterable[float] = (0.0, 5.0, 10.0, 15.0),
 ) -> pd.DataFrame:
-    """Build the predeclared 5/10/15-s common scene-and-subject QC set."""
+    """Build the predeclared common QC set for all parallel onset windows."""
     required = {"participant_id", "scene_id", "onset_trim_s", "bad_eeg_quality"}
     missing = required - set(sensitivity_trials.columns)
     if missing:
@@ -177,7 +185,7 @@ def onset_qc_sample_flow(sensitivity_trials: pd.DataFrame, common_qc: pd.DataFra
         })
     common_pass = common_qc["onset_common_qc_pass"].fillna(False).astype(bool)
     rows.append({
-        "sample_strategy": "common_5_10_15_qc",
+        "sample_strategy": "parallel_common_qc",
         "onset_trim_s": np.nan,
         "trials_total": int(len(common_qc)),
         "trials_retained": int(common_pass.sum()),

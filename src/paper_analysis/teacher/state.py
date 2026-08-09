@@ -11,6 +11,43 @@ from pathlib import Path
 from typing import Any
 
 
+STAGE_METHOD_DEPENDENCIES = {
+    "eye-stage1": (
+        "src/paper_analysis/teacher/eye.py",
+        "src/paper_analysis/teacher/contracts.py",
+    ),
+    "eye-stage2": (
+        "src/paper_analysis/teacher/eye.py",
+        "src/paper_analysis/teacher/contracts.py",
+        "analysis/r/eye_stage2_analysis.R",
+        "analysis/r/common.R",
+    ),
+    "eye-stage3-plan": (
+        "src/paper_analysis/teacher/eye.py",
+        "src/paper_analysis/teacher/contracts.py",
+    ),
+    "eye-stage3-run": (
+        "src/paper_analysis/teacher/eye.py",
+        "src/paper_analysis/teacher/contracts.py",
+        "analysis/r/eye_stage3_analysis.R",
+        "analysis/r/common.R",
+    ),
+    "eeg-order": (
+        "src/paper_analysis/teacher/eeg.py",
+        "src/paper_analysis/teacher/contracts.py",
+        "analysis/r/eeg_order_analysis.R",
+        "analysis/r/common.R",
+    ),
+    "eeg-primary": (
+        "src/paper_analysis/teacher/eeg.py",
+        "src/paper_analysis/teacher/contracts.py",
+        "analysis/r/eeg_primary_analysis.R",
+        "analysis/r/eeg_crossmodal_analysis.R",
+        "analysis/r/common.R",
+    ),
+}
+
+
 class StageBlockedError(RuntimeError):
     """Raised when a mandatory manual or data-quality gate has not passed."""
 
@@ -99,6 +136,40 @@ def method_contract_hash(repo_root: str | Path) -> str:
     return digest.hexdigest()
 
 
+def stage_method_contract_hash(repo_root: str | Path, stage: str) -> str:
+    root = Path(repo_root)
+    dependencies = STAGE_METHOD_DEPENDENCIES.get(stage)
+    if dependencies is None:
+        return method_contract_hash(root)
+    digest = hashlib.sha256()
+    for relative in dependencies:
+        path = root / relative
+        digest.update(relative.encode("utf-8"))
+        digest.update(path.read_bytes() if path.is_file() else b"<missing>")
+    return digest.hexdigest()
+
+
+def legacy_stage_methods_unchanged(
+    repo_root: str | Path,
+    stage: str,
+    source_commit: str,
+) -> bool:
+    dependencies = STAGE_METHOD_DEPENDENCIES.get(stage)
+    if not dependencies or not source_commit or source_commit == "unavailable":
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--quiet", source_commit, "--", *dependencies],
+            cwd=Path(repo_root),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return False
+    return result.returncode == 0
+
+
 def new_run_directory(outputs_root: str | Path, run_id: str | None = None) -> Path:
     stamp = run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out = Path(outputs_root) / "teacher_runs" / stamp
@@ -124,6 +195,9 @@ def write_run_manifest(
         "arguments": arguments,
         "git_commit": git_commit(repo_root),
         "method_contract_hash": method_contract_hash(repo_root),
+        "stage_method_contract_hash": stage_method_contract_hash(
+            repo_root, stage
+        ),
         "python": sys.version,
         "python_packages": {
             name: _package_version(name)

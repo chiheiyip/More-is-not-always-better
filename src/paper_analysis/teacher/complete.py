@@ -25,7 +25,9 @@ from paper_analysis.teacher.eye import (
 )
 from paper_analysis.teacher.state import (
     file_sha256,
+    legacy_stage_methods_unchanged,
     method_contract_hash,
+    stage_method_contract_hash,
     write_run_manifest,
 )
 from paper_analysis.stats.timebin import run_timebin_models
@@ -41,8 +43,42 @@ STAGE_FOLDERS = {
     "eeg-primary": "06_eeg_primary",
 }
 
+STAGE_REUSABLE_STATUSES = {
+    "eye-stage1": {"review_required"},
+    "eye-stage2": {"complete", "python_complete_r_skipped"},
+    "eye-stage3-plan": {"approval_required"},
+    "eye-stage3-run": {"complete", "python_complete_r_skipped"},
+    "eeg-order": {"complete", "python_complete_r_skipped"},
+    "eeg-primary": {"complete", "python_complete_r_skipped"},
+}
 
-def _manifest_complete(path: Path, repo_root: Path) -> bool:
+STAGE_REUSE_REQUIRED_FILES = {
+    "eye-stage1": ("AOI_masks_approved.txt",),
+    "eye-stage3-plan": ("stage3_plan.txt",),
+}
+
+
+def _input_hashes_current(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        records = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return False
+    for record in records:
+        source = Path(str(record.get("path", "")))
+        expected_exists = bool(record.get("exists"))
+        if source.exists() != expected_exists:
+            return False
+        expected_hash = record.get("sha256")
+        if expected_hash and (
+            not source.is_file() or file_sha256(source) != expected_hash
+        ):
+            return False
+    return True
+
+
+def _manifest_complete(path: Path, repo_root: Path, stage: str) -> bool:
     if not path.is_file():
         return False
     try:
@@ -50,9 +86,28 @@ def _manifest_complete(path: Path, repo_root: Path) -> bool:
         status = payload.get("status")
     except (json.JSONDecodeError, OSError):
         return False
-    return (
-        status in {"complete", "python_complete_r_skipped"}
-        and payload.get("method_contract_hash") == method_contract_hash(repo_root)
+    accepted_statuses = STAGE_REUSABLE_STATUSES.get(
+        stage, {"complete", "python_complete_r_skipped"}
+    )
+    if status not in accepted_statuses:
+        return False
+    if any(
+        not (path.parent / required).is_file()
+        for required in STAGE_REUSE_REQUIRED_FILES.get(stage, ())
+    ):
+        return False
+    current_stage_hash = stage_method_contract_hash(repo_root, stage)
+    stored_stage_hash = payload.get("stage_method_contract_hash")
+    methods_current = (
+        stored_stage_hash == current_stage_hash
+        if stored_stage_hash
+        else legacy_stage_methods_unchanged(
+            repo_root, stage, str(payload.get("git_commit", ""))
+        )
+    )
+    return bool(
+        methods_current
+        and _input_hashes_current(path.with_name("input_hashes.json"))
     )
 
 
@@ -67,7 +122,9 @@ def _run_or_resume(
     resume: bool,
     r_required: bool | None = None,
 ) -> dict[str, Path]:
-    if resume and _manifest_complete(outdir / "run_manifest.json", repo_root):
+    if resume and _manifest_complete(
+        outdir / "run_manifest.json", repo_root, name
+    ):
         return {"manifest": outdir / "run_manifest.json"}
     kwargs: dict[str, Any] = {
         "config_path": config_path,
@@ -77,6 +134,36 @@ def _run_or_resume(
     if r_required is not None:
         kwargs["r_required"] = r_required
     return function(config, **kwargs)
+
+
+def _import_reusable_stages(
+    outputs_root: Path,
+    run_root: Path,
+    repo_root: Path,
+) -> pd.DataFrame:
+    rows = []
+    promoted = outputs_root / "12_teacher_analysis"
+    for stage, folder in STAGE_FOLDERS.items():
+        source = promoted / folder
+        destination = run_root / folder
+        valid = (
+            source.is_dir()
+            and _manifest_complete(source / "run_manifest.json", repo_root, stage)
+        )
+        if valid and not destination.exists():
+            shutil.copytree(source, destination)
+        rows.append({
+            "Stage": stage,
+            "Source": str(source),
+            "Destination": str(destination),
+            "ReuseDecision": "reused" if valid else "rerun",
+            "ReuseReason": (
+                "stage methods unchanged; recorded inputs hash-identical"
+                if valid else
+                "stage methods or recorded inputs changed/incomplete"
+            ),
+        })
+    return pd.DataFrame(rows)
 
 
 def _approve_stage3(plan_dir: Path) -> Path:
@@ -316,6 +403,59 @@ def _standardize_effect_table(
     return result[leading + [c for c in result if c not in leading]]
 
 
+def _bh_adjust(values: pd.Series) -> pd.Series:
+    numeric = pd.to_numeric(values, errors="coerce")
+    result = pd.Series(np.nan, index=values.index, dtype=float)
+    valid = numeric.dropna().sort_values()
+    if valid.empty:
+        return result
+    adjusted = valid * len(valid) / np.arange(1, len(valid) + 1)
+    adjusted = adjusted.iloc[::-1].cummin().iloc[::-1].clip(upper=1.0)
+    result.loc[adjusted.index] = adjusted
+    return result
+
+
+def _parallel_order_carryover_audit(eeg_primary_dir: Path) -> pd.DataFrame:
+    rows: list[pd.DataFrame] = []
+    for trim in (0.0, 5.0, 10.0, 15.0):
+        source = (
+            eeg_primary_dir / "onset_window_models" / f"trim_{trim:g}s"
+            / "09_eeg_order_CR2.csv"
+        )
+        evidence = _read_if(source)
+        if evidence.empty:
+            continue
+        term = evidence.get("term", pd.Series("", index=evidence.index)).astype(str)
+        model = evidence.get("model", pd.Series("", index=evidence.index)).astype(str)
+        selected = evidence.loc[
+            model.eq("PreviousScene")
+            & term.str.startswith(("PreviousWWR", "PreviousComplexity"))
+        ].copy()
+        selected["onset_trim_s"] = trim
+        selected["source_file"] = str(source)
+        rows.append(selected)
+    if not rows:
+        return pd.DataFrame()
+    audit = pd.concat(rows, ignore_index=True, sort=False)
+    audit["p_fdr_bh_window"] = np.nan
+    for _, index in audit.groupby("onset_trim_s").groups.items():
+        audit.loc[index, "p_fdr_bh_window"] = _bh_adjust(
+            audit.loc[index, "p.value"]
+        )
+    audit["p_fdr_bh_parallel"] = _bh_adjust(audit["p.value"])
+    audit["detected_raw_0_05"] = pd.to_numeric(
+        audit["p.value"], errors="coerce"
+    ).lt(0.05)
+    audit["detected_window_fdr_0_05"] = audit["p_fdr_bh_window"].lt(0.05)
+    audit["detected_parallel_fdr_0_05"] = audit["p_fdr_bh_parallel"].lt(0.05)
+    audit["interpretation"] = np.where(
+        audit["detected_parallel_fdr_0_05"],
+        "detected_after_four_window_joint_fdr",
+        "not_detected_after_four_window_joint_fdr",
+    )
+    return audit
+
+
 def _build_questionnaire_teacher_audit(
     outputs_root: Path,
     run_root: Path,
@@ -456,6 +596,7 @@ def _build_reviewer_outputs(
     out = run_root / "07_reviewer_analysis"
     out.mkdir(parents=True, exist_ok=True)
     order_dir = run_root / STAGE_FOLDERS["eeg-order"]
+    eeg_primary_dir = run_root / STAGE_FOLDERS["eeg-primary"]
     eye2_dir = run_root / STAGE_FOLDERS["eye-stage2"]
     eye3_dir = run_root / STAGE_FOLDERS["eye-stage3-run"]
     model_comparison = _read_if(
@@ -470,6 +611,24 @@ def _build_reviewer_outputs(
     eye_cr2 = _read_if(eye2_dir / "12_CR2_robust_results.csv")
     eye_time = _read_if(eye3_dir / "06_time_effect_models.csv")
     eye_carry = _read_if(eye3_dir / "07_carryover_models.csv")
+    onset_evidence: list[pd.DataFrame] = []
+    for trim in (0.0, 5.0, 10.0, 15.0):
+        trim_dir = eeg_primary_dir / "onset_window_models" / f"trim_{trim:g}s"
+        for filename, role in (
+            ("06_eeg_model0_model1_comparison.csv", "parallel Model0 vs Model1"),
+            ("07_eeg_previous_scene_model.csv", "parallel same-block carryover"),
+            ("08_eeg_block1_sensitivity.csv", "parallel Block 1"),
+            ("09_eeg_order_CR2.csv", "parallel cluster-robust inference"),
+        ):
+            evidence = _read_if(trim_dir / filename)
+            if evidence.empty:
+                continue
+            evidence["onset_trim_s"] = trim
+            onset_evidence.append(_standardize_effect_table(
+                evidence,
+                source=f"EEG {trim:g} s {filename}",
+                evidence_role=role,
+            ))
     r1 = pd.concat(
         [
             _standardize_effect_table(
@@ -504,6 +663,7 @@ def _build_reviewer_outputs(
                 eye_cr2, source="eye CR2",
                 evidence_role="cluster-robust inference",
             ),
+            *onset_evidence,
         ],
         ignore_index=True,
         sort=False,
@@ -539,6 +699,19 @@ def _build_reviewer_outputs(
             "Temporal EEG/eye proxies are not a direct fatigue scale; "
             "proxy changes must not be labelled fatigue."
         )
+    carryover_audit = _parallel_order_carryover_audit(eeg_primary_dir)
+    carryover_path = write_table(
+        carryover_audit,
+        out / "Reviewer1_parallel_previous_scene_FDR.csv",
+    )
+    carryover_summary = (
+        f"四窗口共同QC前序项共{len(carryover_audit)}个系数；"
+        f"raw p<0.05为{int(carryover_audit.get('detected_raw_0_05', pd.Series(dtype=bool)).sum())}个，"
+        f"窗口内FDR后为{int(carryover_audit.get('detected_window_fdr_0_05', pd.Series(dtype=bool)).sum())}个，"
+        f"四窗口联合FDR后为{int(carryover_audit.get('detected_parallel_fdr_0_05', pd.Series(dtype=bool)).sum())}个。"
+        if not carryover_audit.empty else
+        "四窗口共同QC前序项审计未生成，不能作排除性表述。"
+    )
     return {
         "reviewer1": write_table(
             r1, out / "Reviewer1_comment11_order_time_carryover.xlsx"
@@ -546,11 +719,13 @@ def _build_reviewer_outputs(
         "reviewer2": write_table(
             r2, out / "Reviewer2_comment5_fatigue_proxy_evidence.xlsx"
         ),
+        "parallel_previous_scene_fdr": carryover_path,
         "summary": write_text(
             "# Reviewer专项分析\n\n"
             "## Reviewer 1 意见11\n\n"
-            "报告 Block、Position、三个 OrderGroup、Model 0/Model 1、"
-            "同 Block 前序条件、Block 1 与 CR2；不使用“完全排除顺序效应”。\n\n"
+            "并行报告0、5、10、15 s下的 Block、Position、三个OrderGroup、"
+            "Model 0/Model 1、同Block前序条件、Block 1与CR2；"
+            "不使用“完全排除顺序效应”。" + carryover_summary + "\n\n"
             "## Reviewer 2 意见5\n\n"
             "仅把 alpha/theta、眨眼、瞳孔和扫描路径视为时间变化代理。"
             "实验没有直接疲劳量表，因此不把代理变化直接表述为疲劳。\n",
@@ -586,6 +761,24 @@ def _build_sync_outputs(
     temporal_resolution = ""
     if source is not None:
         frame = read_table(source)
+        expected_trims = tuple(sorted(float(value) for value in config.get(
+            "eeg", {}
+        ).get("onset_trim_variants_s", [0, 5, 10, 15])))
+        if "onset_trim_s" not in frame:
+            raise RuntimeError(
+                "Parallel synchronized analysis requires onset_trim_s."
+            )
+        frame["onset_trim_s"] = pd.to_numeric(
+            frame["onset_trim_s"], errors="coerce"
+        )
+        observed_trims = tuple(sorted(
+            frame["onset_trim_s"].dropna().unique().astype(float)
+        ))
+        if observed_trims != expected_trims:
+            raise RuntimeError(
+                "Formal synchronized table must contain parallel onset trims "
+                f"{list(expected_trims)}; observed {list(observed_trims)}."
+            )
         rows = len(frame)
         participant_col = next(
             (c for c in ("Participant", "participant_id") if c in frame), None
@@ -611,7 +804,7 @@ def _build_sync_outputs(
         source is not None
         and "window_specific" in temporal_resolution
         and (
-            "primary" in temporal_status
+            "parallel" in temporal_status
             or "synchronized_timebin" in temporal_status
         )
     )
@@ -695,6 +888,27 @@ def _build_sync_outputs(
             clock_frame["clock_alignment_pass"].map(is_truthy)
         ]
     ).assign(ClockAlignmentPass=True)
+    participant_column = next(
+        c for c in ("Participant", "participant_id") if c in frame
+    )
+    trial_column = next(
+        c for c in ("GlobalTrialOrder", "scene_id") if c in frame
+    )
+    trial_window_counts = (
+        frame[[participant_column, trial_column, "onset_trim_s"]]
+        .drop_duplicates()
+        .groupby([participant_column, trial_column])["onset_trim_s"]
+        .nunique()
+    )
+    complete_window_keys = trial_window_counts.loc[
+        trial_window_counts.eq(len(expected_trims))
+    ].index.to_frame(index=False)
+    frame = frame.merge(
+        complete_window_keys,
+        on=[participant_column, trial_column],
+        how="inner",
+        validate="many_to_one",
+    )
     synchronized_keys = key_frame(frame)
     eeg_keys = key_frame(eeg_trials).assign(EEGSceneQCPass=True)
     eye_keys = key_frame(eye_trials).assign(EyeStage2QCPass=True)
@@ -768,12 +982,6 @@ def _build_sync_outputs(
     ]
     frame_with_keys = frame.copy()
     # Assign keys directly from the source columns to preserve every time-bin row.
-    participant_column = next(
-        c for c in ("Participant", "participant_id") if c in frame
-    )
-    trial_column = next(
-        c for c in ("GlobalTrialOrder", "scene_id") if c in frame
-    )
     frame_with_keys["_ParticipantKey"] = (
         frame[participant_column].astype(str).str.strip()
     )
@@ -812,20 +1020,26 @@ def _build_sync_outputs(
         "Participants": participants,
         "Trials": trials,
         "TimeBins": rows,
+        "ParallelOnsetTrimsS": ",".join(
+            f"{value:g}" for value in expected_trims
+        ),
         "Columns": columns,
         "EEGTemporalResolution": temporal_resolution,
         "AnalysisStatus": temporal_status,
         "EligibilityRule": (
             "absolute-clock scene QC AND EEG participant+scene QC "
-            "AND eye Stage2 60% trial QC"
+            "AND eye Stage2 60% trial QC AND presence in all parallel trims"
         ),
-        "ReuseStatus": "formal_synchronized_timebin_exact_qc_intersection",
+        "ReuseStatus": "parallel_synchronized_timebin_exact_qc_intersection",
     }])
     model_outputs = run_timebin_models(
         synchronized_timebin_csv=formal_source,
         clock_scene_qc_csv=clock_qc,
         outdir=out,
         scene_model_results_csv=None,
+        expected_onset_trims_s=expected_trims,
+        time_column="scene_time_norm",
+        require_common_trials=True,
     )
     return {
         "summary": write_table(
@@ -834,7 +1048,8 @@ def _build_sync_outputs(
         "readme": write_text(
             "# 时序同步与跨模态结果\n\n"
             f"- 原始绝对时钟 time-bin 来源：`{source}`\n"
-            f"- 正式精确QC交集 time-bin：`{formal_source}`\n"
+            f"- 四窗口并行精确QC交集 time-bin：`{formal_source}`\n"
+            f"- 并行窗口：{', '.join(f'{value:g} s' for value in expected_trims)}\n"
             f"- 实际参与者：{participants}\n"
             f"- 实际 Participant × Trial：{trials}\n"
             f"- time-bin 行数：{rows}\n\n"
@@ -848,7 +1063,10 @@ def _build_sync_outputs(
 
 def _all_files_index(root: Path) -> pd.DataFrame:
     rows = []
-    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+    for path in sorted(
+        p for p in root.rglob("*")
+        if p.is_file() and p.name != "结果文件总索引.xlsx"
+    ):
         rows.append({
             "RelativePath": str(path.relative_to(root)),
             "SizeBytes": path.stat().st_size,
@@ -927,13 +1145,16 @@ def _completion_matrix(run_root: Path) -> pd.DataFrame:
         ("Reviewer专项", "问卷42人Holm", "07_reviewer_analysis/Questionnaire_42_WWR_posthoc_Holm.xlsx"),
         ("Reviewer专项", "问卷42人Markdown报告", "07_reviewer_analysis/Questionnaire_42_results_report.md"),
         ("Reviewer专项", "Reviewer 1意见11", "07_reviewer_analysis/Reviewer1_comment11_order_time_carryover.xlsx"),
+        ("Reviewer专项", "四窗口前序项联合FDR", "07_reviewer_analysis/Reviewer1_parallel_previous_scene_FDR.csv"),
         ("Reviewer专项", "Reviewer 2意见5", "07_reviewer_analysis/Reviewer2_comment5_fatigue_proxy_evidence.xlsx"),
         ("同步跨模态", "绝对时钟同步样本", "08_synchronized_crossmodal/synchronized_crossmodal_sample_and_source.xlsx"),
         ("同步跨模态", "眼动/EEG精确QC交集", "08_synchronized_crossmodal/synchronized_trial_eligibility_audit.xlsx"),
         ("同步跨模态", "EEG时钟覆盖与排除", "08_synchronized_crossmodal/eeg_clock_coverage_audit.xlsx"),
-        ("同步跨模态", "正式window-specific time-bin表", "08_synchronized_crossmodal/aligned_synchronized_timebin_formal_qc.csv"),
-        ("同步跨模态", "time-bin正式模型", "08_synchronized_crossmodal/timebin_model_results.csv"),
+        ("同步跨模态", "四窗口并行window-specific time-bin表", "08_synchronized_crossmodal/aligned_synchronized_timebin_formal_qc.csv"),
+        ("同步跨模态", "四窗口并行time-bin模型", "08_synchronized_crossmodal/timebin_model_results.csv"),
         ("同步跨模态", "time-bin模型诊断", "08_synchronized_crossmodal/timebin_model_diagnostics.csv"),
+        ("同步跨模态", "四窗口共同样本流", "08_synchronized_crossmodal/parallel_window_sample_flow.csv"),
+        ("同步跨模态", "四窗口稳定性分类", "08_synchronized_crossmodal/parallel_window_stability.csv"),
     ]
     rows = [
         {
@@ -1099,6 +1320,14 @@ def _build_top_report(outputs_root: Path, run_root: Path) -> Path:
     timebin = _read_if(
         run_root / "08_synchronized_crossmodal" / "timebin_model_results.csv"
     )
+    parallel_flow = _read_if(
+        run_root / "08_synchronized_crossmodal"
+        / "parallel_window_sample_flow.csv"
+    )
+    parallel_stability = _read_if(
+        run_root / "08_synchronized_crossmodal"
+        / "parallel_window_stability.csv"
+    )
     eye_evidence = _read_if(
         run_root / "02_eye_stage2" / "18_eye_evidence_classification.xlsx"
     )
@@ -1112,7 +1341,67 @@ def _build_top_report(outputs_root: Path, run_root: Path) -> Path:
     eeg_effect_text = _effect_preview(eeg_models, limit=12)
     order_effect_text = _effect_preview(order_comparison, limit=12)
     crossmodal_text = _effect_preview(crossmodal, limit=8)
-    timebin_text = _effect_preview(timebin, limit=8)
+    timebin_report = timebin.loc[
+            timebin.get("hypothesis_family", pd.Series("", index=timebin.index))
+            .astype(str).str.startswith("H_time_")
+        ].copy()
+    timebin_sort = [
+        column for column in ("outcome", "term", "onset_trim_s")
+        if column in timebin_report
+    ]
+    if timebin_sort:
+        timebin_report = timebin_report.sort_values(timebin_sort, kind="stable")
+    timebin_text = _markdown_preview(
+        timebin_report,
+        [
+            "onset_trim_s", "outcome", "term", "estimate", "ci_low",
+            "ci_high", "p_value", "p_fdr_bh_family", "p_fdr_bh_parallel",
+            "n_subjects", "n_trials", "status",
+        ],
+        48,
+    )
+    parallel_flow_text = _markdown_preview(
+        parallel_flow,
+        [
+            "onset_trim_s", "participants_before_common_filter",
+            "trials_before_common_filter", "timebin_rows_before_common_filter",
+            "participants_common", "trials_common", "timebin_rows_common",
+        ],
+        8,
+    )
+    stability_sort = [
+        column for column in ("outcome", "term")
+        if column in parallel_stability
+    ]
+    if stability_sort:
+        parallel_stability = parallel_stability.sort_values(
+            stability_sort, kind="stable"
+        )
+    parallel_stability_text = _markdown_preview(
+        parallel_stability,
+        [
+            "outcome", "term", "hypothesis_family", "windows_estimated",
+            "direction_consistent", "window_significant_count",
+            "parallel_significant_count", "estimate_min", "estimate_max",
+            "classification",
+        ],
+        40,
+    )
+    otheta_wwr75 = timebin.loc[
+        timebin.get("outcome", pd.Series("", index=timebin.index)).astype(str)
+        .str.fullmatch("eeg_O_theta", case=False, na=False)
+        & timebin.get("term", pd.Series("", index=timebin.index)).astype(str)
+        .str.contains("WWR.*75.*scene_time_norm", case=False, regex=True, na=False)
+    ].copy()
+    otheta_wwr75_text = _markdown_preview(
+        otheta_wwr75,
+        [
+            "onset_trim_s", "estimate", "ci_low", "ci_high", "p_value",
+            "p_fdr_bh_family", "p_fdr_bh_parallel", "n_subjects",
+            "n_trials", "status",
+        ],
+        8,
+    )
     evidence_text = _markdown_preview(
         pd.concat([
             eye_evidence.assign(Modality="Eye"),
@@ -1178,7 +1467,11 @@ Model 0 与时间/顺序调整后的 Model 1 并列报告；变化百分比、�
 
 {crossmodal_text}
 
-真正时序同步分析只接受 `eeg_temporal_resolution=window_specific` 且通过绝对时钟 QC 的表；旧 51,928 行 scene-repeated 表只保留为兼容产物，不作为时间推断证据。本次同步 time-bin 结果预览如下：
+真正时序同步分析只接受 `eeg_temporal_resolution=window_specific` 且通过绝对时钟 QC 的表。0、5、10、15 s是同等地位的并行窗口，四组使用共同 Participant × Trial 集合，并按原场景 `scene_time_norm` 时间轴摆放；不从四组中事后选择一个窗口作为主分析。共同样本流如下：
+
+{parallel_flow_text}
+
+四窗口模型同时报告窗口内 BH-FDR (`p_fdr_bh_family`) 与四窗口联合 BH-FDR (`p_fdr_bh_parallel`)：
 
 {timebin_text}
 
@@ -1192,7 +1485,7 @@ WWR 始终按三水平分类变量处理；本结果不支持倒 U、连续非�
 
 ### Reviewer 1 意见11
 
-顺序与时间证据同时报告未调整 Model 0、加入 Block/Position/三个 OrderGroup 的 Model 1、同 Block PreviousWWR/PreviousComplexity、Block 1 与 CR2。具体 Estimate、95% CI、raw p 和 adjusted p 见 `12_teacher_analysis/07_reviewer_analysis/Reviewer1_comment11_order_time_carryover.xlsx`。结论只描述调整前后方向和幅度稳定性，不声称“完全排除顺序效应”。
+顺序与时间证据在0、5、10、15 s四个并行窗口中同时报告未调整 Model 0、加入 Block/Position/三个 OrderGroup 的 Model 1、同 Block PreviousWWR/PreviousComplexity、Block 1 与 CR2。具体 Estimate、95% CI、raw p 和 adjusted p 见 `12_teacher_analysis/07_reviewer_analysis/Reviewer1_comment11_order_time_carryover.xlsx`。结论只描述调整前后方向和幅度稳定性，不声称“完全排除顺序效应”。
 
 可直接用于回复信的边界表述：在控制 Block、试次位置与随机顺序组，并检查同 Block 前序场景、Block 1 和 CR2 后，报告效应方向与幅度的稳定程度；这些分析降低了顺序/累积暴露混杂的可能性，但不能证明顺序效应绝对不存在。
 
@@ -1202,17 +1495,29 @@ EEG alpha/theta 以及已有眨眼、瞳孔、扫描路径指标只作为时间�
 
 可直接用于回复信的边界表述：补充分析检查了 alpha/theta、眨眼、瞳孔和扫描路径代理随 Block/Position 的变化，并比较环境效应在时间调整前后的稳定性；由于研究未采集直接疲劳量表，这些结果只能说明时间相关生理或行为变化，不能被解释为对疲劳的直接测量。
 
-## 三、老师要求的完整分析结果
+## 三、针对老师四窗口新方案的分析结果
 
-- 眼动 Stage 1：`12_teacher_analysis/01_eye_stage1`
-- 眼动 Stage 2：`12_teacher_analysis/02_eye_stage2`
-- 眼动 Stage 3 计划与自审依据：`12_teacher_analysis/03_eye_stage3_plan`
-- 眼动 Stage 3 实际触发模型：`12_teacher_analysis/04_eye_stage3`
-- EEG 顺序效应阶段：`12_teacher_analysis/05_eeg_order`
-- EEG 正式主分析：`12_teacher_analysis/06_eeg_primary`
-- Reviewer 专项：`12_teacher_analysis/07_reviewer_analysis`
-- 时序同步与精确跨模态：`12_teacher_analysis/08_synchronized_crossmodal`
-- 完成矩阵与运行 QA：`12_teacher_analysis/99_completion`
+### 1. 四组数据如何对齐
+
+四组数据具有同一个场景起始点。0 s保留全部开头数据，5、10、15 s分别删除场景开始后的前5、10、15 s；删除后的数据不向前平移，仍保留在原始绝对时钟和原场景时间位置。眼动和EEG在每个2 s time-bin中使用完全相同的 `bin_start_epoch_ms` 与 `bin_end_epoch_ms`。
+
+### 2. 四窗口共同样本
+
+{parallel_flow_text}
+
+只有同时存在于四个窗口、通过绝对时钟QC、EEG场景QC和眼动60% Stage 2 QC的Participant × Trial进入并行比较。这样可避免样本变化被误写为窗口效应。
+
+### 3. 四窗口稳定性分类
+
+{parallel_stability_text}
+
+`parallel_stable_evidence`表示四窗口方向一致且均通过四窗口联合校正；`window_specific_evidence`表示只有部分窗口通过窗口内校正；`direction_consistent_insufficient_evidence`表示方向相同但统计证据不足；`window_unstable`表示方向随剔除长度改变；`not_estimable_all_windows`不能被解释为“无效应”。
+
+### 4. O_theta的WWR75时间轨迹
+
+{otheta_wwr75_text}
+
+这四行必须并列解释。“方向一致”只表示Estimate符号相同，不等于显著性一致；只有相应四窗口联合校正结果支持时，才写成跨窗口稳定证据。
 
 旧结果是否复用、复用理由及核验方式见顶层 `artifact_reuse_manifest.xlsx`。整个文件夹的逐文件哈希索引见 `结果文件总索引.xlsx`。老师任务的逐项状态见 `老师任务完成矩阵.xlsx`。
 
@@ -1275,6 +1580,10 @@ def run_all_results(
             config["eye"]["stage3_plan_dir"] = str(run_root / folder)
         elif command == "eeg-order":
             config["eeg"]["order_stage_dir"] = str(run_root / folder)
+    stage_reuse = (
+        _import_reusable_stages(root, run_root, repo)
+        if reuse_valid else pd.DataFrame()
+    )
     questionnaire_outputs = _build_questionnaire_teacher_audit(
         root, run_root, config, repo, r_required
     )
@@ -1333,6 +1642,19 @@ def run_all_results(
         raise RuntimeError(f"Teacher result package is incomplete: {missing}")
     if reuse_valid:
         reuse = _reuse_manifest(root, config)
+        if not stage_reuse.empty:
+            stage_reuse = stage_reuse.rename(columns={
+                "Stage": "Artifact",
+                "ReuseReason": "ReuseReason",
+            })
+            stage_reuse["Purpose"] = "teacher-stage validated reuse"
+            stage_reuse["Exists"] = stage_reuse["Destination"].map(
+                lambda value: Path(str(value)).is_dir()
+            )
+            reuse = pd.concat([
+                reuse,
+                stage_reuse.reindex(columns=reuse.columns),
+            ], ignore_index=True, sort=False)
     else:
         reuse = pd.DataFrame(columns=[
             "Artifact", "Purpose", "Exists", "ReuseDecision", "ReuseReason"

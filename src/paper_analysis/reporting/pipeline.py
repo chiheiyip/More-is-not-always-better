@@ -179,9 +179,9 @@ def reviewer_onset_transition_evidence(
     sections = [
         "# Reviewer R1.11: EEG scene-onset transition evidence",
         "",
-        "The target estimand is sustained-state EEG after scene entry. The first "
-        "10 s are removed before PSD and QC; 15 s is the main robustness window, "
-        "5 s is a mild sensitivity window, and 0 s is historical audit only.",
+        "The 0, 5, 10 and 15 s onset trims are equal-status parallel windows. "
+        "Each window is re-extracted before PSD and QC, and formal comparisons "
+        "use the trial set passing QC in all four windows.",
         "",
         "A fixed trim can mitigate scene-transition and questionnaire-related "
         "contamination. It cannot prove that residual carryover was eliminated.",
@@ -192,8 +192,8 @@ def reviewer_onset_transition_evidence(
         dataframe_to_markdown(flow) if not flow.empty else "Onset QC flow missing.",
         "", "## Window comparisons", "",
         dataframe_to_markdown(comparisons) if not comparisons.empty else "Onset comparison table missing.",
-        "", "## Formal 10-vs-15 s equivalence", "",
-        dataframe_to_markdown(equivalence) if not equivalence.empty else "Equivalence evidence missing.",
+        "", "## Compatibility 10-vs-15 s equivalence (not a primary-window selector)", "",
+        dataframe_to_markdown(equivalence) if not equivalence.empty else "No compatibility equivalence table.",
         "", "## Model and bootstrap diagnostics", "",
         dataframe_to_markdown(failures) if not failures.empty else "Diagnostics missing.",
         "", "## Bootstrap failures", "",
@@ -208,7 +208,6 @@ def _onset_readiness(diagnostics_dir: Path | None) -> tuple[str, str]:
     onset_dir = diagnostics_dir / "eeg_onset"
     required = {
         "window comparisons": onset_dir / "onset_window_comparisons.csv",
-        "formal equivalence": onset_dir / "onset_equivalence_10_vs_15.csv",
         "model diagnostics": onset_dir / "onset_variant_model_diagnostics.csv",
         "readiness audit": onset_dir / "onset_reviewer_readiness.csv",
         "bootstrap failure audit": onset_dir / "onset_bootstrap_failures.csv",
@@ -231,7 +230,7 @@ def _onset_readiness(diagnostics_dir: Path | None) -> tuple[str, str]:
         return "needs_revision", "; ".join(dict.fromkeys(failures))
     return (
         "ready_to_draft_response",
-        "0/5/10/15-s extraction, common QC, 10-vs-15-s equivalence and diagnostics present; bounded wording required",
+        "0/5/10/15-s parallel extraction, four-window common QC, pairwise comparisons and diagnostics present; bounded wording required",
     )
 
 
