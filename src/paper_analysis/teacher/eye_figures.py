@@ -14,7 +14,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
 from PIL import Image
 from scipy import ndimage
 
@@ -35,6 +35,17 @@ HEX_AOI_COLORS = {
     name: "#{:02X}{:02X}{:02X}".format(*rgba[:3])
     for name, rgba in AOI_COLORS.items()
 }
+AOI_OUTLINE_ORDER = ("Table", "Window", "Equipment")
+TOBII_HEATMAP_COLORS = (
+    "#3155B7",
+    "#2A8CCF",
+    "#2FC56D",
+    "#F1E51D",
+    "#FF9418",
+    "#D7191C",
+)
+TOBII_HEATMAP_ALPHA_MAX = 0.82
+TOBII_HEATMAP_ALPHA_POWER = 0.55
 IMAGE_ID_PATTERN = re.compile(r"^(?P<block>[12])-C(?P<complexity>[01])W(?P<wwr>15|45|75)$")
 
 
@@ -118,25 +129,47 @@ def _masked_base(scene: SceneMasks) -> np.ndarray:
     return result
 
 
-def _blend_mask(image: np.ndarray, mask: np.ndarray, color: tuple[int, int, int, int]) -> None:
+def _draw_mask_outline(
+    image: np.ndarray,
+    mask: np.ndarray,
+    color: tuple[int, int, int, int],
+) -> None:
     if not mask.any():
         return
-    alpha = color[3] / 255.0
-    rgb = np.asarray(color[:3], dtype=float)
-    image[mask] = np.clip((1.0 - alpha) * image[mask] + alpha * rgb, 0, 255).astype(np.uint8)
-    boundary = ndimage.binary_dilation(mask, iterations=3) ^ ndimage.binary_erosion(mask, iterations=2)
+    scale = min(image.shape[:2])
+    color_width = max(1, int(round(scale / 700)))
+    halo_width = color_width + max(1, int(round(scale / 900)))
+    halo = ndimage.binary_dilation(mask, iterations=halo_width) ^ ndimage.binary_erosion(
+        mask, iterations=halo_width
+    )
+    boundary = ndimage.binary_dilation(mask, iterations=color_width) ^ ndimage.binary_erosion(
+        mask, iterations=color_width
+    )
+    image[halo] = 255
     image[boundary] = np.asarray(color[:3], dtype=np.uint8)
 
 
 def _aoi_panel_image(scene: SceneMasks) -> np.ndarray:
     image = _masked_base(scene)
-    valid_boundary = ndimage.binary_dilation(scene.valid_scene, iterations=3) ^ ndimage.binary_erosion(
-        scene.valid_scene, iterations=2
-    )
-    image[valid_boundary] = np.asarray(AOI_COLORS["ValidScene"][:3], dtype=np.uint8)
-    for name in ("Table", "Window", "Equipment"):
-        _blend_mask(image, scene.masks[name] & scene.valid_scene, AOI_COLORS[name])
+    for name in AOI_OUTLINE_ORDER:
+        _draw_mask_outline(image, scene.masks[name] & scene.valid_scene, AOI_COLORS[name])
     return image
+
+
+def _tobii_heatmap_cmap() -> mpl.colors.LinearSegmentedColormap:
+    cmap = mpl.colors.LinearSegmentedColormap.from_list(
+        "tobii_fixation_density", TOBII_HEATMAP_COLORS, N=256
+    )
+    return cmap.with_extremes(under=(0, 0, 0, 0))
+
+
+def _tobii_heatmap_alpha(density: np.ndarray, vmax: float) -> np.ndarray:
+    relative = np.clip(density / vmax, 0, 1) if vmax > 0 else np.zeros_like(density)
+    return np.where(
+        relative > 0,
+        TOBII_HEATMAP_ALPHA_MAX * np.power(relative, TOBII_HEATMAP_ALPHA_POWER),
+        0.0,
+    )
 
 
 def _read_gray(scene: SceneMasks) -> np.ndarray:
@@ -451,14 +484,12 @@ def _plot_aoi_overview(scenes: dict[str, SceneMasks], basename: Path) -> dict[st
         ax.imshow(_aoi_panel_image(scene))
         ax.set_title(f"({chr(97 + index)}) C{complexity}–WWR{wwr}", fontsize=7, pad=2)
         ax.set_axis_off()
+    labels = {"Table": "Table", "Window": "Window", "Equipment": "Equipment (C1 only)"}
     legend = [
-        Patch(facecolor=HEX_AOI_COLORS[name], edgecolor="none", label=name)
-        for name in ("Table", "Window", "Equipment")
+        Line2D([0], [0], color=HEX_AOI_COLORS[name], linewidth=2.2, label=labels[name])
+        for name in AOI_OUTLINE_ORDER
     ]
-    legend.append(
-        Patch(facecolor="white", edgecolor=HEX_AOI_COLORS["ValidScene"], linewidth=1.2, label="ValidScene")
-    )
-    fig.legend(handles=legend, loc="lower center", ncol=4, fontsize=6, frameon=False)
+    fig.legend(handles=legend, loc="lower center", ncol=3, fontsize=6, frameon=False)
     fig.set_constrained_layout_pads(w_pad=0.01, h_pad=0.025, hspace=0.02, wspace=0.02)
     return _save_figure_bundle(fig, basename)
 
@@ -500,15 +531,14 @@ def _plot_density_overview(
             }
         )
     vmax = _global_vmax(densities)
-    cmap = mpl.colormaps["inferno"].copy()
-    cmap.set_under((0, 0, 0, 0))
+    cmap = _tobii_heatmap_cmap()
     fig, axes = plt.subplots(2, 3, figsize=(183 / 25.4, 120 / 25.4), constrained_layout=True)
     for index, (complexity, wwr) in enumerate(CONDITION_ORDER):
         ax = axes.flat[index]
         scene = scenes[f"1-C{complexity}W{wwr}"]
         density = densities[(complexity, wwr)]
         ax.imshow(_masked_base(scene), extent=(0, scene.width, scene.height, 0))
-        alpha = np.clip(density / vmax, 0, 1) * 0.78
+        alpha = _tobii_heatmap_alpha(density, vmax)
         ax.imshow(
             density,
             cmap=cmap,
@@ -653,6 +683,7 @@ def build_eye_scene_figures(
             {
                 "FigureID": "FigureS_AOI_regions_unified",
                 "CoreConclusion": "AOI categories use one fixed semantic palette across all six conditions.",
+                "VisualEncoding": "Boundary-only AOI outlines with a white contrast halo; no AOI fill.",
                 "Participants": np.nan,
                 "Trials": np.nan,
                 "FixationsBeforeRegistration": np.nan,
@@ -665,6 +696,7 @@ def build_eye_scene_figures(
             {
                 "FigureID": "Figure6_fixation_event_density",
                 "CoreConclusion": "QC-passed fixation-event density is directly comparable across six registered conditions.",
+                "VisualEncoding": "Shared blue-green-yellow-red Tobii-style scale; red is the highest density.",
                 "Participants": int(events["ParticipantCode"].nunique()),
                 "Trials": int(events[["ParticipantCode", "GlobalTrialOrder"]].drop_duplicates().shape[0]),
                 "FixationsBeforeRegistration": int(len(events)),
@@ -677,6 +709,7 @@ def build_eye_scene_figures(
             {
                 "FigureID": "FigureS_fixation_duration_density",
                 "CoreConclusion": "Duration weighting does not alter the registered six-condition spatial comparison contract.",
+                "VisualEncoding": "Shared blue-green-yellow-red Tobii-style scale; red is the highest density.",
                 "Participants": int(events["ParticipantCode"].nunique()),
                 "Trials": int(events[["ParticipantCode", "GlobalTrialOrder"]].drop_duplicates().shape[0]),
                 "FixationsBeforeRegistration": int(len(events)),
@@ -700,6 +733,9 @@ def build_eye_scene_figures(
         "fixations_plotted": int(events["RegistrationIncluded"].map(is_truthy).sum()),
         "all_registrations_passed": bool(registration_frame["RegistrationPass"].all()),
         "palette": HEX_AOI_COLORS,
+        "aoi_rendering": "boundary_only_with_white_contrast_halo",
+        "heatmap_colors_low_to_high": list(TOBII_HEATMAP_COLORS),
+        "heatmap_peak_color": TOBII_HEATMAP_COLORS[-1],
     }
     summary_path = output / "eye_scene_figure_summary.json"
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")

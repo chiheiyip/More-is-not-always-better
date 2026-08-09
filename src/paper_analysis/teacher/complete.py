@@ -1476,7 +1476,7 @@ def _build_top_report(outputs_root: Path, run_root: Path) -> Path:
 
 {eye_figure_text}
 
-主图 `12_teacher_analysis/09_eye_figures/Figure6_fixation_event_density.svg` 使用fixation事件等权密度；`FigureS_fixation_duration_density.svg` 为FixationDuration加权敏感性图。六个面板使用相同核宽与共享色标。统一AOI图固定使用Table `#DC2D2D`、Window `#EEC428`、Equipment `#2E6ADC`、ValidScene `#28AA5A`，场景外像素设为白色；完整配准矩阵、阈值QA及纳入明细均保存在同目录。
+主图 `12_teacher_analysis/09_eye_figures/Figure6_fixation_event_density.svg` 使用fixation事件等权密度；`FigureS_fixation_duration_density.svg` 为FixationDuration加权敏感性图。六个面板使用相同核宽与共享的蓝—绿—黄—红Tobii风格色标，红色表示最高密度。统一AOI图固定使用Table `#DC2D2D`、Window `#EEC428`、Equipment `#2E6ADC`、ValidScene `#28AA5A`；正式展示仅用带白色衬边的语义色描边，不铺色块，场景外像素设为白色。完整配准矩阵、阈值QA及纳入明细均保存在同目录。
 
 ### 4. EEG 正式主分析
 

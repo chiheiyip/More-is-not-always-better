@@ -9,10 +9,13 @@ from PIL import Image
 from paper_analysis.teacher.eye import SceneMasks
 from paper_analysis.teacher.eye_figures import (
     HEX_AOI_COLORS,
+    TOBII_HEATMAP_COLORS,
     _aoi_panel_image,
     _density_map,
     _masked_base,
     _registration_metrics,
+    _tobii_heatmap_alpha,
+    _tobii_heatmap_cmap,
 )
 
 
@@ -63,6 +66,19 @@ def test_valid_scene_mask_removes_black_border_without_changing_canvas(tmp_path:
     panel = _aoi_panel_image(scene)
     assert panel.shape == masked.shape
     assert not scene.masks["Equipment"].any()
+    assert np.array_equal(panel[50, 30], masked[50, 30])
+    assert np.array_equal(panel[49, 30], masked[49, 30])
+    assert np.array_equal(panel[40, 30], [220, 45, 45])
+
+
+def test_tobii_heatmap_uses_red_for_peak_and_transparent_zero() -> None:
+    cmap = _tobii_heatmap_cmap()
+    peak_rgb = tuple(round(channel * 255) for channel in cmap(1.0)[:3])
+    assert TOBII_HEATMAP_COLORS[-1] == "#D7191C"
+    assert peak_rgb == (215, 25, 28)
+    alpha = _tobii_heatmap_alpha(np.array([[0.0, 0.25, 1.0]]), vmax=1.0)
+    assert alpha[0, 0] == 0.0
+    assert 0.0 < alpha[0, 1] < alpha[0, 2] <= 0.82
 
 
 def test_identity_registration_passes_locked_qc(tmp_path: Path) -> None:
