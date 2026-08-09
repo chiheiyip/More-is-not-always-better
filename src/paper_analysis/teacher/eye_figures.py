@@ -36,6 +36,7 @@ HEX_AOI_COLORS = {
     for name, rgba in AOI_COLORS.items()
 }
 AOI_OUTLINE_ORDER = ("Table", "Window", "Equipment")
+AOI_FILL_ALPHA = 0.10
 TOBII_HEATMAP_COLORS = (
     "#3155B7",
     "#2A8CCF",
@@ -129,15 +130,21 @@ def _masked_base(scene: SceneMasks) -> np.ndarray:
     return result
 
 
-def _draw_mask_outline(
+def _draw_mask_overlay(
     image: np.ndarray,
     mask: np.ndarray,
     color: tuple[int, int, int, int],
 ) -> None:
     if not mask.any():
         return
+    rgb = np.asarray(color[:3], dtype=float)
+    image[mask] = np.clip(
+        (1.0 - AOI_FILL_ALPHA) * image[mask] + AOI_FILL_ALPHA * rgb,
+        0,
+        255,
+    ).astype(np.uint8)
     scale = min(image.shape[:2])
-    color_width = max(1, int(round(scale / 700)))
+    color_width = max(2, int(round(scale / 400)))
     halo_width = color_width + max(1, int(round(scale / 900)))
     halo = ndimage.binary_dilation(mask, iterations=halo_width) ^ ndimage.binary_erosion(
         mask, iterations=halo_width
@@ -146,13 +153,13 @@ def _draw_mask_outline(
         mask, iterations=color_width
     )
     image[halo] = 255
-    image[boundary] = np.asarray(color[:3], dtype=np.uint8)
+    image[boundary] = rgb.astype(np.uint8)
 
 
 def _aoi_panel_image(scene: SceneMasks) -> np.ndarray:
     image = _masked_base(scene)
     for name in AOI_OUTLINE_ORDER:
-        _draw_mask_outline(image, scene.masks[name] & scene.valid_scene, AOI_COLORS[name])
+        _draw_mask_overlay(image, scene.masks[name] & scene.valid_scene, AOI_COLORS[name])
     return image
 
 
@@ -477,7 +484,7 @@ def _save_figure_bundle(fig: plt.Figure, basename: Path) -> dict[str, Path]:
 
 
 def _plot_aoi_overview(scenes: dict[str, SceneMasks], basename: Path) -> dict[str, Path]:
-    fig, axes = plt.subplots(2, 3, figsize=(183 / 25.4, 120 / 25.4), constrained_layout=True)
+    fig, axes = plt.subplots(2, 3, figsize=(183 / 25.4, 120 / 25.4), constrained_layout=False)
     for index, (complexity, wwr) in enumerate(CONDITION_ORDER):
         ax = axes.flat[index]
         scene = scenes[f"1-C{complexity}W{wwr}"]
@@ -489,8 +496,15 @@ def _plot_aoi_overview(scenes: dict[str, SceneMasks], basename: Path) -> dict[st
         Line2D([0], [0], color=HEX_AOI_COLORS[name], linewidth=2.2, label=labels[name])
         for name in AOI_OUTLINE_ORDER
     ]
-    fig.legend(handles=legend, loc="lower center", ncol=3, fontsize=6, frameon=False)
-    fig.set_constrained_layout_pads(w_pad=0.01, h_pad=0.025, hspace=0.02, wspace=0.02)
+    fig.legend(
+        handles=legend,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.012),
+        ncol=3,
+        fontsize=6,
+        frameon=False,
+    )
+    fig.subplots_adjust(left=0.008, right=0.992, top=0.97, bottom=0.105, wspace=0.025, hspace=0.08)
     return _save_figure_bundle(fig, basename)
 
 
@@ -683,7 +697,7 @@ def build_eye_scene_figures(
             {
                 "FigureID": "FigureS_AOI_regions_unified",
                 "CoreConclusion": "AOI categories use one fixed semantic palette across all six conditions.",
-                "VisualEncoding": "Boundary-only AOI outlines with a white contrast halo; no AOI fill.",
+                "VisualEncoding": "Thick AOI outlines with a white contrast halo and 10% semantic-color fill.",
                 "Participants": np.nan,
                 "Trials": np.nan,
                 "FixationsBeforeRegistration": np.nan,
@@ -733,7 +747,8 @@ def build_eye_scene_figures(
         "fixations_plotted": int(events["RegistrationIncluded"].map(is_truthy).sum()),
         "all_registrations_passed": bool(registration_frame["RegistrationPass"].all()),
         "palette": HEX_AOI_COLORS,
-        "aoi_rendering": "boundary_only_with_white_contrast_halo",
+        "aoi_rendering": "thick_outline_white_contrast_halo_10pct_fill",
+        "aoi_fill_alpha": AOI_FILL_ALPHA,
         "heatmap_colors_low_to_high": list(TOBII_HEATMAP_COLORS),
         "heatmap_peak_color": TOBII_HEATMAP_COLORS[-1],
     }

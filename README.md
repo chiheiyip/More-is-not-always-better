@@ -36,7 +36,7 @@ top-level formal result view only after QA passes. The individual stage
 commands remain available for diagnosis.
 
 The workflow also builds `09_eye_figures/`: a six-condition AOI plate with a
-fixed semantic palette rendered as boundary-only outlines, the 60%-QC Fig. 6
+fixed semantic palette rendered as thick outlines with a subtle 10% fill, the 60%-QC Fig. 6
 fixation-event heatmap with a shared blue-green-yellow-red Tobii-style scale, a
 duration-weighted sensitivity plate, Block 2-to-Block 1 registration matrices,
 and figure/source-data QA. The same step can be run independently with

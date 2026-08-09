@@ -13,7 +13,7 @@ Figures are treated as claim-evidence objects, not only visual styling tasks. Th
 
 ## Export Contract
 
-`scripts/08_build_figures.py` and `scripts/build_eye_scene_figures.py` use the Python/matplotlib backend only. They export editable `svg`, vector `pdf`, high-resolution `tiff`, QA `png`, and the exact source data used by every figure. The eye-scene workflow additionally records source-image hashes, registration matrices, image-mask policy, and registration QA. AOIs are rendered as fixed-color boundary-only outlines with a white contrast halo; the background image is never covered by an AOI fill.
+`scripts/08_build_figures.py` and `scripts/build_eye_scene_figures.py` use the Python/matplotlib backend only. They export editable `svg`, vector `pdf`, high-resolution `tiff`, QA `png`, and the exact source data used by every figure. The eye-scene workflow additionally records source-image hashes, registration matrices, image-mask policy, and registration QA. AOIs use fixed semantic colors, thick outlines with a white contrast halo, and a subtle 10% tint that preserves background-scene detail.
 
 ## QA Outputs
 

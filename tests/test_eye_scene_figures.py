@@ -8,6 +8,7 @@ from PIL import Image
 
 from paper_analysis.teacher.eye import SceneMasks
 from paper_analysis.teacher.eye_figures import (
+    AOI_FILL_ALPHA,
     HEX_AOI_COLORS,
     TOBII_HEATMAP_COLORS,
     _aoi_panel_image,
@@ -66,9 +67,10 @@ def test_valid_scene_mask_removes_black_border_without_changing_canvas(tmp_path:
     panel = _aoi_panel_image(scene)
     assert panel.shape == masked.shape
     assert not scene.masks["Equipment"].any()
-    assert np.array_equal(panel[50, 30], masked[50, 30])
-    assert np.array_equal(panel[49, 30], masked[49, 30])
+    assert AOI_FILL_ALPHA == 0.10
+    assert np.array_equal(panel[50, 30], [184, 166, 166])
     assert np.array_equal(panel[40, 30], [220, 45, 45])
+    assert np.array_equal(panel[41, 30], [220, 45, 45])
 
 
 def test_tobii_heatmap_uses_red_for_peak_and_transparent_zero() -> None:
