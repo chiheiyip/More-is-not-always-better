@@ -1288,6 +1288,28 @@ def _build_top_report(outputs_root: Path, run_root: Path) -> Path:
     )
     eye_valid_participants = int((eye_qc["PrimaryValidTrials"] > 0).sum())
     eye_valid_trials = int(eye_qc["PrimaryValidTrials"].sum())
+    eye_figure_summary_path = (
+        run_root / "09_eye_figures" / "eye_scene_figure_summary.json"
+    )
+    if eye_figure_summary_path.is_file():
+        eye_figure_summary = json.loads(
+            eye_figure_summary_path.read_text(encoding="utf-8")
+        )
+        eye_figure_text = (
+            "Fig. 6 将 Block 2 配准到 Block 1 后，按六个 "
+            "Complexity × WWR 条件汇总通过60% tracking QC且命中 "
+            f"ValidScene 的 fixation；共纳入 {int(eye_figure_summary['participants'])} "
+            f"人、{int(eye_figure_summary['trials'])} 个试次、"
+            f"{int(eye_figure_summary['valid_scene_fixations_before_registration'])} "
+            "个配准前有效 fixation，最终绘制 "
+            f"{int(eye_figure_summary['fixations_plotted'])} 个。六组配准均通过预设 "
+            "RANSAC、重投影误差、ValidScene/AOI IoU及fixation保留率门槛。"
+        )
+    else:
+        eye_figure_text = (
+            "六场景AOI图与Fig. 6由独立的眼动场景绘图流程生成；"
+            "正式解释前必须同时核对配准QA与图形source data。"
+        )
     common = eye_counts.iloc[0]
     structural = eeg_flow.iloc[0]
     model = eeg_flow.iloc[1]
@@ -1449,6 +1471,12 @@ def _build_top_report(outputs_root: Path, run_root: Path) -> Path:
 下表列出按校正后或原始 p 值排序的核心固定效应预览；完整结果及所有非显著项见 `12_teacher_analysis/02_eye_stage2/09_familyA_primary_models.xlsx` 与 `10_familyB_primary_models.xlsx`。
 
 {eye_effect_text}
+
+#### 六场景AOI与Fig. 6眼动热图
+
+{eye_figure_text}
+
+主图 `12_teacher_analysis/09_eye_figures/Figure6_fixation_event_density.svg` 使用fixation事件等权密度；`FigureS_fixation_duration_density.svg` 为FixationDuration加权敏感性图。六个面板使用相同核宽与共享色标。统一AOI图固定使用Table `#DC2D2D`、Window `#EEC428`、Equipment `#2E6ADC`、ValidScene `#28AA5A`，场景外像素设为白色；完整配准矩阵、阈值QA及纳入明细均保存在同目录。
 
 ### 4. EEG 正式主分析
 
