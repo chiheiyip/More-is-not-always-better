@@ -10,7 +10,7 @@
     "formats": ["svg", "pdf", "tiff", "png", "source_csv"],
     "font_policy": "Arial/Helvetica preferred with DejaVu Sans fallback; SVG text remains editable and PDF uses TrueType fonts.",
     "error_bar_policy": "Show mean with SEM when replicate-level data are available; otherwise mark error bars as not estimable in source data and QA.",
-    "image_integrity_policy": "No image manipulation beyond deterministic plotting from source CSV files."
+    "image_integrity_policy": "Quantitative panels are deterministic from source data. Scene-image panels may apply only documented ValidScene masking and registered coordinate transforms with source hashes and QA outputs."
   },
   "figures": [
     {
@@ -96,6 +96,31 @@
         "statistics_note": "Participant-clustered GEE block/position estimates with 95% confidence intervals, WWR45 peak index, and categorical claim-strength scores.",
       "image_integrity_note": "Claim scores are categorical encodings for visual audit only; manuscript wording uses the original labels.",
       "export_targets": ["svg", "pdf", "tiff", "source_csv"]
+    },
+    {
+      "figure_id": "Fig6_eye_fixation_density",
+      "external_builder": "paper_analysis.teacher.eye_figures.build_eye_scene_figures",
+      "manuscript_role": "Spatial distribution of QC-passed eye fixations across the six WWR × Complexity conditions",
+      "core_conclusion": "After 60% tracking QC and Block 2-to-Block 1 registration, fixation-event density can be compared on one common scene canvas for each of the six experimental conditions.",
+      "archetype": "image plate + quant",
+      "panel_map": [
+        {"panel_id": "A", "claim_role": "C0–WWR15 fixation-event density", "source_data": "09_eye_figures/Figure6_fixation_source_data.csv"},
+        {"panel_id": "B", "claim_role": "C0–WWR45 fixation-event density", "source_data": "09_eye_figures/Figure6_fixation_source_data.csv"},
+        {"panel_id": "C", "claim_role": "C0–WWR75 fixation-event density", "source_data": "09_eye_figures/Figure6_fixation_source_data.csv"},
+        {"panel_id": "D", "claim_role": "C1–WWR15 fixation-event density", "source_data": "09_eye_figures/Figure6_fixation_source_data.csv"},
+        {"panel_id": "E", "claim_role": "C1–WWR45 fixation-event density", "source_data": "09_eye_figures/Figure6_fixation_source_data.csv"},
+        {"panel_id": "F", "claim_role": "C1–WWR75 fixation-event density", "source_data": "09_eye_figures/Figure6_fixation_source_data.csv"}
+      ],
+      "source_data": [
+        "09_eye_figures/Figure6_fixation_source_data.csv",
+        "09_eye_figures/Figure6_condition_counts.csv",
+        "09_eye_figures/Figure6_registration_qc.csv",
+        "09_eye_figures/Figure6_registration_transforms.json"
+      ],
+      "review_risk": "Do not pool Block 1 and Block 2 coordinates without registration; report registration QC, the 60% tracking threshold, and any fixation loss after warping.",
+      "statistics_note": "The primary plate is a per-condition normalized event-density visualization, not an inferential test. A duration-weighted sensitivity plate is exported separately.",
+      "image_integrity_note": "Block 2 coordinates are transformed to the Block 1 reference canvas; pixels outside confirmed ValidScene masks are rendered white. Source-image hashes and transform matrices are retained.",
+      "export_targets": ["svg", "pdf", "tiff", "png", "source_csv"]
     }
   ]
 }

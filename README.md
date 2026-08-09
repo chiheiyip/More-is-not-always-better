@@ -35,6 +35,12 @@ restarts from the last matching fingerprint; and `--promote` updates the
 top-level formal result view only after QA passes. The individual stage
 commands remain available for diagnosis.
 
+The workflow also builds `09_eye_figures/`: a six-condition AOI plate with a
+fixed semantic palette, the 60%-QC Fig. 6 fixation-event heatmap, a
+duration-weighted sensitivity plate, Block 2-to-Block 1 registration matrices,
+and figure/source-data QA. The same step can be run independently with
+`scripts/build_eye_scene_figures.py` against a completed teacher run.
+
 The real eye design contains 12 scenes and 12 AOI definitions. No workflow
 collapses these to nine. Eye eligibility is independent of EEG eligibility;
 the EEG-valid eye sensitivity uses the exact participant-by-trial intersection.

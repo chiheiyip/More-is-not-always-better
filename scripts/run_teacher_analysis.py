@@ -44,6 +44,7 @@ def _resolve_paths(config: dict[str, Any], config_path: Path) -> dict[str, Any]:
         "preprocessing_audit_file", "order_stage_dir",
         "s3_trial_file", "questionnaire_file", "rscript",
         "synchronized_timebin_file", "clock_scene_qc_file",
+        "eye_scene_registration_file",
     }
 
     def walk(value: Any, key: str = "") -> Any:

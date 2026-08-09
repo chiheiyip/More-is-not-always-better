@@ -51,6 +51,8 @@ def run_figure_pipeline(
     legend_blocks: list[str] = ["# Figure Legends And QA Notes", ""]
 
     for contract in config.get("figures", []):
+        if contract.get("external_builder"):
+            continue
         figure_id = str(contract["figure_id"])
         source = build_figure_source(figure_id, outputs_root)
         source_path = write_table(source, source_dir / f"{figure_id}_source.csv")

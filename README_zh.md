@@ -31,6 +31,12 @@ python scripts/run_teacher_analysis.py all-results `
 各阶段正式叙述报告采用 Markdown，机器可读表、图片、日志和代码副本
 仍按老师清单交付。
 
+老师流程同时生成 `09_eye_figures/`：固定语义配色的六场景 AOI 图、通过
+60% tracking QC 的 Fig. 6 fixation 事件密度图、时长加权敏感性图，以及
+Block 2 到 Block 1 的配准矩阵、配准 QA 和去标识 source data。已有完整
+老师运行也可用 `scripts/build_eye_scene_figures.py` 单独补图，无需重跑
+眼动 Stage 2/3 或 EEG 模型。
+
 ## 输出结构
 
 - `outputs/01_sample_qc/`：样本流向、补招前后组别平衡、场景/条件平衡。

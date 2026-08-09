@@ -23,6 +23,7 @@ from paper_analysis.teacher.eye import (
     run_eye_stage3,
     run_eye_stage3_plan,
 )
+from paper_analysis.teacher.eye_figures import build_eye_scene_figures
 from paper_analysis.teacher.state import (
     file_sha256,
     legacy_stage_methods_unchanged,
@@ -1106,6 +1107,10 @@ def _completion_matrix(run_root: Path) -> pd.DataFrame:
         ("眼动 Stage 2", "中文Markdown报告", "02_eye_stage2/19_eye_stage2_results_report_CN.md"),
         ("眼动 Stage 2", "33项summary", "02_eye_stage2/21_stage2_summary.txt"),
         ("眼动 Stage 2", "5张核心图", "02_eye_stage2/Figure5_table_share_by_condition.png"),
+        ("眼动图形", "六场景统一AOI图", "09_eye_figures/FigureS_AOI_regions_unified.svg"),
+        ("眼动图形", "Fig. 6 fixation事件密度", "09_eye_figures/Figure6_fixation_event_density.svg"),
+        ("眼动图形", "fixation时长加权敏感性", "09_eye_figures/FigureS_fixation_duration_density.svg"),
+        ("眼动图形", "Block配准QA", "09_eye_figures/Figure6_registration_qc.csv"),
         ("眼动 Stage 3", "计划与触发依据", "03_eye_stage3_plan/stage3_plan.txt"),
         ("眼动 Stage 3", "触发完成表", "04_eye_stage3/18_stage3_trigger_completion.xlsx"),
         ("眼动 Stage 3", "中文Markdown报告", "04_eye_stage3/19_eye_stage3_results_report_CN.md"),
@@ -1532,7 +1537,7 @@ def _promote(run_root: Path, outputs_root: Path) -> Path:
     target = outputs_root / "12_teacher_analysis"
     folders = [
         *STAGE_FOLDERS.values(), "07_reviewer_analysis",
-        "08_synchronized_crossmodal", "99_completion",
+        "08_synchronized_crossmodal", "09_eye_figures", "99_completion",
     ]
     backup_root = (
         outputs_root / "teacher_runs" / "_promoted_backups"
@@ -1605,6 +1610,18 @@ def run_all_results(
         config_path=config_path, outdir=run_root / "02_eye_stage2",
         repo_root=repo, resume=resume, r_required=r_required,
     )
+    figure_outputs = build_eye_scene_figures(
+        run_root=run_root,
+        mapping_file=Path(config["scene_aoi_mapping"]),
+        output_dir=run_root / "09_eye_figures",
+        manual_registration_file=Path(
+            config.get(
+                "eye_scene_registration_file",
+                repo / "configs" / "eye_scene_registration.json",
+            )
+        ),
+    )
+    outputs.update({f"eye_figure_{name}": path for name, path in figure_outputs.items()})
     _run_or_resume(
         name="eye-stage3-plan", function=run_eye_stage3_plan, config=config,
         config_path=config_path, outdir=run_root / "03_eye_stage3_plan",

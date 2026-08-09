@@ -12,6 +12,7 @@ from paper_analysis.teacher.contracts import (
     canonicalize_trials,
 )
 from paper_analysis.teacher.state import StageBlockedError
+from paper_analysis.teacher.eye_figures import build_eye_scene_figures
 
 __all__ = [
     "REQUIRED_PARTICIPANT_COLUMNS",
@@ -19,4 +20,5 @@ __all__ = [
     "StageBlockedError",
     "build_modality_registry",
     "canonicalize_trials",
+    "build_eye_scene_figures",
 ]

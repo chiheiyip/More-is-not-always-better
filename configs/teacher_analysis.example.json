@@ -5,6 +5,7 @@
   "participant_information": "path/to/participant_information.xlsx",
   "trial_order_mapping": "path/to/trial_order_mapping.xlsx",
   "scene_aoi_mapping": "path/to/scene_AOI_mapping.xlsx",
+  "eye_scene_registration_file": "eye_scene_registration.json",
   "synchronized_timebin_file": "path/to/aligned_synchronized_timebin_table.csv",
   "clock_scene_qc_file": "path/to/clock_alignment_scene_qc.csv",
   "eye": {

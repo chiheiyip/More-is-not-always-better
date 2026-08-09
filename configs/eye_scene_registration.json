@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "description": "Optional manual control-point fallback for Block 2 to Block 1 scene registration. Automatic SIFT/RANSAC registration is used when it passes the locked QC thresholds.",
+  "registrations": {}
+}
