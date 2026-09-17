@@ -1,5 +1,10 @@
 # Data Availability Draft
 
+Repository policy: this Git repository is code/workflow-only. All research data
+and generated results remain local. The publication options below are an
+unapproved manuscript template, not authorization to upload data or a commitment
+to deposit it. Any future data sharing requires a separate author decision.
+
 This is a Nature-style working draft. Replace every `AUTHOR_INPUT_NEEDED` field before manuscript submission.
 
 ## Ready-To-Paste Draft

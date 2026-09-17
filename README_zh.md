@@ -1,5 +1,12 @@
 # More is not always better 论文级数据分析仓库
 
+远端仅存放代码、workflow、依赖、输入格式说明和合成测试样例。真实输入、
+参与者清单、分析结果与报告只保留在本地。使用默认清单路径前，按
+[`manifests/README.md`](manifests/README.md) 从模板生成本地清单。
+复现真实研究结果需自行提供本地输入；仅克隆代码可运行合成数据测试。
+提交前运行 `python scripts/check_repository_scope.py`，CI 也会检查文件路径；
+该检查不等于文件内容或完整 Git 历史的隐私审计。
+
 本仓库是对原 `More-is-not-always-better` 项目的深度改造，不是另建子项目。现在的目标是支撑论文返修与重投：把问卷、眼动、EEG、EEG+眼动融合、稳健性诊断、图表源数据和审稿意见回应证据整合到同一个可复现分析流水线中。
 
 底层统一使用 `participant_id + scene_id` 作为 canonical trial index。问卷、眼动、EEG、同步 QC、time-bin 融合、统计模型和审稿回应索引都从这张统一试次表派生，避免各脚本各自拼表造成口径不一致。

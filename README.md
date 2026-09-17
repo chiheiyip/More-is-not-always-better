@@ -1,5 +1,12 @@
 # More is not always better: Paper-Level Multimodal Analysis
 
+This remote repository stores code, workflows, dependency specifications, input
+schemas and synthetic test fixtures only. Research inputs and generated results
+stay local. See [local manifest setup](manifests/README.md). Reproducing research
+results requires the local inputs; the repository alone supports synthetic tests.
+Run `python scripts/check_repository_scope.py` before committing. CI also checks
+tracked paths; this is not a content or full-history privacy audit.
+
 The standalone six-scene FC/DL calculation and Excel export code is archived in
 [`analysis/visual_complexity`](analysis/visual_complexity/README.md). Its input
 images, model weights, local environments, and generated results are not included.
