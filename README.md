@@ -1,5 +1,9 @@
 # More is not always better: Paper-Level Multimodal Analysis
 
+The standalone six-scene FC/DL calculation and Excel export code is archived in
+[`analysis/visual_complexity`](analysis/visual_complexity/README.md). Its input
+images, model weights, local environments, and generated results are not included.
+
 This repository is the root-level reconstruction of `More-is-not-always-better` into a paper-aligned multimodal analysis repository. It consolidates questionnaire, eye-tracking, EEG, EEG-eye fusion, robustness diagnostics, Nature-style data availability, figure source-data contracts, and reviewer-response evidence into one reproducible pipeline.
 
 The repository is organized around explicit grains. Questionnaire, eye-tracking, and EEG use their own metric-eligible samples; `participant_id + scene_id` is the scene-trial key, AOI models add `class_name`, and the trimodal intersection is reserved for synchronized fusion rather than imposed on unimodal inference.

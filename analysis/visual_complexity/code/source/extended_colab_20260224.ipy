@@ -1,0 +1,407 @@
+# %% Original cell 0
+!apt-get -y update
+!apt-get -y install git-lfs
+!git lfs install
+
+
+# %% Original cell 1
+!pip -q uninstall -y numpy pillow opencv-python opencv-contrib-python opencv-python-headless
+!pip -q install "numpy==2.0.2" "pillow==11.3.0" "opencv-python-headless==4.12.0.88"
+!pip -q uninstall -y dopamine-rl
+
+
+# %% Original cell 2
+import cv2, numpy as np, PIL, tensorflow as tf
+print("opencv", cv2.__version__)
+print("numpy", np.__version__)
+print("pillow", PIL.__version__)
+print("tf", tf.__version__)
+
+
+# %% Original cell 3
+!pip -q install py360convert pyrtools tqdm
+!pip -q install visual-clutter --no-deps
+
+
+# %% Original cell 4
+from visual_clutter import Vlc
+print("visual_clutter import ok")
+
+
+# %% Original cell 5
+%cd /content
+!rm -rf image-complexity
+!git clone https://github.com/fusionlove/image-complexity.git
+%cd /content/image-complexity
+!git lfs pull
+%cd /content
+
+
+
+# %% Original cell 6
+from google.colab import drive
+drive.mount('/content/drive')
+
+import os, glob
+PANOS_DIR = "/content/drive/MyDrive/complexity"
+print("exists:", os.path.exists(PANOS_DIR))
+print("sample files:", glob.glob(PANOS_DIR + "/*")[:10])
+
+
+
+# %% Original cell 7
+import tensorflow as tf
+import numpy as np
+from PIL import Image
+from tensorflow.keras.applications.inception_v3 import preprocess_input
+
+MODEL_PATH = "/content/image-complexity/trained_model_inception_v3.h5"
+model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+
+def dl_complexity_from_rgb(face_rgb):
+    img = Image.fromarray(face_rgb).resize((299, 299))
+    x = np.asarray(img).astype(np.float32)
+    x = preprocess_input(x)              # (299,299,3)
+    x = np.transpose(x, (2, 0, 1))       # -> (3,299,299) 关键：channels_first
+    x = np.expand_dims(x, 0)             # -> (1,3,299,299)
+    y = model.predict(x, verbose=0)
+    return float(np.squeeze(y))
+
+
+# %% Original cell 9
+import os, glob, time
+import numpy as np
+import pandas as pd
+import cv2
+from PIL import Image
+import py360convert
+from visual_clutter import Vlc
+from tqdm.auto import tqdm
+from tensorflow.keras.applications.inception_v3 import preprocess_input
+
+PANOS_DIR = "/content/drive/MyDrive/complexity"
+TMP_FACE_DIR = "/content/tmp_faces"
+OUT_CSV = "/content/drive/MyDrive/complexity/pano_scores.csv"
+FACE_W = 512
+
+SAVE_FACES = False  # 想保存每个cubemap面图就改 True
+
+os.makedirs(TMP_FACE_DIR, exist_ok=True)
+
+def pano_to_faces(pano_bgr, face_w=512):
+    pano_rgb = cv2.cvtColor(pano_bgr, cv2.COLOR_BGR2RGB)
+    cube = py360convert.e2c(pano_rgb, face_w, mode='bilinear', cube_format='dict')
+    return {k: cube[k].astype(np.uint8) for k in cube.keys()}
+
+def score_fc_se(face_rgb, tmp_dir="/content/tmp_faces"):
+    v = Vlc(face_rgb, output_dir=tmp_dir, prefix="face")
+    fc_raw = v.getClutter_FC()
+    fc = float(fc_raw[0]) if isinstance(fc_raw, tuple) else float(fc_raw)  # FC:(scalar,map) or scalar
+    se = float(v.getClutter_SE())  # SE: scalar
+    return fc, se
+
+def dl_complexity_from_rgb(face_rgb):
+    img = Image.fromarray(face_rgb).resize((299, 299))
+    x = np.asarray(img).astype(np.float32)
+    x = preprocess_input(x)            # (299,299,3)
+    x = np.transpose(x, (2, 0, 1))     # -> (3,299,299) channels_first
+    x = np.expand_dims(x, 0)           # -> (1,3,299,299)
+    y = model.predict(x, verbose=0)
+    return float(np.squeeze(y))
+
+# 收集图片
+imgs = []
+for ext in ("*.jpg","*.jpeg","*.png","*.webp"):
+    imgs += glob.glob(os.path.join(PANOS_DIR, ext))
+imgs = sorted(imgs)
+print("Found panos:", len(imgs))
+
+# 预估总步数（一般每张6面）
+TOTAL_STEPS = len(imgs) * 6
+
+rows = []
+t0 = time.time()
+
+pbar_total = tqdm(total=TOTAL_STEPS, desc="Total (faces)", unit="face")
+
+for i, fp in enumerate(imgs, start=1):
+    pano = cv2.imread(fp, cv2.IMREAD_COLOR)
+    if pano is None:
+        print("skip (cannot read):", fp)
+        # 这张跳过的话，总步数会偏一点，但不影响结果
+        continue
+
+    faces = pano_to_faces(pano, face_w=FACE_W)
+
+    fc_list, se_list, dl_list = [], [], []
+    pbar_img = tqdm(total=len(faces), desc=f"[{i}/{len(imgs)}] {os.path.basename(fp)}", unit="face", leave=False)
+
+    for k, face_rgb in faces.items():
+        if SAVE_FACES:
+            face_path = os.path.join(TMP_FACE_DIR, f"{os.path.basename(fp)}_{k}.png")
+            Image.fromarray(face_rgb).save(face_path)
+
+        fc, se = score_fc_se(face_rgb, tmp_dir=TMP_FACE_DIR)
+        dl = dl_complexity_from_rgb(face_rgb)
+
+        fc_list.append(fc); se_list.append(se); dl_list.append(dl)
+
+        # 更新进度与ETA
+        pbar_img.update(1)
+        pbar_total.update(1)
+
+        elapsed = time.time() - t0
+        done = pbar_total.n
+        rate = done / max(elapsed, 1e-9)
+        remaining = (pbar_total.total - done) / max(rate, 1e-9)
+
+        pbar_total.set_postfix({
+            "elapsed(min)": f"{elapsed/60:.1f}",
+            "eta(min)": f"{remaining/60:.1f}",
+            "face": k
+        })
+
+    pbar_img.close()
+
+    fc_360 = float(np.mean(fc_list))
+    se_360 = float(np.mean(se_list))
+    dl_360 = float(np.mean(dl_list))
+
+    rows.append({
+        "file": os.path.basename(fp),
+        "FC_360": fc_360,
+        "SE_360": se_360,
+        "DL_360": dl_360
+    })
+
+    print(f"Done {i}/{len(imgs)}: {os.path.basename(fp)} | FC={fc_360:.4f} SE={se_360:.4f} DL={dl_360:.4f}")
+
+pbar_total.close()
+
+df = pd.DataFrame(rows)
+if len(df) == 0:
+    raise RuntimeError("No images scored. Check PANOS_DIR and file extensions.")
+
+# 综合分：FC + DL 等权（SE保留作补充）
+for col in ["FC_360","DL_360"]:
+    df[col+"_z"] = (df[col] - df[col].mean()) / (df[col].std(ddof=0) + 1e-12)
+
+df["Score"] = 0.5*df["FC_360_z"] + 0.5*df["DL_360_z"]
+
+# 三等分：低/中/高
+q1 = df["Score"].quantile(1/3)
+q2 = df["Score"].quantile(2/3)
+
+def level(x):
+    if x <= q1: return "低"
+    if x <= q2: return "中"
+    return "高"
+
+df["Level"] = df["Score"].apply(level)
+df = df.sort_values("Score").reset_index(drop=True)
+
+df.to_csv(OUT_CSV, index=False, encoding="utf-8-sig")
+print("Saved:", OUT_CSV)
+df[["file","FC_360","SE_360","DL_360","Score","Level"]]
+
+
+# %% Original cell 11
+# ===================== 1) 挂载 Google Drive & 检查路径 =====================
+from google.colab import drive
+drive.mount('/content/drive')
+
+import os, glob, time
+import numpy as np
+import pandas as pd
+import cv2
+from PIL import Image
+import py360convert
+from visual_clutter import Vlc
+from tqdm.auto import tqdm
+from tensorflow.keras.applications.inception_v3 import preprocess_input
+
+# ===================== 2) 配置区域（已修正为 Drive 路径） =====================
+PANOS_DIR = "/content/drive/MyDrive/眼动映射底图"  # ✅ 你的图片文件夹
+OUT_CSV  = "/content/drive/MyDrive/眼动映射底图/test_image_scores.csv"  # ✅ 结果保存回Drive
+TMP_FACE_DIR = "/content/tmp_faces"  # 临时文件夹（Colab本地）
+
+FACE_W = 512        # 360切图时的单面宽度
+MAX_PLANAR_W = 1024 # 普通图片最大边（超过会缩放）
+SAVE_FACES = False  # 如果想把切出来的面保存下来，改 True
+
+# ===================== 3) 基础检查 & 准备目录 =====================
+os.makedirs(TMP_FACE_DIR, exist_ok=True)
+
+print("exists:", os.path.exists(PANOS_DIR))
+print("sample files:", glob.glob(PANOS_DIR + "/*")[:10])
+
+if not os.path.exists(PANOS_DIR):
+    raise FileNotFoundError(f"【错误】文件夹不存在：{PANOS_DIR}（请确认Drive里确实有这个目录）")
+
+# 检查模型是否加载（否则 DL_Score=0）
+if 'model' not in globals():
+    print("【警告】未检测到 'model' 对象！请确保运行前已加载深度学习模型，否则DL分数将为0。")
+
+# ===================== 4) 工具函数 =====================
+def pano_to_faces(pano_bgr, face_w=512):
+    """处理360全景图，切为6面（cubemap）"""
+    pano_rgb = cv2.cvtColor(pano_bgr, cv2.COLOR_BGR2RGB)
+    try:
+        cube = py360convert.e2c(pano_rgb, face_w, mode='bilinear', cube_format='dict')
+        return {k: cube[k].astype(np.uint8) for k in cube.keys()}
+    except Exception as e:
+        print(f"切图失败: {e}，将作为普通图片处理")
+        return {"original": pano_rgb}
+
+def process_planar_image(img_bgr, max_w=1024):
+    """处理普通图片/拼接图/裁剪图：过大则缩放后计算"""
+    h, w = img_bgr.shape[:2]
+    if w > max_w or h > max_w:
+        scale = max_w / max(w, h)
+        new_w, new_h = int(w * scale), int(h * scale)
+        img_bgr = cv2.resize(img_bgr, (new_w, new_h))
+    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    return {"view": img_rgb}
+
+def get_image_segments(img_path):
+    """自适应：根据宽高比判断是否为360全景（约2:1）"""
+    img = cv2.imread(img_path, cv2.IMREAD_COLOR)
+    if img is None:
+        return None, "read_error"
+
+    h, w = img.shape[:2]
+    if h == 0:
+        return None, "empty_img"
+
+    ratio = w / h
+
+    # 360全景常见为 2:1（允许一些误差）
+    if 1.9 <= ratio <= 2.1:
+        img_type = "360_Pano"
+        segments = pano_to_faces(img, face_w=FACE_W)
+    else:
+        img_type = "Planar/Crop"
+        segments = process_planar_image(img, max_w=MAX_PLANAR_W)
+
+    return segments, img_type
+
+def score_fc_se(face_rgb, tmp_dir=TMP_FACE_DIR):
+    """计算特征拥挤度(FC)与香农熵(SE)"""
+    try:
+        v = Vlc(face_rgb, output_dir=tmp_dir, prefix="face")
+        fc_raw = v.getClutter_FC()
+        fc = float(fc_raw[0]) if isinstance(fc_raw, tuple) else float(fc_raw)
+        se = float(v.getClutter_SE())
+        return fc, se
+    except Exception:
+        return 0.0, 0.0
+
+def dl_complexity_from_rgb(face_rgb):
+    """深度学习模型打分（如果没加载 model，则返回0）"""
+    if 'model' not in globals():
+        return 0.0
+
+    img = Image.fromarray(face_rgb).resize((299, 299))
+    x = np.asarray(img).astype(np.float32)
+    x = preprocess_input(x)
+
+    # 注意：这里假设你的 model 用的是 channels_first（NCHW）
+    x = np.transpose(x, (2, 0, 1))
+    x = np.expand_dims(x, 0)
+
+    y = model.predict(x, verbose=0)
+    return float(np.squeeze(y))
+
+# ===================== 5) 主流程 =====================
+# 收集图片（支持子目录的话，用 **/* 并 recursive=True）
+imgs = []
+for ext in ("*.jpg", "*.jpeg", "*.png", "*.webp", "*.bmp", "*.tif", "*.tiff"):
+    imgs += glob.glob(os.path.join(PANOS_DIR, ext))
+imgs = sorted(imgs)
+
+print(f"在 {PANOS_DIR} 中找到图片: {len(imgs)} 张")
+if len(imgs) == 0:
+    raise FileNotFoundError("【错误】没有找到任何图片。请确认文件后缀是否在支持列表内，且图片在该目录下。")
+
+rows = []
+pbar = tqdm(imgs, desc="Processing", unit="img")
+
+for fp in pbar:
+    fname = os.path.basename(fp)
+
+    segments, img_type = get_image_segments(fp)
+    if segments is None:
+        print(f"Skipping {fname}: Cannot read.")
+        continue
+
+    fc_list, se_list, dl_list = [], [], []
+
+    for k, img_rgb in segments.items():
+        if SAVE_FACES:
+            face_path = os.path.join(TMP_FACE_DIR, f"{fname}_{k}.png")
+            Image.fromarray(img_rgb).save(face_path)
+
+        fc, se = score_fc_se(img_rgb, tmp_dir=TMP_FACE_DIR)
+        dl = dl_complexity_from_rgb(img_rgb)
+
+        fc_list.append(fc)
+        se_list.append(se)
+        dl_list.append(dl)
+
+    avg_fc = float(np.mean(fc_list)) if fc_list else 0.0
+    avg_se = float(np.mean(se_list)) if se_list else 0.0
+    avg_dl = float(np.mean(dl_list)) if dl_list else 0.0
+
+    rows.append({
+        "file": fname,
+        "type": img_type,
+        "faces_count": len(segments),
+        "FC_Score": avg_fc,
+        "SE_Score": avg_se,
+        "DL_Score": avg_dl
+    })
+
+    pbar.set_postfix({"Type": img_type, "FC": f"{avg_fc:.2f}", "DL": f"{avg_dl:.2f}"})
+
+# ===================== 6) 结果保存 =====================
+df = pd.DataFrame(rows)
+
+if len(df) == 0:
+    raise RuntimeError("没有处理任何图片，请检查图片是否可读。")
+
+# 标准化（避免 std=0）
+for col in ["FC_Score", "DL_Score"]:
+    std_val = df[col].std(ddof=0)
+    if std_val == 0:
+        std_val = 1.0
+    df[col + "_z"] = (df[col] - df[col].mean()) / std_val
+
+# 权重各占50%
+df["Final_Score"] = 0.5 * df["FC_Score_z"] + 0.5 * df["DL_Score_z"]
+
+# 三级分箱
+if len(df) >= 3:
+    q1 = df["Final_Score"].quantile(1/3)
+    q2 = df["Final_Score"].quantile(2/3)
+
+    def get_level(x):
+        if x <= q1:
+            return "低"
+        if x <= q2:
+            return "中"
+        return "高"
+
+    df["Level"] = df["Final_Score"].apply(get_level)
+else:
+    df["Level"] = "数据过少"
+
+df = df.sort_values("Final_Score", ascending=True).reset_index(drop=True)
+
+# 确保输出目录存在（Drive路径更稳）
+os.makedirs(os.path.dirname(OUT_CSV), exist_ok=True)
+df.to_csv(OUT_CSV, index=False, encoding="utf-8-sig")
+
+print("\n" + "=" * 40)
+print(f"处理完成！结果已保存至: {OUT_CSV}")
+print("前5行预览:")
+print(df[["file", "type", "FC_Score", "DL_Score", "Final_Score", "Level"]].head())

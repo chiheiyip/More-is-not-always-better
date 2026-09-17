@@ -1,0 +1,12 @@
+# Reference only: original notebook recorded TensorFlow 2.19.0. Not yet validated on this Windows host.
+tensorflow==2.19.0
+numpy==2.0.2
+pillow==11.3.0
+opencv-python-headless==4.12.0.88
+pandas
+py360convert
+pyrtools
+tqdm
+visual-clutter
+matplotlib
+# Unpinned package versions were not recorded by the recovered notebook.

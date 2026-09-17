@@ -1,0 +1,321 @@
+# %% Original cell 0
+!apt-get -y update
+!apt-get -y install git-lfs
+!git lfs install
+
+
+# %% Original cell 1
+!pip -q uninstall -y numpy pillow opencv-python opencv-contrib-python opencv-python-headless
+!pip -q install "numpy==2.0.2" "pillow==11.3.0" "opencv-python-headless==4.12.0.88"
+!pip -q uninstall -y dopamine-rl
+
+
+# %% Original cell 2
+import cv2, numpy as np, PIL, tensorflow as tf
+print("opencv", cv2.__version__)
+print("numpy", np.__version__)
+print("pillow", PIL.__version__)
+print("tf", tf.__version__)
+
+
+# %% Original cell 3
+!pip -q install py360convert pyrtools tqdm
+!pip -q install visual-clutter --no-deps
+
+
+# %% Original cell 4
+from visual_clutter import Vlc
+print("visual_clutter import ok")
+
+
+# %% Original cell 5
+%cd /content
+!rm -rf image-complexity
+!git clone https://github.com/fusionlove/image-complexity.git
+%cd /content/image-complexity
+!git lfs pull
+%cd /content
+
+
+
+# %% Original cell 6
+from google.colab import drive
+drive.mount('/content/drive')
+
+import os, glob
+PANOS_DIR = "/content/drive/MyDrive/complexity"
+print("exists:", os.path.exists(PANOS_DIR))
+print("sample files:", glob.glob(PANOS_DIR + "/*")[:10])
+
+
+
+# %% Original cell 7
+import tensorflow as tf
+import numpy as np
+from PIL import Image
+from tensorflow.keras.applications.inception_v3 import preprocess_input
+
+MODEL_PATH = "/content/image-complexity/trained_model_inception_v3.h5"
+model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+
+def dl_complexity_from_rgb(face_rgb):
+    img = Image.fromarray(face_rgb).resize((299, 299))
+    x = np.asarray(img).astype(np.float32)
+    x = preprocess_input(x)              # (299,299,3)
+    x = np.transpose(x, (2, 0, 1))       # -> (3,299,299) 关键：channels_first
+    x = np.expand_dims(x, 0)             # -> (1,3,299,299)
+    y = model.predict(x, verbose=0)
+    return float(np.squeeze(y))
+
+
+# %% Original cell 8
+import os, glob, time
+import numpy as np
+import pandas as pd
+import cv2
+from PIL import Image
+import py360convert
+from visual_clutter import Vlc
+from tqdm.auto import tqdm
+from tensorflow.keras.applications.inception_v3 import preprocess_input
+
+PANOS_DIR = "/content/drive/MyDrive/complexity"
+TMP_FACE_DIR = "/content/tmp_faces"
+OUT_CSV = "/content/drive/MyDrive/complexity/pano_scores.csv"
+FACE_W = 512
+
+SAVE_FACES = False  # 想保存每个cubemap面图就改 True
+
+os.makedirs(TMP_FACE_DIR, exist_ok=True)
+
+def pano_to_faces(pano_bgr, face_w=512):
+    pano_rgb = cv2.cvtColor(pano_bgr, cv2.COLOR_BGR2RGB)
+    cube = py360convert.e2c(pano_rgb, face_w, mode='bilinear', cube_format='dict')
+    return {k: cube[k].astype(np.uint8) for k in cube.keys()}
+
+def score_fc_se(face_rgb, tmp_dir="/content/tmp_faces"):
+    v = Vlc(face_rgb, output_dir=tmp_dir, prefix="face")
+    fc_raw = v.getClutter_FC()
+    fc = float(fc_raw[0]) if isinstance(fc_raw, tuple) else float(fc_raw)  # FC:(scalar,map) or scalar
+    se = float(v.getClutter_SE())  # SE: scalar
+    return fc, se
+
+def dl_complexity_from_rgb(face_rgb):
+    img = Image.fromarray(face_rgb).resize((299, 299))
+    x = np.asarray(img).astype(np.float32)
+    x = preprocess_input(x)            # (299,299,3)
+    x = np.transpose(x, (2, 0, 1))     # -> (3,299,299) channels_first
+    x = np.expand_dims(x, 0)           # -> (1,3,299,299)
+    y = model.predict(x, verbose=0)
+    return float(np.squeeze(y))
+
+# 收集图片
+imgs = []
+for ext in ("*.jpg","*.jpeg","*.png","*.webp"):
+    imgs += glob.glob(os.path.join(PANOS_DIR, ext))
+imgs = sorted(imgs)
+print("Found panos:", len(imgs))
+
+# 预估总步数（一般每张6面）
+TOTAL_STEPS = len(imgs) * 6
+
+rows = []
+t0 = time.time()
+
+pbar_total = tqdm(total=TOTAL_STEPS, desc="Total (faces)", unit="face")
+
+for i, fp in enumerate(imgs, start=1):
+    pano = cv2.imread(fp, cv2.IMREAD_COLOR)
+    if pano is None:
+        print("skip (cannot read):", fp)
+        # 这张跳过的话，总步数会偏一点，但不影响结果
+        continue
+
+    faces = pano_to_faces(pano, face_w=FACE_W)
+
+    fc_list, se_list, dl_list = [], [], []
+    pbar_img = tqdm(total=len(faces), desc=f"[{i}/{len(imgs)}] {os.path.basename(fp)}", unit="face", leave=False)
+
+    for k, face_rgb in faces.items():
+        if SAVE_FACES:
+            face_path = os.path.join(TMP_FACE_DIR, f"{os.path.basename(fp)}_{k}.png")
+            Image.fromarray(face_rgb).save(face_path)
+
+        fc, se = score_fc_se(face_rgb, tmp_dir=TMP_FACE_DIR)
+        dl = dl_complexity_from_rgb(face_rgb)
+
+        fc_list.append(fc); se_list.append(se); dl_list.append(dl)
+
+        # 更新进度与ETA
+        pbar_img.update(1)
+        pbar_total.update(1)
+
+        elapsed = time.time() - t0
+        done = pbar_total.n
+        rate = done / max(elapsed, 1e-9)
+        remaining = (pbar_total.total - done) / max(rate, 1e-9)
+
+        pbar_total.set_postfix({
+            "elapsed(min)": f"{elapsed/60:.1f}",
+            "eta(min)": f"{remaining/60:.1f}",
+            "face": k
+        })
+
+    pbar_img.close()
+
+    fc_360 = float(np.mean(fc_list))
+    se_360 = float(np.mean(se_list))
+    dl_360 = float(np.mean(dl_list))
+
+    rows.append({
+        "file": os.path.basename(fp),
+        "FC_360": fc_360,
+        "SE_360": se_360,
+        "DL_360": dl_360
+    })
+
+    print(f"Done {i}/{len(imgs)}: {os.path.basename(fp)} | FC={fc_360:.4f} SE={se_360:.4f} DL={dl_360:.4f}")
+
+pbar_total.close()
+
+df = pd.DataFrame(rows)
+if len(df) == 0:
+    raise RuntimeError("No images scored. Check PANOS_DIR and file extensions.")
+
+# 综合分：FC + DL 等权（SE保留作补充）
+for col in ["FC_360","DL_360"]:
+    df[col+"_z"] = (df[col] - df[col].mean()) / (df[col].std(ddof=0) + 1e-12)
+
+df["Score"] = 0.5*df["FC_360_z"] + 0.5*df["DL_360_z"]
+
+# 三等分：低/中/高
+q1 = df["Score"].quantile(1/3)
+q2 = df["Score"].quantile(2/3)
+
+def level(x):
+    if x <= q1: return "低"
+    if x <= q2: return "中"
+    return "高"
+
+df["Level"] = df["Score"].apply(level)
+df = df.sort_values("Score").reset_index(drop=True)
+
+df.to_csv(OUT_CSV, index=False, encoding="utf-8-sig")
+print("Saved:", OUT_CSV)
+df[["file","FC_360","SE_360","DL_360","Score","Level"]]
+
+
+# %% Original cell 9
+!pip -q install matplotlib
+
+import os
+import re
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+FIG_DIR = os.path.join(PANOS_DIR, "figs")
+os.makedirs(FIG_DIR, exist_ok=True)
+print("Figures will be saved to:", FIG_DIR)
+
+
+# %% Original cell 10
+# 从文件名里抓 W15/W45/W75 -> 15/45/75
+def parse_w(file_name: str):
+    m = re.search(r"W(\d+)", file_name)
+    return int(m.group(1)) if m else np.nan
+
+df["W"] = df["file"].apply(parse_w)
+
+# Level 排序（低->中->高）
+level_order = {"低": 0, "中": 1, "高": 2}
+df["Level_order"] = df["Level"].map(level_order)
+
+df
+
+
+# %% Original cell 11
+plt.figure()
+for lvl in ["低", "中", "高"]:
+    sub = df[df["Level"] == lvl]
+    plt.scatter(sub["FC_360"], sub["DL_360"], label=lvl)
+
+# 可选：标注点的文件名（如果你嫌乱就把这段注释掉）
+for _, r in df.iterrows():
+    plt.text(r["FC_360"], r["DL_360"], r["file"], fontsize=8)
+
+plt.xlabel("FC_360 (Feature Congestion)")
+plt.ylabel("DL_360 (Predicted perceived complexity)")
+plt.title("FC vs DL (colored by Level)")
+plt.legend()
+out = os.path.join(FIG_DIR, "scatter_FC_vs_DL.png")
+plt.savefig(out, dpi=300, bbox_inches="tight")
+plt.show()
+print("saved:", out)
+
+
+# %% Original cell 12
+# 只用能解析出 W 的行
+df_w = df.dropna(subset=["W"]).copy()
+df_w["W"] = df_w["W"].astype(int)
+
+groups = [15, 45, 75]
+data = [df_w[df_w["W"] == g]["Score"].values for g in groups]
+
+plt.figure()
+plt.boxplot(data, labels=[f"W{g}" for g in groups])
+
+# 叠加散点（轻微抖动）
+for idx, g in enumerate(groups, start=1):
+    y = df_w[df_w["W"] == g]["Score"].values
+    x = np.random.normal(loc=idx, scale=0.04, size=len(y))
+    plt.scatter(x, y)
+
+plt.xlabel("Window-to-wall ratio group (from filename)")
+plt.ylabel("Score (z(FC)+z(DL))/2")
+plt.title("Score distribution by W group")
+out = os.path.join(FIG_DIR, "boxplot_Score_by_W.png")
+plt.savefig(out, dpi=300, bbox_inches="tight")
+plt.show()
+print("saved:", out)
+
+
+# %% Original cell 13
+cols = ["FC_360", "SE_360", "DL_360", "Score"]
+Z = df[cols].copy()
+Z = (Z - Z.mean()) / (Z.std(ddof=0) + 1e-12)
+
+# 按 Score 排序
+order = df["Score"].sort_values().index
+Z = Z.loc[order]
+labels = df.loc[order, "file"].tolist()
+
+plt.figure(figsize=(8, max(4, 0.35 * len(Z))))
+plt.imshow(Z.values, aspect="auto", interpolation="nearest")
+plt.yticks(range(len(labels)), labels, fontsize=8)
+plt.xticks(range(len(cols)), cols, rotation=45, ha="right")
+plt.title("Heatmap of z-scored metrics (sorted by Score)")
+plt.colorbar(label="z-score")
+out = os.path.join(FIG_DIR, "heatmap_metrics_zscore.png")
+plt.savefig(out, dpi=300, bbox_inches="tight")
+plt.show()
+print("saved:", out)
+
+
+# %% Original cell 14
+df_sorted = df.sort_values("Score").reset_index(drop=True)
+
+plt.figure(figsize=(10, 4))
+plt.bar(range(len(df_sorted)), df_sorted["Score"].values)
+plt.xticks(range(len(df_sorted)), df_sorted["file"].tolist(), rotation=45, ha="right", fontsize=8)
+plt.ylabel("Score")
+plt.title("Score by image (sorted)")
+
+# 在柱子上方标注 Level
+for i, r in df_sorted.iterrows():
+    plt.text(i, r["Score"], r["Level"], ha="center", va="bottom" if r["Score"]>=0 else "top", fontsize=9)
+
+out = os.path.join(FIG_DIR, "bar_Score_sorted_with_Level.png")
+plt.savefig(out, dpi=300, bbox_inches="tight")
+plt.show()
+print("saved:", out)

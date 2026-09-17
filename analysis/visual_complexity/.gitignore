@@ -1,0 +1,13 @@
+input/
+output/
+code/.venv/
+code/models/
+code/node_modules/
+code/originals/
+code/reference_results/
+code/gpu_verification.json
+*.log
+__pycache__/
+*.pyc
+*.h5
+*.ipynb
