@@ -57,3 +57,5 @@ These are logic sources, not runtime dependencies.
 - `nature-writing`: claim strength is explicitly constrained by `outputs/07_paper_tables/claim_strength_table.csv`.
 - `nature-data`: dataset access routes and unresolved repository identifiers are tracked by `configs/data_availability.json` and `outputs/09_data_package/`.
 - `nature-figure`: each paper figure has a claim/evidence/source-data/export contract in `configs/figure_contracts.json`, plus Python/matplotlib SVG/PDF/TIFF/PNG exports, panel source CSV files, legends, and QA under `outputs/10_figures/`.
+
+Repository policy: code, workflows and synthetic fixtures only. Research inputs and generated results stay local. See manifests/README.md for local input setup. Run python scripts/check_repository_scope.py before committing.
