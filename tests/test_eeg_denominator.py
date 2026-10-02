@@ -96,8 +96,8 @@ def test_cache_identity_and_tampering(tmp_path):
 
 def test_omnibus_beta_is_unavailable_and_near_zero_percentage():
     left=factors_fixture();left,_=factor_families(left)
-    left.loc[left.term.eq('Complexity'),'estimate']=1e-9
-    right=left.copy();right.loc[right.term.eq('Complexity'),'estimate']=2e-9
+    left.loc[left.term.eq('Complexity'),'estimate']=-8e-6
+    right=left.copy();right.loc[right.term.eq('Complexity'),'estimate']=1.6e-5
     c=compare_tables(left,right,'B→C','factor')
     assert c.loc[c.term.eq('WWR'),'estimate_from'].isna().all()
     assert c.loc[c.term.eq('Complexity'),'estimate_percent_change'].isna().all()

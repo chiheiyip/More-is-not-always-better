@@ -55,6 +55,9 @@ average over all three WWR levels and both levels of the other binary factor.
 Contrast matrices and denominator degrees of freedom are saved. Multi-df F tests
 have no fabricated beta or confidence interval. Single-df contrasts include
 unadjusted 95% intervals. Near-zero beta percentage changes are left unavailable.
+The percentage-change guard is |baseline beta|<1e-4. Both alpha and theta
+position effects are included in the manuscript review; borderline joint-q
+flips and nonsignificant near-zero direction changes are explicitly reported.
 
 Within-window and joint BH families are separate: coefficient core relative144,
 expanded relative324, expanded absolute324; factor96/216/216; temporal72/72;

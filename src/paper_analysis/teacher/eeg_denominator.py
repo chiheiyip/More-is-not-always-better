@@ -352,7 +352,7 @@ def compare_tables(left, right, pair, kind):
         table[f"flip_{col}"] = (x.lt(.05) != y.lt(.05)).astype("boolean").mask(x.isna() | y.isna())
     x, y = table.estimate_from, table.estimate_to
     table["direction_changed"] = (np.sign(x) != np.sign(y)).astype("boolean").mask(x.isna() | y.isna())
-    table["estimate_percent_change"] = (100*(y-x)/x.abs()).where(x.abs().ge(1e-6))
+    table["estimate_percent_change"] = (100*(y-x)/x.abs()).where(x.abs().ge(1e-4))
     return table
 
 
@@ -393,6 +393,7 @@ def manuscript_focus(comparison):
         "alpha_Block": comparison.family_id.isin(["temporal_relative", "temporal_absolute"]) & comparison.outcome.str.contains("_alpha_") & comparison.term.eq("Block"),
         "theta_Block": comparison.family_id.isin(["temporal_relative", "temporal_absolute"]) & comparison.outcome.str.contains("_theta_") & comparison.term.eq("Block"),
         "alpha_Position": comparison.family_id.isin(["temporal_relative", "temporal_absolute"]) & comparison.outcome.str.contains("_alpha_") & comparison.term.eq("PositionWithinBlockCentered"),
+        "theta_Position": comparison.family_id.isin(["temporal_relative", "temporal_absolute"]) & comparison.outcome.str.contains("_theta_") & comparison.term.eq("PositionWithinBlockCentered"),
         "顶区beta_WWR总体效应": comparison.family_id.eq("factor_expanded_relative") & comparison.outcome.eq("P_beta_relative") & comparison.term.eq("WWR"),
         "上一场景": comparison.family_id.eq("previous_core_relative"),
     }
@@ -445,16 +446,36 @@ def finish_report(out, results, powers, regression, provenance):
     drift=pd.DataFrame(changed);drift.to_csv(out/"input_reproduction_differences.csv",index=False,encoding="utf-8-sig")
     valid=all(r["diagnostics"].inference_valid.all() and r["family_status"].status.eq("complete").all() for r in results.values())
     status="complete" if valid else "analysis_issues"
+    bc=focus.loc[focus.pair.eq("B→C")]
+    major=bc.loc[~bc.manuscript_claim.eq("theta_Position")]
+    major_changed=bool(major.flip_joint_q.fillna(False).any() or major.direction_changed.fillna(False).any())
+    overall="主要正文结论的方向及联合显著性改变，需按逐项对照修改正文。" if major_changed else "表6、枕区θ复杂度效应、alpha/theta的Block效应、顶区β的WWR效应和上一场景结论的方向及联合显著性保持一致。"
+    flipped=comparison.loc[comparison.pair.eq("B→C") & comparison.flip_joint_q.eq(True)]
+    direction=comparison.loc[comparison.pair.eq("B→C") & comparison.direction_changed.eq(True)]
     lines=["# EEG 1–40 Hz 分母敏感性分析", "", f"状态：{status}。冻结 0805 的{provenance['common_participants']}人、{provenance['common_trials']}共同试次，0/5/10/15 s四窗口。",
         "", "A为0805历史1–45 Hz；B为当前预处理源文件复现1–45 Hz；C与B使用完全相同PSD和θ/α/β分子，仅改为1–40 Hz分母。B→C为分母效应，A→B为输入复现差异。",
         "", "factor-level 使用重新实现的等权边际 CR2/HTZ，已对照独立核对表；不声称找到历史factor-level脚本。参与者是聚类单位。上一场景保持PreviousWWR + PreviousComplexity，论文交互项描述与历史代码不一致。",
         "", "预处理来源：现有.set/.fdt，无重新滤波或ICA。既有核查为band-pass 0.5–40 Hz、notch 49–51 Hz、average reference、runica(PCA=7)。已计算ICA，历史未发现pop_subcomp或标记删除；不能称为已删除ICA伪迹。QC和纳入名单使用历史值。",
+        "", "## 结论", "", overall,
+        f"\n全部配对检验中，B→C有{len(flipped)}项联合q翻转和{len(direction)}项系数方向变化。以下报告具体变化，不能概括为所有统计结果完全不变。",
         "", "## 主要比较", "", "|比较|检验族|原始p翻转|窗口q翻转|联合q翻转|方向变化|", "|---|---|---:|---:|---:|---:|"]
     for row in summaries:
-        lines.append(f"|{row['pair']}|{row['family_id']}|{row['p_flips']}|{row['within_q_flips']}|{row['joint_q_flips']}|{row['direction_changes']}|")
+        unadjusted=row['family_id']=='all_model_coefficients_unadjusted'
+        wq='不适用' if unadjusted else row['within_q_flips']; jq='不适用' if unadjusted else row['joint_q_flips']
+        lines.append(f"|{row['pair']}|{row['family_id']}|{row['p_flips']}|{wq}|{jq}|{row['direction_changes']}|")
+    lines += ["", "## 临界变化", ""]
+    for _,r in flipped.iterrows():
+        lines.append(f"- {r.onset_trim_s:g} s，{r.outcome}，{r.model}，{r.term}：β {r.estimate_from:.9g}→{r.estimate_to:.9g}；p {r['p.value_from']:.9g}→{r['p.value_to']:.9g}；窗口q {r.within_q_from:.9g}→{r.within_q_to:.9g}；联合q {r.joint_q_from:.9g}→{r.joint_q_to:.9g}。联合校正在0.05附近敏感，不能据此改写为跨窗口稳定的新效应。")
+    for _,r in direction.iterrows():
+        lines.append(f"- {r.onset_trim_s:g} s，{r.outcome}，{r.model}，{r.term}：接近零的β {r.estimate_from:.9g}→{r.estimate_to:.9g}，p {r['p.value_from']:.9g}→{r['p.value_to']:.9g}；不显著，仅数值方向改变。|原β|<1e-4时百分比变化留空。")
     lines += ["", "## 正文逐项核对", "", "以下逐项给出四窗口联合BH判断；单自由度方向可比较，多自由度总体F不报告虚构β。"]
     for (pair,claim), g in focus.groupby(["pair","manuscript_claim"],sort=False):
         lines.append(f"\n- {pair}，{claim}：{len(g)}项；方向变化{int(g.direction_changed.sum())}项，原始p翻转{int(g['flip_p.value'].sum())}项，窗口q翻转{int(g.flip_within_q.sum())}项，联合q翻转{int(g.flip_joint_q.sum())}项；原联合显著{int(g.joint_q_from.lt(.05).sum())}项，新联合显著{int(g.joint_q_to.lt(.05).sum())}项。")
+    lines += ["", "## 1–40 Hz正文关键数值", "", "|检验|窗口s|β或边际对比|总体F|原始p|窗口q|联合q|", "|---|---:|---:|---:|---:|---:|---:|"]
+    for _,r in bc.loc[bc.manuscript_claim.isin(["表6_额区theta_WWR45×复杂度","枕区theta_复杂度边际效应","顶区beta_WWR总体效应"])].iterrows():
+        estimate=f"{r.estimate_to:.8g}" if pd.notna(r.estimate_to) else "不适用"
+        fstat=f"{r.Fstat_to:.8g}" if pd.notna(r.Fstat_to) else "不适用"
+        lines.append(f"|{r.manuscript_claim}|{r.onset_trim_s:g}|{estimate}|{fstat}|{r['p.value_to']:.8g}|{r.within_q_to:.8g}|{r.joint_q_to:.8g}|")
     lines += ["", "## 40–45 Hz 与实际分母变化", "", "|窗口s|谱数|40–45占比均值%|实际分母减少均值%|relative增加均值%|", "|---:|---:|---:|---:|---:|"]
     for _,r in fractions.loc[fractions.roi.eq("ALL")].iterrows():
         lines.append(f"|{r.onset_trim_s:g}|{r.n_spectra:g}|{r.percent_40_45_mean:.6f}|{r.denominator_reduction_percent_mean:.6f}|{r.relative_increase_percent_mean:.6f}|")
@@ -463,7 +484,9 @@ def finish_report(out, results, powers, regression, provenance):
         "", "论文的小幅p/q差异保留，不调整统计方法追求逐位一致。全部对照、置信区间、自由度、对比矩阵、诊断和输入哈希在本目录。既有正式多模态结果未覆盖。"]
     (out/"中文简报.md").write_text("\n".join(lines)+"\n",encoding="utf-8")
     write_json(out/"summary.json", {"status":status,"regression":regression,"provenance":provenance,
-        "comparison_summary":summaries,"main_comparison":"B→C", "factor_method":"reimplemented_equal_weight_marginal_CR2_HTZ"})
+        "comparison_summary":summaries,"main_comparison":"B→C", "major_manuscript_conclusions_changed":major_changed,
+        "joint_q_flips_B_to_C":len(flipped),"direction_changes_B_to_C":len(direction),
+        "factor_method":"reimplemented_equal_weight_marginal_CR2_HTZ"})
     return status
 
 
