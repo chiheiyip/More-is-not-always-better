@@ -1,0 +1,16 @@
+{
+  "outputs_root": "../outputs",
+  "rscript": "../scripts/portable_rscript.cmd",
+  "denominator_sensitivity": {
+    "historical_package": "D:/study-local/0805.zip",
+    "preprocessed_root": "D:/study-local/preprocessed_eeg",
+    "matlab": "D:/Program Files/MATLAB/R2026a/bin/matlab.exe",
+    "eeglab_root": "D:/Program Files/MATLAB/eeglab",
+    "psd_cache_dir": "D:/study-local/psd_cache",
+    "candidate_factor_reference": "D:/study-local/candidate_factor_tests.csv",
+    "delivery_root": "D:/study-local/delivery",
+    "expected_sample": {"participants": 42, "trials": 461},
+    "relative_denominators_hz": [[1, 45], [1, 40]],
+    "qc_denominator_hz": [1, 45]
+  }
+}

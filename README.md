@@ -139,6 +139,11 @@ when the cache is missing. Per-sample columns are explicitly named
 
 ## Historical Logic Sources
 
+The independent [EEG denominator sensitivity workflow](docs/eeg_denominator_sensitivity.md)
+freezes the 0805 sample and compares archived 1–45 Hz, reproduced 1–45 Hz and
+reproduced 1–40 Hz results. Its teacher command is `eeg-denominator-sensitivity`.
+Equal-weight marginal CR2/HTZ factor tests are explicitly reimplemented.
+
 - Questionnaire logic source: `https://github.com/wannaqueen66-create/spss`
 - EEG + eye-tracking fusion logic source: the original logic in this `More-is-not-always-better` repository, preserved in `src/more_is_not_always_better/` and integrated into the paper-level `src/paper_analysis/` architecture.
 

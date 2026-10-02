@@ -3,6 +3,7 @@ args <- commandArgs(trailingOnly = TRUE)
 if (length(args) != 4) stop("usage: eeg_audit.R input.csv outdir outcomes.csv design.json")
 file_arg <- grep("^--file=", commandArgs(FALSE), value = TRUE)
 source(file.path(dirname(normalizePath(sub("^--file=", "", file_arg[[1]]))), "common.R"))
+source(file.path(dirname(normalizePath(sub("^--file=", "", file_arg[[1]]))), "eeg_factor_tests.R"))
 assert_packages()
 if (!requireNamespace("jsonlite", quietly = TRUE)) stop("jsonlite is required")
 # Mark UTF-8 strings without transcoding to the Windows process locale.
@@ -14,6 +15,7 @@ input <- withCallingHandlers(
 names(input)[[1]] <- sub("^\ufeff", "", names(input)[[1]])
 outdir <- args[[2]]
 spec <- read.csv(args[[3]], stringsAsFactors = FALSE)
+spec$core <- toupper(as.character(spec$core)) == "TRUE"
 design <- jsonlite::fromJSON(args[[4]])
 set.seed(design$seed)
 dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
@@ -33,6 +35,7 @@ rhs <- list(
   Block1 = paste(base, "+ PositionWithinBlockCentered + OrderGroup + (1|Participant)")
 )
 coef_rows <- list(); diagnostics <- list(); sample_rows <- list()
+factor_rows <- list(); contrast_rows <- list()
 for (i in seq_len(nrow(spec))) {
   outcome <- spec$outcome[[i]]
   suites <- if (spec$core[[i]]) c("Model1", "Model0", "PreviousScene", "Block1") else "Model1"
@@ -87,6 +90,15 @@ for (i in seq_len(nrow(spec))) {
       } else {
         row$cr2_status <- "computed"
         coef_rows[[length(coef_rows)+1]] <- robust
+        if (suite == "Model1") {
+          factors <- tryCatch(eeg_factor_tests(model, V, outcome, spec$scale[[i]]), error=function(e) e)
+          if (inherits(factors, "error")) {
+            row$diagnostic <- paste(row$diagnostic, "factor inference failed:", conditionMessage(factors))
+          } else {
+            factor_rows[[length(factor_rows)+1]] <- factors$tests
+            contrast_rows[[length(contrast_rows)+1]] <- factors$matrices
+          }
+        }
       }
     }
     diagnostics[[length(diagnostics)+1]] <- row
@@ -103,4 +115,10 @@ sample_table <- if (length(sample_rows)) bind_rows_fill(sample_rows) else data.f
 write_csv_utf8(coefficient_table, file.path(outdir,"coefficients.csv"))
 write_csv_utf8(bind_rows_fill(diagnostics), file.path(outdir,"diagnostics.csv"))
 write_csv_utf8(sample_table, file.path(outdir,"model_samples.csv"))
+write_csv_utf8(if(length(factor_rows)) bind_rows_fill(factor_rows) else data.frame(
+  outcome=character(),model=character(),term=character(),p.value=numeric(),estimate=numeric()),
+  file.path(outdir,"factor_tests.csv"))
+write_csv_utf8(if(length(contrast_rows)) bind_rows_fill(contrast_rows) else data.frame(
+  outcome=character(),term=character(),contrast_row=integer(),coefficient=character(),weight=numeric()),
+  file.path(outdir,"contrast_matrices.csv"))
 write_session_info(outdir)
