@@ -12,6 +12,10 @@ const { Workbook, SpreadsheetFile } = await import(pathToFileURL(require.resolve
 const data = JSON.parse(await fs.readFile(input,'utf8'));
 const wb = Workbook.create();
 for (const table of data.tables) {
+  if (table.name==='主要结论') {
+    const pairs=['B→C','A→B','A→C'];
+    table.rows.sort((a,b)=>pairs.indexOf(a[0])-pairs.indexOf(b[0]));
+  }
   const sheet = wb.worksheets.add(table.name);
   sheet.showGridLines=false;
   const rows = [table.columns,...table.rows];
@@ -42,6 +46,15 @@ for (const table of data.tables) {
     sheet.getRangeByIndexes(0,1,rows.length,1).format.wrapText=true;
     sheet.getRangeByIndexes(1,0,rows.length-1,2).format.rowHeight=42;
     sheet.freezePanes.unfreeze();sheet.tabColor='#61728A';
+  }
+  if (table.name==='主要结论') {
+    sheet.getRange(`A1:A${rows.length}`).format.columnWidth=12;
+    sheet.getRange(`B1:B${rows.length}`).format.columnWidth=42;
+    sheet.getRange(`C1:G${rows.length}`).format.columnWidth=15;
+    sheet.getRange(`H1:H${rows.length}`).format.columnWidth=46;
+    sheet.getRange(`C2:G${rows.length}`).setNumberFormat('0');
+    sheet.getRange(`F2:G${rows.length}`).conditionalFormats.add('cellIs',{
+      operator:'greaterThan',formula:0,format:{fill:'#FFF0C2',font:{bold:true,color:'#875100'}}});
   }
 }
 wb.recalculate();
