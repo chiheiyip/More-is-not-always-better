@@ -6,6 +6,8 @@ import base64
 import itertools
 import json
 import subprocess
+import shutil
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -288,9 +290,23 @@ def run_models(frames, config, root, folder, contract, reuse_absolute=None):
     for trim, frame in frames.items():
         dest = folder/f"trim_{trim}s"; dest.mkdir()
         frame.to_csv(dest/"input.csv", index=False, encoding="utf-8-sig")
-        with (dest/"R_execution.log").open("w", encoding="utf-8") as log:
-            subprocess.run([config["rscript"], str(root/"analysis/r/eeg_audit.R"), str(dest/"input.csv"),
-                str(dest), str(folder/"outcomes.csv"), str(contract)], cwd=root, stdout=log, stderr=subprocess.STDOUT, check=True)
+        # Portable Windows R can corrupt non-ASCII command-line filenames even
+        # when CSV contents are read as UTF-8. Stage exact files under an ASCII
+        # workspace and copy outputs back with Python's Unicode filesystem API.
+        staging_root=root/".codex_tmp"; staging_root.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="eeg_r_",dir=staging_root) as temporary:
+            stage=Path(temporary)
+            for source,target in ((dest/"input.csv","input.csv"),(folder/"outcomes.csv","outcomes.csv"),
+                                  (Path(contract),"contract.json")):
+                shutil.copyfile(source,stage/target)
+            for name in ("eeg_audit.R","eeg_factor_tests.R","common.R"):
+                shutil.copyfile(root/"analysis/r"/name,stage/name)
+            with (dest/"R_execution.log").open("w",encoding="utf-8") as log:
+                subprocess.run([config["rscript"],"eeg_audit.R","input.csv",".","outcomes.csv","contract.json"],
+                    cwd=stage,stdout=log,stderr=subprocess.STDOUT,check=True)
+            for name in (*collected,"R_session_info"):
+                filename=f"{name}.txt" if name=="R_session_info" else f"{name}.csv"
+                shutil.copyfile(stage/filename,dest/filename)
         for name in collected:
             table = pd.read_csv(dest/f"{name}.csv")
             table["onset_trim_s"] = trim

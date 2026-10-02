@@ -30,7 +30,7 @@ for (const table of data.tables) {
     if (rows.length>1) {
       const cells=sheet.getRangeByIndexes(1,c,rows.length-1,1);
       if (table.numeric?.includes(name)) {
-        cells.setNumberFormat(/p\.value|raw_p|_q|p_error/.test(name) ? '0.00000000' : /estimate|delta|percent|Fstat|error|std\.error/.test(name) ? '0.000000' : '0.0000');
+        cells.setNumberFormat(/p\.value|raw_p|_q|p_error/.test(name) ? '0.000E+00' : /estimate|delta|percent|Fstat|error|std\.error/.test(name) ? '0.000000' : '0.0000');
         cells.format.horizontalAlignment='right';
       } else cells.format.horizontalAlignment='left';
       if (/flip_|direction_changed/.test(name)) cells.conditionalFormats.add('containsText',{text:'TRUE',format:{fill:'#FFF0C2',font:{bold:true,color:'#875100'}}});

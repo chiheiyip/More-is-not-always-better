@@ -14,6 +14,9 @@ waveform pairs, launchers and R dependencies. MATLAB checks the actual waveform,
 ROI and spectrum validity during execution. EEGLAB does not run: existing SET
 metadata and single-precision little-endian FDT data are read directly, with no
 filtering, ICA, reference change or QC recomputation.
+R receives exact UTF-8 input copies under a temporary ASCII working path to
+avoid legacy Windows command-line filename conversion; Python copies the
+unchanged results back into the requested Unicode output directory.
 
 ## Three versions
 
@@ -72,3 +75,7 @@ Model0/Block1/PreviousScene coefficients without inventing additional BH familie
 Their q fields are deliberately unavailable. The companion
 `scripts/export_eeg_denominator_workbook.mjs` exports typed comparison tables via
 the bundled Artifact Tool; statistics remain owned by the R/Python pipeline.
+Generate its typed input with `python scripts/prepare_eeg_denominator_workbook.py
+<completed-run-directory>`. Workbook tables contain aggregate model results and
+diagnostics, without trial-level participant names. Preserve both raw p and both
+q scopes; the main sheet judges direction and joint-BH significance per claim.

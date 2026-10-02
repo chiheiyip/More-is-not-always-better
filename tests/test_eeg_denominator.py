@@ -144,8 +144,9 @@ def test_real_r_marginal_contrasts_and_absolute_reuse(tmp_path):
     config=synthetic_config(tmp_path,unicode_ids=True)
     frames,_=prepare_inputs(config)
     contract=tmp_path/'contract.json';contract.write_text(json.dumps({'factor_levels':FACTOR_LEVELS,'seed':20260906}))
-    result=run_models(frames,config,root,tmp_path/'B',contract)
-    reused=run_models(frames,config,root,tmp_path/'C',contract,reuse_absolute=result)
+    output=tmp_path/'敏感性结果';output.mkdir()
+    result=run_models(frames,config,root,output/'B',contract)
+    reused=run_models(frames,config,root,output/'C',contract,reuse_absolute=result)
     assert result['family_status'].status.eq('complete').all()
     for name in ('coefficients','factor_tests'):
         a=result[name].loc[result[name].outcome.str.startswith('log10_')].reset_index(drop=True)
@@ -157,4 +158,5 @@ def test_real_r_marginal_contrasts_and_absolute_reuse(tmp_path):
     e=matrices.loc[matrices.term.eq('Complexity') & matrices.coefficient.eq('ComplexityC1:ExperienceGroupLow')]
     assert np.allclose(e.weight,.5)
     script=root/'tests/r/test_eeg_factor_tests.R'
-    subprocess.run([config['rscript'],str(script),str(tmp_path/'B/trim_0s/input.csv'),str(contract)],cwd=root,check=True)
+    check_input=tmp_path/'check_input.csv';check_input.write_bytes((output/'B/trim_0s/input.csv').read_bytes())
+    subprocess.run([config['rscript'],str(script),str(check_input),str(contract)],cwd=root,check=True)
