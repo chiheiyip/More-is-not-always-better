@@ -11,7 +11,7 @@ import pandas as pd
 def typed_table(name, frame):
     numeric=[c for c in frame if pd.api.types.is_numeric_dtype(frame[c]) and not pd.api.types.is_bool_dtype(frame[c])]
     return {"name":name,"columns":frame.columns.tolist(),"numeric":numeric,
-            "rows":json.loads(frame.to_json(orient="values",force_ascii=False,double_precision=15))}
+            "rows":frame.astype(object).where(pd.notna(frame),None).values.tolist()}
 
 
 def prepare(run):
