@@ -41,7 +41,7 @@ METHOD_FILES = (
     "src/paper_analysis/teacher/eeg_audit.py", "src/paper_analysis/teacher/eeg.py",
     "src/paper_analysis/teacher/contracts.py", "src/paper_analysis/teacher/state.py",
     "src/paper_analysis/utils/io.py", "src/paper_analysis/utils/coding.py",
-    "analysis/r/eeg_audit.R", "analysis/r/common.R", "analysis/r/renv.lock",
+    "analysis/r/eeg_audit.R", "analysis/r/eeg_factor_tests.R", "analysis/r/common.R", "analysis/r/renv.lock",
     "scripts/run_teacher_analysis.py", "scripts/portable_rscript.cmd",
     "scripts/validate_eeg_audit.py",
 )

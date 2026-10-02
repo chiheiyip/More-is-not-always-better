@@ -14,6 +14,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from paper_analysis.teacher.eeg import run_eeg_order, run_eeg_primary
 from paper_analysis.teacher.eeg_audit import run_eeg_audit, prepare_inputs, validate_provenance
+from paper_analysis.teacher.eeg_denominator import run_eeg_denominator, preflight as denominator_preflight
 from paper_analysis.teacher.complete import run_all_results
 from paper_analysis.teacher.eye import (
     run_eye_stage1,
@@ -32,6 +33,7 @@ STAGE_FOLDERS = {
     "eeg-order": "05_eeg_order",
     "eeg-primary": "06_eeg_primary",
     "eeg-audit": "08_eeg_audit",
+    "eeg-denominator-sensitivity": "09_eeg_denominator_sensitivity",
 }
 
 
@@ -48,6 +50,8 @@ def _resolve_paths(config: dict[str, Any], config_path: Path) -> dict[str, Any]:
         "s3_trial_file", "questionnaire_file", "rscript",
         "synchronized_timebin_file", "clock_scene_qc_file",
         "eye_scene_registration_file",
+        "historical_package", "preprocessed_root", "matlab", "eeglab_root", "psd_cache_dir",
+        "candidate_factor_reference", "delivery_root",
     }
 
     def walk(value: Any, key: str = "") -> Any:
@@ -73,8 +77,8 @@ def _parser() -> argparse.ArgumentParser:
         child.add_argument("--config", required=True, type=Path)
         child.add_argument("--outputs-root", type=Path)
         child.add_argument("--run-id")
-        if command == "eeg-audit":
-            child.add_argument("--outdir", type=Path, help="New, isolated validation directory; never promoted.")
+        if command in {"eeg-audit", "eeg-denominator-sensitivity"}:
+            child.add_argument("--outdir", type=Path, help="New, isolated analysis directory; existing results are protected.")
         child.add_argument("--dry-run", action="store_true")
         child.add_argument(
             "--skip-r",
@@ -115,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
         run_root / STAGE_FOLDERS[args.command]
         if args.command in STAGE_FOLDERS else run_root
     )
-    if args.command == "eeg-audit" and args.outdir:
+    if args.command in {"eeg-audit", "eeg-denominator-sensitivity"} and args.outdir:
         outdir = args.outdir.resolve()
     config.setdefault("eye", {})
     config["eye"]["stage1_dir"] = (
@@ -144,6 +148,13 @@ def main(argv: list[str] | None = None) -> int:
         },
     }
     if args.dry_run:
+        if args.command == "eeg-denominator-sensitivity":
+            try:
+                _, _, checks = denominator_preflight(config, REPO_ROOT)
+            except StageBlockedError as exc:
+                print(f"BLOCKED: {exc}", file=sys.stderr)
+                return 2
+            plan.update(checks)
         if args.command == "eeg-audit":
             try:
                 validate_provenance(config)
@@ -165,6 +176,7 @@ def main(argv: list[str] | None = None) -> int:
         "eeg-order": run_eeg_order,
         "eeg-primary": run_eeg_primary,
         "eeg-audit": run_eeg_audit,
+        "eeg-denominator-sensitivity": run_eeg_denominator,
     }
     try:
         if args.command == "all-results":
@@ -187,13 +199,13 @@ def main(argv: list[str] | None = None) -> int:
             "outdir": outdir,
             "repo_root": REPO_ROOT,
         }
-        if args.command in {"eye-stage2", "eeg-order", "eeg-primary", "eeg-audit"}:
+        if args.command in {"eye-stage2", "eeg-order", "eeg-primary", "eeg-audit", "eeg-denominator-sensitivity"}:
             call_kwargs["r_required"] = not args.skip_r
         result = functions[args.command](config, **call_kwargs)
-        if args.command == "eeg-audit":
+        if args.command in {"eeg-audit", "eeg-denominator-sensitivity"}:
             status = json.loads(result["manifest"].read_text(encoding="utf-8"))["status"]
             print(json.dumps({**plan, "status": status}, ensure_ascii=False, indent=2))
-            return 0 if status == "validated" else 3
+            return 0 if status in {"validated", "complete"} else 3
     except StageBlockedError as exc:
         print(f"BLOCKED: {exc}", file=sys.stderr)
         print(json.dumps(plan, ensure_ascii=False, indent=2), file=sys.stderr)
