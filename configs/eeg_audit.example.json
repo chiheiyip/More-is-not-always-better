@@ -1,0 +1,16 @@
+{
+  "outputs_root": "../outputs/eeg_validation",
+  "run_id": null,
+  "rscript": "../scripts/portable_rscript.cmd",
+  "participant_information": "path/to/participant_information.xlsx",
+  "eeg": {
+    "onset_sensitivity_trial_file": "path/to/eeg_onset_sensitivity_trial_long.csv",
+    "preprocessing_audit_file": "path/to/confirmed_eeg_preprocessing_audit.csv",
+    "preprocessing_confirmed": false,
+    "preprocessing_parameters": {"relative_power_denominator_hz": "1-45"},
+    "onset_trim_strategy": "parallel",
+    "reference_onset_trim_s": 10,
+    "onset_trim_variants_s": [0, 5, 10, 15],
+    "core_metrics": ["O_theta", "F_theta", "O_alpha", "O_beta"]
+  }
+}
