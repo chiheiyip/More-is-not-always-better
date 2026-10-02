@@ -71,7 +71,9 @@ def normalize_order_group(value: object) -> str:
 
 
 def normalize_complexity(value: object) -> str:
-    text = str(value or "").strip().upper()
+    if pd.isna(value):
+        return ""
+    text = str(value).strip().upper()
     if text in {"0", "0.0", "C0", "LOW"}:
         return "C0"
     if text in {"1", "1.0", "C1", "HIGH"}:
@@ -257,7 +259,10 @@ def canonicalize_trials(frame: pd.DataFrame, *, require_complete: bool = False) 
         group["Complexity"].shift(1) if "Complexity" in out else pd.NA
     )
     first = pd.to_numeric(out["PositionWithinBlock"], errors="coerce").eq(1)
-    out.loc[first, ["PreviousWWR", "PreviousComplexity"]] = pd.NA
+    adjacent = out["PositionWithinBlock"].sub(
+        group["PositionWithinBlock"].shift(1)
+    ).eq(1).fillna(False)
+    out.loc[first | ~adjacent, ["PreviousWWR", "PreviousComplexity"]] = pd.NA
     return out
 
 

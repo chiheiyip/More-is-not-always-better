@@ -12,6 +12,18 @@ from typing import Any
 
 
 STAGE_METHOD_DEPENDENCIES = {
+    "eeg-audit": (
+        "src/paper_analysis/teacher/eeg_audit.py",
+        "src/paper_analysis/teacher/eeg.py",
+        "src/paper_analysis/teacher/contracts.py",
+        "src/paper_analysis/teacher/state.py",
+        "src/paper_analysis/utils/io.py",
+        "src/paper_analysis/utils/coding.py",
+        "scripts/run_teacher_analysis.py",
+        "analysis/r/eeg_audit.R",
+        "analysis/r/common.R",
+        "analysis/r/renv.lock",
+    ),
     "eye-stage1": (
         "src/paper_analysis/teacher/eye.py",
         "src/paper_analysis/teacher/contracts.py",

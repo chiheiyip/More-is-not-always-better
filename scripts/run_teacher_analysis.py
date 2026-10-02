@@ -13,6 +13,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from paper_analysis.teacher.eeg import run_eeg_order, run_eeg_primary
+from paper_analysis.teacher.eeg_audit import run_eeg_audit, prepare_inputs, validate_provenance
 from paper_analysis.teacher.complete import run_all_results
 from paper_analysis.teacher.eye import (
     run_eye_stage1,
@@ -30,6 +31,7 @@ STAGE_FOLDERS = {
     "eye-stage3-run": "04_eye_stage3",
     "eeg-order": "05_eeg_order",
     "eeg-primary": "06_eeg_primary",
+    "eeg-audit": "08_eeg_audit",
 }
 
 
@@ -42,6 +44,7 @@ def _resolve_paths(config: dict[str, Any], config_path: Path) -> dict[str, Any]:
         "aoi_root",
         "stage2_dir", "stage3_plan_dir", "trial_file",
         "preprocessing_audit_file", "order_stage_dir",
+        "onset_sensitivity_trial_file", "onset_analysis_dir",
         "s3_trial_file", "questionnaire_file", "rscript",
         "synchronized_timebin_file", "clock_scene_qc_file",
         "eye_scene_registration_file",
@@ -70,6 +73,8 @@ def _parser() -> argparse.ArgumentParser:
         child.add_argument("--config", required=True, type=Path)
         child.add_argument("--outputs-root", type=Path)
         child.add_argument("--run-id")
+        if command == "eeg-audit":
+            child.add_argument("--outdir", type=Path, help="New, isolated validation directory; never promoted.")
         child.add_argument("--dry-run", action="store_true")
         child.add_argument(
             "--skip-r",
@@ -110,6 +115,8 @@ def main(argv: list[str] | None = None) -> int:
         run_root / STAGE_FOLDERS[args.command]
         if args.command in STAGE_FOLDERS else run_root
     )
+    if args.command == "eeg-audit" and args.outdir:
+        outdir = args.outdir.resolve()
     config.setdefault("eye", {})
     config["eye"]["stage1_dir"] = (
         config["eye"].get("stage1_dir") or str(run_root / STAGE_FOLDERS["eye-stage1"])
@@ -137,6 +144,17 @@ def main(argv: list[str] | None = None) -> int:
         },
     }
     if args.dry_run:
+        if args.command == "eeg-audit":
+            try:
+                validate_provenance(config)
+                prepared, exclusions = prepare_inputs(config)
+            except StageBlockedError as exc:
+                print(f"BLOCKED: {exc}", file=sys.stderr)
+                return 2
+            plan["common_trials"] = len(prepared[0])
+            plan["common_participants"] = int(prepared[0].Participant.nunique())
+            plan["exclusion_records"] = len(exclusions)
+            plan["purpose"] = "code_validation_not_formal_results"
         print(json.dumps(plan, ensure_ascii=False, indent=2))
         return 0
     functions = {
@@ -146,6 +164,7 @@ def main(argv: list[str] | None = None) -> int:
         "eye-stage3-run": run_eye_stage3,
         "eeg-order": run_eeg_order,
         "eeg-primary": run_eeg_primary,
+        "eeg-audit": run_eeg_audit,
     }
     try:
         if args.command == "all-results":
@@ -168,9 +187,13 @@ def main(argv: list[str] | None = None) -> int:
             "outdir": outdir,
             "repo_root": REPO_ROOT,
         }
-        if args.command in {"eye-stage2", "eeg-order", "eeg-primary"}:
+        if args.command in {"eye-stage2", "eeg-order", "eeg-primary", "eeg-audit"}:
             call_kwargs["r_required"] = not args.skip_r
-        functions[args.command](config, **call_kwargs)
+        result = functions[args.command](config, **call_kwargs)
+        if args.command == "eeg-audit":
+            status = json.loads(result["manifest"].read_text(encoding="utf-8"))["status"]
+            print(json.dumps({**plan, "status": status}, ensure_ascii=False, indent=2))
+            return 0 if status == "validated" else 3
     except StageBlockedError as exc:
         print(f"BLOCKED: {exc}", file=sys.stderr)
         print(json.dumps(plan, ensure_ascii=False, indent=2), file=sys.stderr)
