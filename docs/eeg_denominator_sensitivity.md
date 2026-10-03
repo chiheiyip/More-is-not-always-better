@@ -82,3 +82,13 @@ Generate its typed input with `python scripts/prepare_eeg_denominator_workbook.p
 <completed-run-directory>`. Workbook tables contain aggregate model results and
 diagnostics, without trial-level participant names. Preserve both raw p and both
 q scopes; the main sheet judges direction and joint-BH significance per claim.
+# 全流程正式结果更新
+
+在 `all-results` 配置中加入与独立命令相同的 `denominator_sensitivity` 配置，
+会在 `10_eeg_denominator_sensitivity` 完成 A/B/C 重分析后再验收和推广。
+`--promote` 同时备份并更新 `12_teacher_analysis`，总报告、完成矩阵和
+`realdata_run_summary.json` 纳入分母敏感性及执行提交。主流程历史 1–45 Hz
+结果保留，1–40 Hz 为独立敏感性版本。使用现有 PSD 缓存前验证完整身份与文件哈希。
+
+全流程 R 阶段使用 ASCII 临时目录运行原脚本和逐字节复制的输入，再通过 Python
+回写中文路径；R 失败时不推广部分结果。运行日志保存在各阶段目录。

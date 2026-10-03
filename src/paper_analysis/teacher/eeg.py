@@ -23,6 +23,7 @@ from paper_analysis.teacher.state import (
     write_run_manifest,
 )
 from paper_analysis.utils.io import is_truthy, read_table, write_table, write_text
+from paper_analysis.teacher.r_runner import invoke_r
 
 
 FORBIDDEN_PRIMARY_TERMS = (
@@ -75,16 +76,7 @@ def _contract_value_equal(observed: object, expected: object) -> bool:
 
 
 def _invoke_r(rscript: str, script: Path, arguments: list[str], required: bool) -> bool:
-    executable = shutil.which(rscript) if not Path(rscript).exists() else rscript
-    if not executable:
-        if required:
-            raise StageBlockedError(
-                f"Rscript is unavailable ({rscript}). Install R and run "
-                "`renv::restore()` in analysis/r before formal inference."
-            )
-        return False
-    subprocess.run([str(executable), str(script), *arguments], check=True)
-    return True
+    return invoke_r(rscript, script, arguments, required=required)
 
 
 def _package_r_csv_outputs(outdir: Path) -> None:

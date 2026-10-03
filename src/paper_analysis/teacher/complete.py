@@ -16,6 +16,8 @@ from paper_analysis.teacher.eeg import (
     run_eeg_order,
     run_eeg_primary,
 )
+from paper_analysis.teacher.r_runner import invoke_r
+from paper_analysis.teacher.eeg_denominator import run_eeg_denominator
 from paper_analysis.teacher.contracts import canonicalize_trials
 from paper_analysis.teacher.eye import (
     run_eye_stage1,
@@ -26,6 +28,7 @@ from paper_analysis.teacher.eye import (
 from paper_analysis.teacher.eye_figures import build_eye_scene_figures
 from paper_analysis.teacher.state import (
     file_sha256,
+    git_commit,
     legacy_stage_methods_unchanged,
     method_contract_hash,
     stage_method_contract_hash,
@@ -537,10 +540,8 @@ def _build_questionnaire_teacher_audit(
             repo_root / "analysis" / "r"
             / "questionnaire_teacher_analysis.R"
         )
-        subprocess.run([
-            str(config.get("rscript", "Rscript")),
-            str(r_script), str(model_input), str(out),
-        ], check=True)
+        invoke_r(str(config.get("rscript", "Rscript")), r_script,
+                 [str(model_input), str(out)])
         for csv_path in sorted(out.glob("Questionnaire_42_*.csv")):
             if csv_path == model_input:
                 continue
@@ -1565,7 +1566,7 @@ def _promote(run_root: Path, outputs_root: Path) -> Path:
     target = outputs_root / "12_teacher_analysis"
     folders = [
         *STAGE_FOLDERS.values(), "07_reviewer_analysis",
-        "08_synchronized_crossmodal", "09_eye_figures", "99_completion",
+        "08_synchronized_crossmodal", "09_eye_figures", "10_eeg_denominator_sensitivity", "99_completion",
     ]
     backup_root = (
         outputs_root / "teacher_runs" / "_promoted_backups"
@@ -1674,9 +1675,28 @@ def run_all_results(
     )
     _build_reviewer_outputs(root, run_root)
     _build_sync_outputs(root, run_root, config)
+    sensitivity = None
+    if config.get("denominator_sensitivity"):
+        sensitivity_dir = run_root / "10_eeg_denominator_sensitivity"
+        if not (resume and _sensitivity_current(sensitivity_dir, repo, config_path)):
+            run_eeg_denominator(config, config_path=config_path, outdir=sensitivity_dir,
+                                repo_root=repo, r_required=r_required)
+        sensitivity = json.loads((sensitivity_dir / "summary.json").read_text(encoding="utf-8"))
+        if sensitivity["status"] != "complete":
+            raise RuntimeError("EEG denominator sensitivity is incomplete; refusing promotion")
     completion_dir = run_root / "99_completion"
     completion_dir.mkdir(parents=True, exist_ok=True)
     matrix = _completion_matrix(run_root)
+    if sensitivity is not None:
+        sensitivity_files = ["run_manifest.json", "summary.json", "model_comparisons.csv",
+                             "manuscript_comparisons.csv", "power_fraction_summary.csv",
+                             "historical_coefficient_regression.csv", "factor_independent_regression.csv"]
+        extra = [{"Category": "EEG分母敏感性", "Requirement": name, "Status": "complete",
+                  "RunRelativePath": f"10_eeg_denominator_sensitivity/{name}",
+                  "Exists": (sensitivity_dir / name).is_file(),
+                  "NonEmpty": (sensitivity_dir / name).is_file() and (sensitivity_dir / name).stat().st_size > 0}
+                 for name in sensitivity_files]
+        matrix = pd.concat([matrix, pd.DataFrame(extra)], ignore_index=True)
     outputs["run_completion"] = write_table(
         matrix, completion_dir / "teacher_task_completion_matrix.xlsx"
     )
@@ -1713,6 +1733,11 @@ def run_all_results(
         matrix, root / "老师任务完成矩阵.xlsx"
     )
     outputs["report"] = _build_top_report(root, run_root)
+    if sensitivity is not None:
+        report = outputs["report"]
+        with report.open("a", encoding="utf-8") as handle:
+            handle.write("\n\n---\n\n" + (sensitivity_dir / "中文简报.md").read_text(encoding="utf-8").replace(
+                "既有正式多模态结果未覆盖。", "本次全流程已更新正式多模态结果；历史1–45 Hz与敏感性1–40 Hz分别保存。"))
     questionnaire_summary = read_table(
         run_root / "07_reviewer_analysis"
         / "Questionnaire_42_person_sample_audit.xlsx"
@@ -1750,6 +1775,7 @@ def run_all_results(
     )
     summary = {
         "status": "complete",
+        "git_commit": git_commit(repo),
         "run_id": run_id,
         "run_root": str(run_root),
         "promoted": bool(promote),
@@ -1831,6 +1857,8 @@ def run_all_results(
             "analysis_status": str(sync_summary["AnalysisStatus"]),
         },
     }
+    if sensitivity is not None:
+        summary["eeg_denominator_sensitivity"] = {"run_root": str(sensitivity_dir), **sensitivity}
     outputs["summary"] = write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
         root / "realdata_run_summary.json",
@@ -1859,3 +1887,24 @@ def run_all_results(
         _all_files_index(root), root / "结果文件总索引.xlsx"
     )
     return outputs
+
+
+def _sensitivity_current(directory: Path, repo: Path, config_path: Path) -> bool:
+    """Resume only a completed sensitivity run with unchanged sources and code."""
+    try:
+        manifest = json.loads((directory / "run_manifest.json").read_text(encoding="utf-8"))
+        if manifest["status"] != "complete":
+            return False
+        if not any(Path(r["path"]).resolve() == config_path.resolve()
+                   and r["sha256"] == file_sha256(config_path)
+                   for r in manifest["input_code_hashes"]):
+            return False
+        records = [*manifest["input_code_hashes"]]
+        for source in manifest["psd_cache"]["sources"]:
+            records.extend({"path": source[f"{kind}_path"], "sha256": source[f"{kind}_sha256"]}
+                           for kind in ("set", "fdt"))
+        records.extend({"path": str(directory / record["path"]), "sha256": record["sha256"]}
+                       for record in json.loads((directory / "output_hashes.json").read_text(encoding="utf-8")))
+        return all(Path(r["path"]).is_file() and file_sha256(r["path"]) == r["sha256"] for r in records)
+    except (OSError, KeyError, ValueError):
+        return False
