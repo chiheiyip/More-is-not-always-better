@@ -83,6 +83,7 @@ def _reuse_r(script: Path, arguments: list[str], output: Path) -> bool:
             old_input = pd.read_csv(source / Path(arguments[0]).name)
             eeg_config = original_config["eeg"]
             relative, absolute = _metric_columns(old_input, eeg_config["core_metrics"])
+            absolute = [f"log10_{name}" for name in absolute]
             secondary, _ = _metric_columns(old_input, eeg_config["secondary_metrics"])
             supplemental, _ = _metric_columns(old_input, eeg_config["supplemental_metrics"])
             if [arguments[i] for i in (2, 3, 5, 6)] != [",".join(v) for v in (relative, absolute, secondary, supplemental)]:
