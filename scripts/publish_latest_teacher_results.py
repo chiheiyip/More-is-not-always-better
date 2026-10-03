@@ -34,6 +34,13 @@ def typed(name, frame):
             "rows": frame.astype(object).where(pd.notna(frame), None).values.tolist()}
 
 
+def change_status(significance_flip, direction_change):
+    # Omnibus F tests have no single coefficient direction. Missing direction
+    # is not evidence of a change (bool(float('nan')) would incorrectly be True).
+    flags = [False if pd.isna(v) else str(v).lower() in {"true", "1"} for v in (significance_flip, direction_change)]
+    return "改变" if any(flags) else "未改变"
+
+
 def make_docx(markdown: str, target: Path):
     document = Document()
     section = document.sections[0]
@@ -46,6 +53,12 @@ def make_docx(markdown: str, target: Path):
         style.element.get_or_add_rPr().get_or_add_rFonts().set(qn("w:eastAsia"), "Microsoft YaHei")
         style.font.size = Pt(10 if name == "Normal" else 14 if name == "Title" else 12)
         style.paragraph_format.space_after = Pt(6)
+        borders = OxmlElement("w:pBdr")
+        for edge in ("top", "left", "bottom", "right", "between"):
+            item = OxmlElement(f"w:{edge}")
+            item.set(qn("w:val"), "nil")
+            borders.append(item)
+        style.element.get_or_add_pPr().append(borders)
     document.styles["Normal"].paragraph_format.line_spacing = 1.18
     lines = markdown.splitlines()
     index = 0
@@ -59,18 +72,27 @@ def make_docx(markdown: str, target: Path):
                     values.append(row)
                 index += 1
             table = document.add_table(rows=len(values), cols=len(values[0]))
-            table.style = "Light Shading Accent 1"
-            table.autofit = True
+            table.style = "Normal Table"
+            table.autofit = False
+            widths = [4.0, 13.6] if len(values[0]) == 2 else [3.0, .9, 2.1, 2.1, 3.4, 3.4, 2.7] if len(values[0]) == 7 else [17.6 / len(values[0])] * len(values[0])
+            for c, width in enumerate(widths):
+                table.columns[c].width = Cm(width)
             for r, row in enumerate(values):
                 for c, text in enumerate(row):
                     cell = table.cell(r, c)
+                    cell.width = Cm(widths[c])
                     cell.text = text.replace("`", "")
                     for paragraph in cell.paragraphs:
-                        paragraph.paragraph_format.space_after = Pt(3)
-                        paragraph.paragraph_format.space_before = Pt(3)
+                        paragraph.paragraph_format.space_after = Pt(2)
+                        paragraph.paragraph_format.space_before = Pt(2)
                         for run in paragraph.runs:
                             run.font.size = Pt(8.5)
                             run.font.bold = r == 0
+                            run.font.color.rgb = RGBColor(32, 44, 58)
+                    if r == 0:
+                        shade = OxmlElement("w:shd")
+                        shade.set(qn("w:fill"), "E6EDF5")
+                        cell._tc.get_or_add_tcPr().append(shade)
                 trpr = table.rows[r]._tr.get_or_add_trPr()
                 trpr.append(OxmlElement("w:cantSplit"))
                 if r == 0:
@@ -89,7 +111,7 @@ def make_docx(markdown: str, target: Path):
     document.save(target)
 
 
-def prepare(root: Path, delivery_root: Path, stamp: str):
+def prepare(root: Path, delivery_root: Path, stamp: str, *, refresh_draft: bool = False):
     summary = json.loads((root / "realdata_run_summary.json").read_text(encoding="utf-8"))
     if summary["status"] != "complete" or not summary["promoted"] or "eeg_denominator_sensitivity" not in summary:
         raise ValueError("A completed promoted full run including denominator sensitivity is required")
@@ -99,7 +121,9 @@ def prepare(root: Path, delivery_root: Path, stamp: str):
     if manifest["status"] != "complete":
         raise ValueError("Sensitivity analysis is incomplete")
     package = delivery_root / f"{stamp}_老师最新要求_完整更新"
-    package.mkdir(parents=True, exist_ok=False)
+    if package.exists() and (not refresh_draft or (package / "交付文件哈希.json").exists()):
+        raise ValueError("Use a new dated package; only unpublished drafts may be refreshed")
+    package.mkdir(parents=True, exist_ok=refresh_draft)
     focus = pd.read_csv(sensitivity / "manuscript_comparisons.csv")
     fields = {"表6_额区theta_WWR45×复杂度": "表6：额区θ交互", "枕区theta_复杂度边际效应": "枕区θ：复杂度", "顶区beta_WWR总体效应": "顶区β：WWR总体"}
     table = focus.loc[focus.pair.eq("A→C") & focus.manuscript_claim.isin(fields)].copy()
@@ -112,7 +136,7 @@ def prepare(root: Path, delivery_root: Path, stamp: str):
                      "1–45 F": row.Fstat_from, "1–40 F": row.Fstat_to,
                      "1–45 p": pfrom, "1–40 p": pto,
                      "1–45 联合q": row.joint_q_from, "1–40 联合q": row.joint_q_to,
-                     "结论是否改变": "改变" if row.flip_joint_q or row.direction_changed else "未改变"})
+                     "结论是否改变": change_status(row.flip_joint_q, row.direction_changed)})
     concise = pd.DataFrame(rows)
     concise.to_csv(package / "老师要求_EEG关键结果对照.csv", index=False, encoding="utf-8-sig")
     claims = pd.read_csv(sensitivity / "manuscript_conclusion_summary.csv")
@@ -150,7 +174,7 @@ def prepare(root: Path, delivery_root: Path, stamp: str):
     lines.extend(f"|{r.onset_trim_s:g}|{r.percent_40_45_mean:.6f}|{r.denominator_reduction_percent_mean:.6f}|{r.relative_increase_percent_mean:.6f}|" for r in fractions.itertuples())
     lines += ["", "保留原频率掩码和trapz。40–45 Hz功率占比与分母减少比例分别积分；频率点边界之间的梯形面积使两者不同，未统一按0.15%缩放。", "",
               "## 验证和结果来源", "", "A版本重现240条核心Model1系数，factor-level通过528条独立参考核对。B/C样本、协变量、分子和absolute数据一致。旧结果只有输入、统计方法和文件哈希通过核对后才复用。", "",
-              f"正式运行代码：{summary['git_commit']}。已验证敏感性模型的计算提交：{manifest['git_sha']}。完整统计结果、方法、置信区间、自由度、p/q及复用证明均随结果保存。"]
+              "完整统计结果、置信区间、自由度、p/q及复用证明均随结果保存。正式运行和已验证敏感性模型分别保留计算版本，见CODE_VERSION.json。"]
     brief = "\n".join(lines) + "\n"
     (package / "老师最新要求_EEG分母敏感性.md").write_text(brief, encoding="utf-8")
     make_docx(brief, package / "老师最新要求_EEG分母敏感性.docx")
@@ -169,7 +193,7 @@ def prepare(root: Path, delivery_root: Path, stamp: str):
             shutil.copyfile(sensitivity / name, package / name)
     for version in "ABC":
         target = package / version
-        target.mkdir()
+        target.mkdir(exist_ok=refresh_draft)
         for name in ["coefficients.csv", "factor_tests.csv", "contrast_matrices.csv", "diagnostics.csv", "family_status.csv"]:
             shutil.copyfile(sensitivity / version / name, target / name)
     dump(package / "CODE_VERSION.json", {"publication_git_sha": git_commit(REPO), "formal_run_git_sha": summary["git_commit"],
@@ -235,8 +259,9 @@ if __name__ == "__main__":
     parser.add_argument("--delivery-root", required=True, type=Path)
     parser.add_argument("--stamp", default="20261003")
     parser.add_argument("--package", type=Path)
+    parser.add_argument("--refresh-draft", action="store_true")
     options = parser.parse_args()
     if options.phase == "prepare":
-        prepare(options.outputs_root, options.delivery_root, options.stamp)
+        prepare(options.outputs_root, options.delivery_root, options.stamp, refresh_draft=options.refresh_draft)
     else:
         finalize(options.package, options.delivery_root)
