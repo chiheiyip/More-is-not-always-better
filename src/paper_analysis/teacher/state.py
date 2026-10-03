@@ -15,6 +15,7 @@ STAGE_METHOD_DEPENDENCIES = {
     "eeg-audit": (
         "src/paper_analysis/teacher/eeg_audit.py",
         "src/paper_analysis/teacher/eeg.py",
+        "src/paper_analysis/teacher/r_runner.py",
         "src/paper_analysis/teacher/contracts.py",
         "src/paper_analysis/teacher/state.py",
         "src/paper_analysis/utils/io.py",
@@ -29,6 +30,7 @@ STAGE_METHOD_DEPENDENCIES = {
         "src/paper_analysis/teacher/contracts.py",
     ),
     "eye-stage2": (
+        "src/paper_analysis/teacher/r_runner.py",
         "src/paper_analysis/teacher/eye.py",
         "src/paper_analysis/teacher/contracts.py",
         "analysis/r/eye_stage2_analysis.R",
@@ -39,18 +41,21 @@ STAGE_METHOD_DEPENDENCIES = {
         "src/paper_analysis/teacher/contracts.py",
     ),
     "eye-stage3-run": (
+        "src/paper_analysis/teacher/r_runner.py",
         "src/paper_analysis/teacher/eye.py",
         "src/paper_analysis/teacher/contracts.py",
         "analysis/r/eye_stage3_analysis.R",
         "analysis/r/common.R",
     ),
     "eeg-order": (
+        "src/paper_analysis/teacher/r_runner.py",
         "src/paper_analysis/teacher/eeg.py",
         "src/paper_analysis/teacher/contracts.py",
         "analysis/r/eeg_order_analysis.R",
         "analysis/r/common.R",
     ),
     "eeg-primary": (
+        "src/paper_analysis/teacher/r_runner.py",
         "src/paper_analysis/teacher/eeg.py",
         "src/paper_analysis/teacher/contracts.py",
         "analysis/r/eeg_primary_analysis.R",

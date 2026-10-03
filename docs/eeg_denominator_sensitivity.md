@@ -82,3 +82,32 @@ Generate its typed input with `python scripts/prepare_eeg_denominator_workbook.p
 <completed-run-directory>`. Workbook tables contain aggregate model results and
 diagnostics, without trial-level participant names. Preserve both raw p and both
 q scopes; the main sheet judges direction and joint-BH significance per claim.
+
+# 全流程正式结果更新
+
+在 `all-results` 配置中加入与独立命令相同的 `denominator_sensitivity` 配置，
+会在 `10_eeg_denominator_sensitivity` 完成 A/B/C 重分析后再验收和推广。
+`--promote` 同时备份并更新 `12_teacher_analysis`，总报告、完成矩阵和
+`realdata_run_summary.json` 纳入分母敏感性及执行提交。主流程历史 1–45 Hz
+结果保留，1–40 Hz 为独立敏感性版本。使用现有 PSD 缓存前验证完整身份与文件哈希。
+
+全流程 R 阶段使用 ASCII 临时目录运行原脚本和逐字节复制的输入，再通过 Python
+回写中文路径；R 失败时不推广部分结果。运行日志保存在各阶段目录。
+
+`--reuse-valid` 还会核对已登记 R 输出的哈希、全部输入字段与行、统计脚本及
+标量参数。仅输入读取方式改变或历史空白 C0 显式改名、数值仅有不超过
+`1e-12` 的写出舍入差异时，允许复用同一统计实现的旧结果，包括5000次
+bootstrap。复用证明保存在各阶段的 `*_reuse.json`；条件不满足则重跑。
+
+老师交付使用 `scripts/publish_latest_teacher_results.py` 的 `prepare`、`index`、
+`finalize` 三阶段，只接受已完成并推广的全流程。`prepare` 生成 Word 简报、
+机器可读关键对照及工作簿 typed JSON；`scripts/export_teacher_workbook.mjs`
+使用外部 bundled runtime 将 JSON 导出 Excel。完成文档渲染检查后，`index`
+生成交付内容与哈希索引的 typed JSON，导出索引 Excel；`finalize` 核对索引
+哈希、生成并验证 ZIP，再更新老师目录和正式结果目录的最新交付入口。
+已发布目录不允许刷新；未发布草稿可用 `--refresh-draft` 更新。
+
+仅 R 缓存检查函数发生变化时，`scripts/revalidate_teacher_transport.py` 可
+核验并复用已完成阶段：它要求全部其他方法依赖无变化，R 调用与输入暂存
+的 AST 相同，原输入哈希仍一致；保留原执行提交，另记本次验证提交及输出
+哈希。数据准备、推断代码或 R 调用改变时拒绝这种复用。

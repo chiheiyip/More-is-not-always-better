@@ -6,7 +6,7 @@ file_arg <- grep("^--file=", commandArgs(FALSE), value = TRUE)
 script_dir <- dirname(normalizePath(sub("^--file=", "", file_arg[[1]])))
 source(file.path(script_dir, "common.R"))
 assert_packages()
-input <- utils::read.csv(args[[1]], check.names = FALSE)
+input <- read_teacher_csv(args[[1]])
 outdir <- args[[2]]
 triggers <- strsplit(toupper(args[[3]]), ",", fixed = TRUE)[[1]]
 triggers <- triggers[nzchar(triggers)]
@@ -194,7 +194,7 @@ if ("B" %in% triggers) {
 }
 
 if ("C" %in% triggers && nzchar(boundary_path) && file.exists(boundary_path)) {
-  boundary <- utils::read.csv(boundary_path, check.names = FALSE)
+  boundary <- read_teacher_csv(boundary_path)
   for (column in c(
     "Participant", "WWR", "Complexity", "ExperienceGroup", "Gender", "OrderGroup",
     "PreviousWWR", "PreviousComplexity", "BoundaryMarginPx"
@@ -405,7 +405,7 @@ if ("G" %in% triggers) {
 
 if (("H" %in% triggers || "I" %in% triggers) &&
     nzchar(aoi_path) && file.exists(aoi_path)) {
-  aoi <- utils::read.csv(aoi_path, check.names = FALSE)
+  aoi <- read_teacher_csv(aoi_path)
   aoi <- aoi[aoi$IncludedPrimary %in% TRUE, , drop = FALSE]
   for (column in c(
     "Participant", "WWR", "Complexity", "ExperienceGroup", "Gender",

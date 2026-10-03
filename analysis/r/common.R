@@ -93,3 +93,16 @@ bh_within_family <- function(frame, family_columns) {
   frame$p.value.BH <- ave(frame$p.value, key, FUN = function(x) p.adjust(x, "BH"))
   frame
 }
+read_teacher_csv <- function(path) {
+  # Label UTF-8 strings without transcoding Chinese identifiers to a C locale.
+  if (.Platform$OS.type == "windows") {
+    locale <- Sys.setlocale("LC_CTYPE", ".UTF-8")
+    if (!nzchar(locale)) stop("A UTF-8 Windows character locale is required")
+  }
+  value <- withCallingHandlers(
+    utils::read.csv(path, check.names = FALSE, encoding = "UTF-8"),
+    warning = function(w) stop("Input decoding failed: ", conditionMessage(w))
+  )
+  names(value)[[1]] <- sub("^\ufeff", "", names(value)[[1]])
+  value
+}

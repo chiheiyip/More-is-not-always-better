@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image, ImageDraw
 from scipy import ndimage
+from paper_analysis.teacher.r_runner import invoke_r
 
 from paper_analysis.eye_tracking.aoi import PolygonAOI, load_aoi_document, point_in_poly
 from paper_analysis.teacher.contracts import (
@@ -1185,15 +1186,7 @@ def _invoke_r(
     *,
     required: bool = True,
 ) -> bool:
-    executable = shutil.which(rscript) if not Path(rscript).exists() else rscript
-    if not executable:
-        if required:
-            raise StageBlockedError(
-                f"Rscript is unavailable ({rscript}). Install R and restore renv before formal inference."
-            )
-        return False
-    subprocess.run([str(executable), str(script), *arguments], check=True)
-    return True
+    return invoke_r(rscript, script, arguments, required=required)
 
 
 def _package_r_csv_outputs(outdir: Path) -> None:
