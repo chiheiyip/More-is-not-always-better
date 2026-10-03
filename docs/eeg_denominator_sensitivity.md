@@ -92,3 +92,8 @@ q scopes; the main sheet judges direction and joint-BH significance per claim.
 
 全流程 R 阶段使用 ASCII 临时目录运行原脚本和逐字节复制的输入，再通过 Python
 回写中文路径；R 失败时不推广部分结果。运行日志保存在各阶段目录。
+
+`--reuse-valid` 还会核对已登记 R 输出的哈希、全部输入字段与行、统计脚本及
+标量参数。仅输入读取方式改变或历史空白 C0 显式改名、数值仅有不超过
+`1e-12` 的写出舍入差异时，允许复用同一统计实现的旧结果，包括5000次
+bootstrap。复用证明保存在各阶段的 `*_reuse.json`；条件不满足则重跑。

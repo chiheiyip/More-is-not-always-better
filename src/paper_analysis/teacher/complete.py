@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from datetime import datetime, timezone
@@ -1600,6 +1601,10 @@ def run_all_results(
     run_root = root / "teacher_runs" / run_id
     run_root.mkdir(parents=True, exist_ok=True)
     repo = Path(repo_root)
+    if reuse_valid:
+        os.environ["PAPER_ANALYSIS_R_REUSE_ROOT"] = str(root / "12_teacher_analysis")
+    else:
+        os.environ.pop("PAPER_ANALYSIS_R_REUSE_ROOT", None)
     config_path = Path(config_path)
     config.setdefault("eye", {})
     config.setdefault("eeg", {})
