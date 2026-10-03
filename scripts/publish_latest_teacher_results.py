@@ -19,6 +19,7 @@ from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
@@ -83,6 +84,14 @@ def make_docx(markdown: str, target: Path):
                     cell.width = Cm(widths[c])
                     cell.text = text.replace("`", "")
                     for paragraph in cell.paragraphs:
+                        if r == 0:
+                            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        else:
+                            try:
+                                float(text)
+                                paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                            except ValueError:
+                                paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
                         paragraph.paragraph_format.space_after = Pt(2)
                         paragraph.paragraph_format.space_before = Pt(2)
                         for run in paragraph.runs:
