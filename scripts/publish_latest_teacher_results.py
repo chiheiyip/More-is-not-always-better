@@ -74,7 +74,7 @@ def make_docx(markdown: str, target: Path):
             table = document.add_table(rows=len(values), cols=len(values[0]))
             table.style = "Normal Table"
             table.autofit = False
-            widths = [4.0, 13.6] if len(values[0]) == 2 else [3.0, .9, 2.1, 2.1, 3.4, 3.4, 2.7] if len(values[0]) == 7 else [17.6 / len(values[0])] * len(values[0])
+            widths = [4.0, 13.6] if len(values[0]) == 2 else [3.0, 1.3, 2.1, 2.1, 3.4, 3.4, 2.3] if len(values[0]) == 7 else [17.6 / len(values[0])] * len(values[0])
             for c, width in enumerate(widths):
                 table.columns[c].width = Cm(width)
             for r, row in enumerate(values):
