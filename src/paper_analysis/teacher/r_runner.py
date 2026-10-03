@@ -78,6 +78,15 @@ def _reuse_r(script: Path, arguments: list[str], output: Path) -> bool:
         artifacts = [source / name for name in sorted(names) if (source / name).is_file()]
         if not comparisons or len(artifacts) < 3 or not all(verify_registered(p) for p in artifacts):
             return False
+        if script.name == "eeg_primary_analysis.R":
+            from paper_analysis.teacher.eeg import _metric_columns
+            old_input = pd.read_csv(source / Path(arguments[0]).name)
+            eeg_config = original_config["eeg"]
+            relative, absolute = _metric_columns(old_input, eeg_config["core_metrics"])
+            secondary, _ = _metric_columns(old_input, eeg_config["secondary_metrics"])
+            supplemental, _ = _metric_columns(old_input, eeg_config["supplemental_metrics"])
+            if [arguments[i] for i in (2, 3, 5, 6)] != [",".join(v) for v in (relative, absolute, secondary, supplemental)]:
+                return False
         records = [{"path": p.name, "sha256": file_sha256(p)} for p in artifacts]
         for artifact in artifacts:
             shutil.copyfile(artifact, output / artifact.name)

@@ -19,6 +19,7 @@ from paper_analysis.teacher.eeg import (
 )
 from paper_analysis.teacher.r_runner import invoke_r
 from paper_analysis.teacher.eeg_denominator import run_eeg_denominator
+from paper_analysis.teacher.result_reuse import reuse_sensitivity
 from paper_analysis.teacher.contracts import canonicalize_trials
 from paper_analysis.teacher.eye import (
     run_eye_stage1,
@@ -1683,9 +1684,11 @@ def run_all_results(
     sensitivity = None
     if config.get("denominator_sensitivity"):
         sensitivity_dir = run_root / "10_eeg_denominator_sensitivity"
-        if not (resume and _sensitivity_current(sensitivity_dir, repo, config_path)):
-            run_eeg_denominator(config, config_path=config_path, outdir=sensitivity_dir,
-                                repo_root=repo, r_required=r_required)
+        if not (resume and _sensitivity_current(sensitivity_dir, repo, config_path, config)):
+            reused = reuse_valid and reuse_sensitivity(config, outputs_root=root, destination=sensitivity_dir, repo=repo)
+            if not reused:
+                run_eeg_denominator(config, config_path=config_path, outdir=sensitivity_dir,
+                                    repo_root=repo, r_required=r_required)
         sensitivity = json.loads((sensitivity_dir / "summary.json").read_text(encoding="utf-8"))
         if sensitivity["status"] != "complete":
             raise RuntimeError("EEG denominator sensitivity is incomplete; refusing promotion")
@@ -1894,17 +1897,26 @@ def run_all_results(
     return outputs
 
 
-def _sensitivity_current(directory: Path, repo: Path, config_path: Path) -> bool:
+def _sensitivity_current(directory: Path, repo: Path, config_path: Path, config: dict) -> bool:
     """Resume only a completed sensitivity run with unchanged sources and code."""
     try:
         manifest = json.loads((directory / "run_manifest.json").read_text(encoding="utf-8"))
         if manifest["status"] != "complete":
             return False
-        if not any(Path(r["path"]).resolve() == config_path.resolve()
+        reused = directory / "reuse_verification.json"
+        if not reused.exists() and not any(Path(r["path"]).resolve() == config_path.resolve()
                    and r["sha256"] == file_sha256(config_path)
                    for r in manifest["input_code_hashes"]):
             return False
         records = [*manifest["input_code_hashes"]]
+        if reused.exists():
+            proof = json.loads(reused.read_text(encoding="utf-8"))
+            if proof["status"] != "reused" or manifest["config"]["denominator_sensitivity"] != config["denominator_sensitivity"]:
+                return False
+            replaced = {(repo / r["path"]).resolve() for r in proof["checks"]}
+            prior_config = next((Path(r["path"]).resolve() for r in records if Path(r["path"]).name.endswith(".local.json")), None)
+            records = [r for r in records if Path(r["path"]).resolve() not in replaced and Path(r["path"]).resolve() != prior_config]
+            records.extend({"path": str(repo / r["path"]), "sha256": r["current_sha256"]} for r in proof["checks"])
         for source in manifest["psd_cache"]["sources"]:
             records.extend({"path": source[f"{kind}_path"], "sha256": source[f"{kind}_sha256"]}
                            for kind in ("set", "fdt"))
