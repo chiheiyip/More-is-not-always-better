@@ -219,6 +219,9 @@ def finalize(package: Path, delivery_root: Path):
     required = ["老师最新要求_EEG分母敏感性.docx", "老师最新要求_EEG结果对照.xlsx", "EEG_1-40Hz_完整对照.xlsx", f"结果文件总索引-{stamp}.xlsx"]
     if not all((package / name).is_file() and (package / name).stat().st_size > 0 for name in required):
         raise ValueError("Required rendered report and workbooks must exist before publishing")
+    index = pd.read_csv(package / f"结果文件总索引-{stamp}.csv")
+    if not all(file_sha256(package / r.文件) == r.SHA256 for r in index.itertuples()):
+        raise ValueError("A deliverable changed after indexing")
     # Root-level current entries are exact copies from the finalized package.
     current = [f"论文数据分析结果报告-{stamp}.md", f"老师任务完成矩阵-{stamp}.xlsx", f"结果文件总索引-{stamp}.xlsx",
                "老师最新要求_EEG分母敏感性.docx", "老师最新要求_EEG分母敏感性.md", "老师最新要求_EEG结果对照.xlsx", "CODE_VERSION.json"]
@@ -261,16 +264,41 @@ def finalize(package: Path, delivery_root: Path):
     print(json.dumps(pointer, ensure_ascii=False))
 
 
+def build_index(package: Path, pr: str | None):
+    state = json.loads((package / "publication_state.json").read_text(encoding="utf-8"))
+    stamp = state["stamp"]
+    version = json.loads((package / "CODE_VERSION.json").read_text(encoding="utf-8"))
+    version["repository_git_sha"] = git_commit(REPO)
+    if pr:
+        version["pr"] = pr
+    dump(package / "CODE_VERSION.json", version)
+    rows = []
+    for file in sorted(package.rglob("*")):
+        if not file.is_file() or file.name.endswith((".png", ".zip", "tables.json", ".ndjson")):
+            continue
+        if file.name.startswith("结果文件总索引") or file.name in {"交付文件哈希.json", "publication_state.json"}:
+            continue
+        rows.append({"文件": file.relative_to(package).as_posix(), "来源版本": state["run_root"].split("\\")[-1],
+                     "大小字节": file.stat().st_size, "SHA256": file_sha256(file)})
+    frame = pd.DataFrame(rows)
+    frame.to_csv(package / f"结果文件总索引-{stamp}.csv", index=False, encoding="utf-8-sig")
+    dump(package / "delivery_index_tables.json", {"tables": [typed("交付文件", frame)]})
+    print("indexed_deliverables", len(frame))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("phase", choices=["prepare", "finalize"])
+    parser.add_argument("phase", choices=["prepare", "index", "finalize"])
     parser.add_argument("--outputs-root", type=Path)
     parser.add_argument("--delivery-root", required=True, type=Path)
     parser.add_argument("--stamp", default="20261003")
     parser.add_argument("--package", type=Path)
     parser.add_argument("--refresh-draft", action="store_true")
+    parser.add_argument("--pr")
     options = parser.parse_args()
     if options.phase == "prepare":
         prepare(options.outputs_root, options.delivery_root, options.stamp, refresh_draft=options.refresh_draft)
+    elif options.phase == "index":
+        build_index(options.package, options.pr)
     else:
         finalize(options.package, options.delivery_root)
