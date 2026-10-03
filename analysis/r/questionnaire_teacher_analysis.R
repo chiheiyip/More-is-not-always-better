@@ -6,7 +6,7 @@ file_arg <- grep("^--file=", commandArgs(FALSE), value = TRUE)
 script_dir <- dirname(normalizePath(sub("^--file=", "", file_arg[[1]])))
 source(file.path(script_dir, "common.R"))
 assert_packages()
-input <- utils::read.csv(args[[1]], check.names = FALSE, fileEncoding = "UTF-8-BOM")
+input <- read_teacher_csv(args[[1]])
 outdir <- args[[2]]
 dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
 
