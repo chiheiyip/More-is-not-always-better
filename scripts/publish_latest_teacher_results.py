@@ -127,6 +127,7 @@ def prepare(root: Path, delivery_root: Path, stamp: str, *, refresh_draft: bool 
     run = Path(summary["run_root"])
     sensitivity = run / "10_eeg_denominator_sensitivity"
     manifest = json.loads((sensitivity / "run_manifest.json").read_text(encoding="utf-8"))
+    sensitivity_summary = json.loads((sensitivity / "summary.json").read_text(encoding="utf-8"))
     if manifest["status"] != "complete":
         raise ValueError("Sensitivity analysis is incomplete")
     package = delivery_root / f"{stamp}_老师最新要求_完整更新"
@@ -164,8 +165,9 @@ def prepare(root: Path, delivery_root: Path, stamp: str, *, refresh_draft: bool 
     fractions = fractions.loc[fractions.roi.eq("ALL")]
     comparisons = pd.read_csv(sensitivity / "model_comparisons.csv")
     flip = comparisons.loc[comparisons.pair.eq("B→C") & comparisons.flip_joint_q.eq(True)]
+    major_text = "部分主要正文结论发生改变，需按逐项对照修改正文" if sensitivity_summary["major_manuscript_conclusions_changed"] else "主要正文结论的方向和校正显著性保持一致"
     lines = ["# EEG分母敏感性补充分析", "", f"更新日期：{stamp}。正式全流程：{summary['run_id']}。", "",
-             "已按老师要求重新核对relative θ/α/β的1–40 Hz分母结果。主要正文结论的方向和校正显著性保持一致；全部检验中有1项联合q越过0.05，以及1项接近零且不显著的系数方向变化，不能表述为所有统计量完全不变。", "",
+             f"已按老师要求重新核对relative θ/α/β的1–40 Hz分母结果。{major_text}；全部检验中有{sensitivity_summary['joint_q_flips_B_to_C']}项联合q越过0.05，以及{sensitivity_summary['direction_changes_B_to_C']}项系数方向变化，不能表述为所有统计量完全不变。", "",
              "## 实际处理与统计口径", "", "|项目|实际口径|", "|---|---|"]
     lines.extend(f"|{r[0]}|{r[1]}|" for r in facts.itertuples(index=False, name=None))
     lines += ["", "## 正文关键结果", "", "下表为历史1–45 Hz（A）与1–40 Hz（C）的正文对照；分母效应以完整表中的B→C为准。β适用于单自由度系数或边际对比，顶区β的WWR总体检验报告F。q为四窗口联合BH。", "",
@@ -228,7 +230,7 @@ def finalize(package: Path, delivery_root: Path):
     for name in current:
         shutil.copyfile(package / name, delivery_root / name)
     records = [{"path": p.relative_to(package).as_posix(), "sha256": file_sha256(p), "size_bytes": p.stat().st_size}
-               for p in sorted(package.rglob("*")) if p.is_file() and not p.name.endswith((".zip", "tables.json", ".png"))]
+               for p in sorted(package.rglob("*")) if p.is_file() and not p.name.endswith((".zip", "tables.json", ".png", ".ndjson")) and p.name != "publication_state.json"]
     dump(package / "交付文件哈希.json", records)
     archive = package / f"老师最新要求_完整交付包-{stamp}.zip"
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as handle:
