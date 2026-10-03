@@ -2,6 +2,7 @@ from pathlib import Path
 import subprocess
 import shutil
 import json
+import sys
 import pandas as pd
 
 import pytest
@@ -92,7 +93,7 @@ def test_registered_reuse_requires_equal_inputs_methods_and_hashes(tmp_path, mon
 def test_real_r_reads_chinese_identifiers_without_locale_transcoding(tmp_path):
     repo = Path(__file__).resolve().parents[1]
     launcher = repo / "scripts" / "portable_rscript.cmd"
-    if not launcher.exists():
+    if sys.platform != "win32" or not (repo / ".r-env/Lib/R/bin/Rscript.exe").exists():
         pytest.skip("portable R is unavailable")
     scripts = tmp_path / "repo" / "analysis" / "r"
     scripts.mkdir(parents=True)
