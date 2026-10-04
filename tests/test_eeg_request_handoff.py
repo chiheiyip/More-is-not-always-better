@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 from paper_analysis.teacher.request_handoff import (compare_cells, bh_checks,
-    unique_keys, archive_publish, r_environment, independent_design_column)
+    unique_keys, archive_publish, r_environment, independent_design_column, questionnaire_identity)
 
 
 def test_independent_cell_reader_detects_columns_values_and_missingness():
@@ -22,6 +22,12 @@ def test_independent_cell_reader_detects_columns_values_and_missingness():
 def test_duplicate_and_blank_identity_fail():
     with pytest.raises(ValueError):unique_keys(pd.DataFrame({'Participant':['甲','甲']}),['Participant'])
     with pytest.raises(ValueError):unique_keys(pd.DataFrame({'Participant':['']}),['Participant'])
+
+
+def test_questionnaire_full_names_use_existing_identity_rule():
+    assert questionnaire_identity(' 甲·乙 ')== '甲'
+    assert questionnaire_identity('甲•乙') == '甲'
+    assert questionnaire_identity('张三') == '张三'
 
 
 def test_bh_invalid_family_not_shrunk():
@@ -124,7 +130,7 @@ def test_real_r_independent_csv_excel_mat_readers(tmp_path):
     frame=pd.DataFrame({'Participant':['测试甲','测试乙'],'GlobalTrialOrder':[1,2],'blank':['',''],'number':['1e-6','0.23']})
     frame.to_csv(inputs/'original.csv',index=False,encoding='utf-8-sig')
     headers=['Q1.0_姓名：','Q1.4_乒乓球经验：','Q1.5_近 6 个月平均运动频率：']
-    workbook=Workbook();sheet=workbook.active;sheet.append(headers);sheet.append(['测试甲','偶尔（每月1–2次）','经常'])
+    workbook=Workbook();sheet=workbook.active;sheet.append(headers);sheet.append(['测试甲·原全名','偶尔（每月1–2次）','经常'])
     workbook.save(inputs/'original.xlsx')
     spectra=np.empty((2,3),dtype=object);powers=[]
     for j in range(2):
@@ -146,3 +152,4 @@ def test_real_r_independent_csv_excel_mat_readers(tmp_path):
     assert len(integrals)==6
     assert np.allclose(integrals.total_1_45,44)
     assert raw_csv(output/'r_Q1_4_groups.csv').iloc[0].ExperienceGroup=='Low'
+    assert raw_csv(output/'r_Q1_4_groups.csv').iloc[0].Participant=='测试甲'

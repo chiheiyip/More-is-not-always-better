@@ -20,7 +20,8 @@ q <- q[,columns,drop=FALSE]; q[is.na(q)] <- ""
 write_utf8(q,file.path(out,"r_questionnaire.csv"))
 answer <- q[[2]]
 group <- ifelse(grepl("从不|极少|偶尔",answer),"Low",ifelse(grepl("有时|经常",answer),"High","Unknown"))
-groups <- data.frame(Participant=trimws(q[[1]]),answer=answer,ExperienceGroup=group,check.names=FALSE)
+identity <- vapply(strsplit(trimws(q[[1]]),"[·•]"),function(x) {x<-trimws(x);x<-x[nzchar(x)];if(length(x)) x[[1]] else ""},character(1))
+groups <- data.frame(Participant=identity,answer=answer,ExperienceGroup=group,check.names=FALSE)
 names(groups)[2] <- "Q1.4"
 write_utf8(groups,file.path(out,"r_Q1_4_groups.csv"))
 
