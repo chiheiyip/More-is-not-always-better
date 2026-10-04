@@ -516,7 +516,8 @@ def prepare_handoff(config,repo):
     report=[];mapping=[];numbers=[]
     def line(text="",paths=(),fields="",filters="",quantitative=False):
         ids=refs(*paths) if paths else ""
-        report.append(text+(f"〔{ids}〕" if ids else ""))
+        annotation=f"〔{ids}〕" if ids else ""
+        report.append(text[:-1]+annotation+"|" if ids and text.startswith("|") and text.endswith("|") else text+annotation)
         if text and not text.startswith("#") and not (text.startswith("|") and "---" in text):
             mapping.append({"MD行号":len(report),"段落或表格行":text,"Source ID":ids or "综合归纳",
                             "工作表或字段":fields,"筛选条件":filters,"口径":"本次冻结EEG核查" if paths else "由前述数据综合归纳",
