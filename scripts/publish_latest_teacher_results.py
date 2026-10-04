@@ -290,7 +290,7 @@ def build_index(package: Path, pr: str | None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("phase", nargs="?", default="prepare", choices=["verify", "prepare", "document", "index", "finalize"])
+    parser.add_argument("phase", nargs="?", default="prepare", choices=["verify", "refresh-evidence", "prepare", "document", "index", "finalize"])
     parser.add_argument("--outputs-root", type=Path)
     parser.add_argument("--delivery-root", type=Path)
     parser.add_argument("--request-config", type=Path)
@@ -302,12 +302,14 @@ if __name__ == "__main__":
     options = parser.parse_args()
     if options.request_config:
         from paper_analysis.teacher.request_handoff import (load_config, preflight, verify,
-            prepare_handoff, make_document, publish_handoff)
+            prepare_handoff, make_document, publish_handoff, refresh_evidence)
         config=load_config(options.request_config)
         if options.dry_run:
             print(json.dumps(preflight(config,REPO),ensure_ascii=True,indent=2))
         elif options.phase=="verify":
             verify(config,options.request_config,REPO)
+        elif options.phase=="refresh-evidence":
+            refresh_evidence(config,REPO)
         elif options.phase=="prepare":
             prepare_handoff(config,REPO)
         elif options.phase=="document":
