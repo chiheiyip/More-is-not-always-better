@@ -88,6 +88,12 @@ def independent_design_column(frame,label):
     raise ValueError(f"Unknown design coefficient {label}")
 
 
+def questionnaire_identity(value):
+    # Independently reproduce the existing discovery.py ethnic-name rule.
+    parts=[p.strip() for p in re.split(r"[·•]",str(value).strip()) if p.strip()]
+    return parts[0] if parts else ""
+
+
 def load_config(path):
     config = json.loads(Path(path).read_text(encoding="utf-8"))
     for key in ("outputs_root", "source_run", "request_md", "questionnaire_file", "historical_package", "rscript", "r_library", "replay_rscript", "delivery_root", "archive_root", "node", "runtime_modules"):
@@ -238,7 +244,7 @@ def verify(config, config_path, repo):
     for _,row in questionnaire.iterrows():
         answer=row[wanted[1]]
         group="Low" if any(x in answer for x in ("从不","极少","偶尔")) else "High" if any(x in answer for x in ("有时","经常")) else "Unknown"
-        qrows.append({"Participant":row[wanted[0]].strip(),"Q1.4":answer,"ExperienceGroup":group})
+        qrows.append({"Participant":questionnaire_identity(row[wanted[0]]),"Q1.4":answer,"ExperienceGroup":group})
     qgroups=pd.DataFrame(qrows)
     observed=pd.read_csv(source/"A/trim_0s/input.csv")[KEY+["ExperienceGroup"]].drop_duplicates("Participant")
     relevant=qgroups.loc[qgroups.Participant.isin(observed.Participant)]
@@ -248,6 +254,8 @@ def verify(config, config_path, repo):
         groupcheck.to_csv(root/"Q1_4_discrepancies.csv",index=False,encoding="utf-8-sig")
         raise ValueError("Q1.4 differs from frozen groups; inputs preserved")
     groupcheck.to_csv(root/"Q1_4_group_check.csv",index=False,encoding="utf-8-sig")
+    pd.DataFrame({"raw_questionnaire_name":questionnaire[wanted[0]],
+                  "Participant":questionnaire[wanted[0]].map(questionnaire_identity)}).to_csv(root/"questionnaire_name_mapping.csv",index=False,encoding="utf-8-sig")
     rgroup=raw_csv(root/"r_Q1_4_groups.csv")
     compare_cells(relevant.reset_index(drop=True),rgroup.loc[rgroup.Participant.isin(observed.Participant)].reset_index(drop=True),keys=["Participant"])
     python=python_spectra(manifest["psd_cache"])
@@ -475,7 +483,7 @@ def prepare_handoff(config,repo):
                  "factor_independent_regression.csv","reuse_verification.json","psd_cache_reference.json"):
         add(source/name,"analysis")
     for name in ("verification_summary.json","R_environment.json","R_session_info.txt","input_hashes_before.json","input_hashes_after.json",
-                 "read_cell_checks.csv","Q1_4_group_check.csv","preprocessing_history_check.csv","sample_checks.csv","BH_checks.csv",
+                 "read_cell_checks.csv","Q1_4_group_check.csv","questionnaire_name_mapping.csv","preprocessing_history_check.csv","sample_checks.csv","BH_checks.csv",
                  "python_psd_integrals.csv","r_psd_integrals.csv","r_refit_coefficients.csv","r_refit_factors.csv","r_refit_matrices.csv",
                  "r_refit_diagnostics.csv","R_model_regression.csv","R45_model_regression.csv","model_R_environment.json","design_matrix_checks.csv","comparison_checks.json","cited_models.csv"):
         add(root/name,"verification")
