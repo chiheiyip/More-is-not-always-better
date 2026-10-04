@@ -290,14 +290,35 @@ def build_index(package: Path, pr: str | None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("phase", choices=["prepare", "index", "finalize"])
+    parser.add_argument("phase", nargs="?", default="prepare", choices=["verify", "prepare", "document", "index", "finalize"])
     parser.add_argument("--outputs-root", type=Path)
-    parser.add_argument("--delivery-root", required=True, type=Path)
+    parser.add_argument("--delivery-root", type=Path)
+    parser.add_argument("--request-config", type=Path)
+    parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--stamp", default="20261003")
     parser.add_argument("--package", type=Path)
     parser.add_argument("--refresh-draft", action="store_true")
     parser.add_argument("--pr")
     options = parser.parse_args()
+    if options.request_config:
+        from paper_analysis.teacher.request_handoff import (load_config, preflight, verify,
+            prepare_handoff, make_document, publish_handoff)
+        config=load_config(options.request_config)
+        if options.dry_run:
+            print(json.dumps(preflight(config,REPO),ensure_ascii=True,indent=2))
+        elif options.phase=="verify":
+            verify(config,options.request_config,REPO)
+        elif options.phase=="prepare":
+            prepare_handoff(config,REPO)
+        elif options.phase=="document":
+            make_document(config,REPO,make_docx)
+        elif options.phase=="finalize":
+            publish_handoff(config,REPO)
+        else:
+            parser.error("Request indexes are authored from handoff_tables.json with the workbook exporter")
+        raise SystemExit(0)
+    if options.delivery_root is None:
+        parser.error("--delivery-root is required for legacy publication")
     if options.phase == "prepare":
         prepare(options.outputs_root, options.delivery_root, options.stamp, refresh_draft=options.refresh_draft)
     elif options.phase == "index":

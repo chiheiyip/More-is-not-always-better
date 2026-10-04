@@ -1,0 +1,16 @@
+{
+  "outputs_root": "D:/study-local/results",
+  "source_run": "D:/study-local/results/teacher_runs/completed-run/10_eeg_denominator_sensitivity",
+  "run_id": "eeg_request_YYYYMMDD_HHMMSS",
+  "stamp": "YYYYMMDD",
+  "request_md": "D:/study-local/teacher-request.md",
+  "questionnaire_file": "D:/study-local/questionnaire.xlsx",
+  "historical_package": "D:/study-local/0805.zip",
+  "rscript": "C:/Program Files/R/R-4.5.3/bin/x64/Rscript.exe",
+  "r_library": "D:/study-local/r45-request-library",
+  "replay_rscript": "../scripts/portable_rscript.cmd",
+  "delivery_root": "D:/study-local/current-delivery",
+  "archive_root": "D:/study-local/delivery-history",
+  "node": "C:/Users/USER/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe",
+  "runtime_modules": "C:/Users/USER/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules"
+}
