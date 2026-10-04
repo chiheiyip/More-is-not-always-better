@@ -34,6 +34,9 @@ for (const table of payload.tables) {
       sheet.getRangeByIndexes(0,c,values.length,1).format.columnWidth = 85;
       column.format.wrapText = true;
       column.format.rowHeight = /段落/.test(label) ? 110 : 64;
+    } else if (/Source ID/.test(label)) {
+      sheet.getRangeByIndexes(0,c,values.length,1).format.columnWidth = 32;
+      column.format.wrapText = true;
     } else if (/SHA256/.test(label)) {
       sheet.getRangeByIndexes(0,c,values.length,1).format.columnWidth = 70;
     } else if (/EEG结果|正文结论|文件|来源|绝对路径|来源入口|筛选条件/.test(label)) {

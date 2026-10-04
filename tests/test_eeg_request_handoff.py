@@ -8,7 +8,8 @@ import pandas as pd
 import pytest
 
 from paper_analysis.teacher.request_handoff import (compare_cells, bh_checks,
-    unique_keys, archive_publish, r_environment, independent_design_column, questionnaire_identity, set_sample_count)
+    unique_keys, archive_publish, r_environment, independent_design_column, questionnaire_identity, set_sample_count,
+    preprocessing_flags, statistical_verifier_source)
 
 
 def test_independent_cell_reader_detects_columns_values_and_missingness():
@@ -39,6 +40,25 @@ def test_set_headers_read_both_mat_formats(tmp_path):
     with new.open('r+b') as f:
         f.write(b'MATLAB 7.3 MAT-file'.ljust(124,b' ')+b'\x00\x02IM')
     assert set_sample_count(old)==set_sample_count(new)==1000
+
+
+def test_named_and_positional_preprocessing_history_orders():
+    band="EEG = pop_eegfiltnew(EEG, 'locutoff',0.5,'hicutoff',40,'plotfreqz',1);"
+    notch="EEG = pop_eegfiltnew(EEG, 'locutoff',49,'hicutoff',51,'revfilt',1);"
+    assert preprocessing_flags(band+notch)['order']=='band-pass→notch'
+    assert preprocessing_flags(notch+band)['order']=='notch→band-pass'
+    assert preprocessing_flags('pop_eegfiltnew(EEG, 0.5, 40);pop_eegfiltnew(EEG,49,51);')['bandpass']
+    assert not preprocessing_flags('pop_eegfiltnew(EEG,1,45);')['bandpass']
+
+
+def test_evidence_refresh_rejects_changes_to_statistical_source():
+    root=Path(__file__).resolve().parents[1]
+    path='src/paper_analysis/teacher/request_handoff.py'
+    after=(root/path).read_text(encoding='utf-8')
+    before=after.replace('history=preprocessing_records(manifest["psd_cache"])','history=[]\n    history.append({"metadata":"legacy"})')
+    assert statistical_verifier_source(before)==statistical_verifier_source(after)
+    altered=after.replace('rtol=1e-10, atol=1e-12','rtol=1e-4, atol=1e-12',1)
+    assert statistical_verifier_source(before)!=statistical_verifier_source(altered)
 
 
 def test_bh_invalid_family_not_shrunk():

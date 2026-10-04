@@ -28,6 +28,12 @@ from a prediction grid independently of the production matrices. Coefficient
 tolerance is 1e-8, p/q tolerance 1e-6; source reads/integrals use rtol1e-10/atol1e-12.
 Input/code/output hashes guard reuse, and source hashes are checked again afterward.
 
+When only preprocessing-history parsing or presentation changes, `refresh-evidence`
+may retain an already verified run. It requires exact statistical verifier and R
+source equality against the original verification commit, unchanged request and
+source hashes, and retains both verification SHAs and reused-output hashes. Changes
+to statistical parsing, samples, integrals, fits or BH reject this reuse path.
+
 Prepare writes a focused report, a typed nine-sheet workbook payload, and a source
 manifest in the new analysis-root request directory. Author the workbook using the
 bundled Artifact Tool exporter with its optional preview directory. Run the

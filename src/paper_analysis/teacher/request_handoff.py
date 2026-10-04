@@ -6,6 +6,7 @@ readers consume source files, not each other's converted model inputs.
 from __future__ import annotations
 
 import csv
+import ast
 import json
 import os
 import re
@@ -105,6 +106,31 @@ def set_sample_count(path):
     if not np.isfinite(number) or number<=0 or number!=int(number):
         raise ValueError("Invalid SET sample count")
     return int(number)
+
+
+def preprocessing_flags(text):
+    band=[];notch=[]
+    for match in re.finditer(r"pop_eegfiltnew\(\s*EEG\s*,([^)]*)\)",text):
+        arguments=match.group(1)
+        named=re.search(r"'locutoff'\s*,\s*([\d.]+)\s*,\s*'hicutoff'\s*,\s*([\d.]+)",arguments)
+        positional=re.match(r"\s*([\d.]+)\s*,\s*([\d.]+)",arguments)
+        parsed=named or positional
+        if parsed is None:continue
+        low,high=map(float,parsed.groups())
+        if (low,high)==(.5,40):band.append(match.start())
+        if (low,high)==(49,51):notch.append(match.start())
+    return {"bandpass":bool(band),"notch":bool(notch),
+            "order":"band-pass→notch" if band and notch and band[-1]<notch[-1] else "notch→band-pass" if band and notch else "requires_review",
+            "average_reference":bool(re.search(r"pop_reref\(\s*EEG\s*,\s*\[\s*\]",text)),
+            "ICA_run":"pop_runica" in text,"ICA_component_removal":"pop_subcomp" in text}
+
+
+def preprocessing_records(cache):
+    rows=[]
+    for index,wave in enumerate(cache["sources"],1):
+        metadata=loadmat(Path(cache["cache_dir"])/f"spectra_{index:03d}.mat",squeeze_me=True,struct_as_record=False)["metadata"]
+        rows.append({"Participant":wave["participant"],**preprocessing_flags(str(metadata.preprocessing_history)),"reference":str(metadata.reference)})
+    return rows
 
 
 def load_config(path):
@@ -408,14 +434,7 @@ def verify(config, config_path, repo):
                 columns=TEST_KEY+[f"{stat}_from",f"{stat}_to"]
                 compare_cells(merge[columns],selected[columns],keys=TEST_KEY,numeric=True)
             comparison_checks.append({"pair":pair,"kind":kind,"rows":len(selected),"paired":True})
-    history=[]
-    for index,source_wave in enumerate(manifest["psd_cache"]["sources"],1):
-        metadata=loadmat(Path(manifest["psd_cache"]["cache_dir"])/f"spectra_{index:03d}.mat",squeeze_me=True,struct_as_record=False)["metadata"]
-        text=str(metadata.preprocessing_history)
-        band=[m.start() for m in re.finditer(r"pop_eegfiltnew\(\s*EEG\s*,\s*0\.5\s*,\s*40",text)]
-        notch=[m.start() for m in re.finditer(r"pop_eegfiltnew\(\s*EEG\s*,\s*49\s*,\s*51",text)]
-        order="band-pass→notch" if band and notch and band[-1]<notch[-1] else "notch→band-pass" if band and notch else "requires_review"
-        history.append({"Participant":source_wave["participant"],"bandpass":bool(band),"notch":bool(notch),"order":order,"average_reference":bool(re.search(r"pop_reref\(\s*EEG\s*,\s*\[\s*\]",text)),"ICA_run":"pop_runica" in text,"ICA_component_removal":"pop_subcomp" in text,"reference":str(metadata.reference)})
+    history=preprocessing_records(manifest["psd_cache"])
     pd.DataFrame(history).to_csv(root/"preprocessing_history_check.csv",index=False,encoding="utf-8-sig")
     bootstrap=Path(config["outputs_root"])/"12_teacher_analysis/06_eeg_primary"
     boot=pd.read_csv(bootstrap/"07_eeg_cluster_bootstrap_5000.csv")
@@ -449,6 +468,47 @@ def verify(config, config_path, repo):
 
 def request_root(config):
     return Path(config["outputs_root"])/"teacher_request_runs"/config["run_id"]
+
+
+def statistical_verifier_source(source):
+    tree=ast.parse(source)
+    names={"raw_csv","unique_keys","compare_cells","bh_checks","independent_design_column","questionnaire_identity","set_sample_count","r_environment","r_call","source_inventory","python_spectra","verify"}
+    selected={n.name:ast.get_source_segment(source,n) for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in names}
+    verifier=selected["verify"]
+    start=verifier.index("    history=");end=verifier.index("    bootstrap=",start)
+    selected["verify"]=verifier[:start]+"    # preprocessing evidence stage\n"+verifier[end:]
+    if set(selected)!=names:raise ValueError("Missing statistical verifier function")
+    return selected
+
+
+def refresh_evidence(config,repo):
+    """Refresh processing metadata only, with exact statistical-code reuse guards."""
+    root=request_root(config)
+    previous=json.loads((root/"verification_summary.json").read_text())
+    if previous["status"]!="verified" or json.loads((root/"request_config.json").read_text())!=config:
+        raise ValueError("Only a verified unchanged request can reuse statistical checks")
+    if subprocess.check_output(["git","status","--porcelain"],cwd=repo,text=True).strip():raise ValueError("Clean committed repository required")
+    path="src/paper_analysis/teacher/request_handoff.py"
+    old=subprocess.check_output(["git","show",f"{previous['git_sha']}:{path}"],cwd=repo).decode("utf-8")
+    if statistical_verifier_source(old)!=statistical_verifier_source((repo/path).read_text(encoding="utf-8")):
+        raise ValueError("Statistical verification code changed; full affected-stage verification required")
+    for name in ("analysis/r/eeg_request_read_verify.R","analysis/r/eeg_request_model_verify.R"):
+        before=subprocess.check_output(["git","show",f"{previous['git_sha']}:{name}"],cwd=repo).decode("utf-8")
+        if before.rstrip()!=(repo/name).read_text(encoding="utf-8").rstrip():raise ValueError("Independent R verification code changed")
+    manifest,protected,methods=source_inventory(config,repo)
+    if protected!=json.loads((root/"input_hashes_after.json").read_text()):raise ValueError("Verified source hashes changed")
+    outputs=[{"path":str(p),"sha256":file_sha256(p)} for p in sorted(root.rglob("*")) if p.is_file() and (p.suffix==".csv" or p.name in {"R_environment.json","model_R_environment.json"}) and p.name!="preprocessing_history_check.csv" and "handoff_staging" not in p.parts]
+    dump(root/"verification_before_evidence_refresh.json",previous)
+    shutil.copyfile(root/"preprocessing_history_check.csv",root/"preprocessing_history_before_refresh.csv")
+    pd.DataFrame(preprocessing_records(manifest["psd_cache"])).to_csv(root/"preprocessing_history_check.csv",index=False,encoding="utf-8-sig")
+    for item in outputs:
+        if file_sha256(item["path"])!=item["sha256"]:raise ValueError("Reused verification output changed")
+    for item in protected:
+        if file_sha256(item["path"])!=item["sha256"]:raise ValueError("Protected source changed")
+    previous.update(statistics_verification_git_sha=previous.get("statistics_verification_git_sha",previous["git_sha"]),git_sha=git_commit(repo),methods=methods,evidence_refresh="preprocessing metadata only; independently verified statistical outputs reused")
+    dump(root/"verification_output_reuse_hashes.json",outputs)
+    dump(root/"verification_summary.json",previous)
+    print(f"Processing metadata refreshed; {previous['R_refit_models']} independently verified model fits retained",flush=True)
 
 
 def require_verified(config):
@@ -501,6 +561,8 @@ def prepare_handoff(config,repo):
                  "r_refit_diagnostics.csv","R_model_regression.csv","R45_model_regression.csv","model_R_environment.json","design_matrix_checks.csv","comparison_checks.json","cited_models.csv"):
         add(root/name,"verification")
     add(root/"bootstrap_provenance.json","verification")
+    for name in ("verification_before_evidence_refresh.json","verification_output_reuse_hashes.json"):
+        if (root/name).is_file():add(root/name,"verification_provenance")
     if (root/"original_R_refit").exists():
         for name in ("r_refit_coefficients.csv","r_refit_factors.csv","r_refit_matrices.csv","r_refit_diagnostics.csv","model_R_environment.json"):
             add(root/"original_R_refit"/name,"original_R_verification")
@@ -532,6 +594,9 @@ def prepare_handoff(config,repo):
     line()
     line(f"本次日期：{config['stamp']}。核验执行代码：{verification['git_sha']}；复用的敏感性计算代码：{verification['source_analysis_git_sha']}。",
          [root/"verification_summary.json"],"git_sha/source_analysis_git_sha")
+    if "statistics_verification_git_sha" in verification:
+        line(f"统计双路核验代码：{verification['statistics_verification_git_sha']}；后续只更新处理历史解析和交付展示。统计代码和R核验代码逐项一致，源文件与已核验输出哈希重新检查后复用。",
+             [root/"verification_summary.json",root/"verification_output_reuse_hashes.json"],"statistics_verification_git_sha/evidence_refresh")
     line("本次合并尚未发送的分母敏感性结果与老师新发的EEG核查要求。历史1–45 Hz主结果暂时保留，1–40 Hz作为敏感性分析；最终Methods与独立最终审计版本尚未冻结。")
     line(f"主要正文结论{'发生变化' if summary['major_manuscript_conclusions_changed'] else '保持一致'}；B→C有{summary['joint_q_flips_B_to_C']}项联合q越过0.05、{summary['direction_changes_B_to_C']}项系数方向变化，不能概括为全部统计结果完全不变。",
          [source/"summary.json",source/"model_comparisons.csv"],"major_manuscript_conclusions_changed/joint_q_flips_B_to_C/direction_changes_B_to_C","pair=B→C",True)
