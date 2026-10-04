@@ -94,6 +94,19 @@ def questionnaire_identity(value):
     return parts[0] if parts else ""
 
 
+def set_sample_count(path):
+    try:
+        value=loadmat(path,variable_names=["pnts"],squeeze_me=True)["pnts"]
+    except NotImplementedError:
+        import h5py
+        with h5py.File(path,"r") as source:
+            value=source["pnts"][()]
+    number=float(np.asarray(value).item())
+    if not np.isfinite(number) or number<=0 or number!=int(number):
+        raise ValueError("Invalid SET sample count")
+    return int(number)
+
+
 def load_config(path):
     config = json.loads(Path(path).read_text(encoding="utf-8"))
     for key in ("outputs_root", "source_run", "request_md", "questionnaire_file", "historical_package", "rscript", "r_library", "replay_rscript", "delivery_root", "archive_root", "node", "runtime_modules"):
@@ -265,7 +278,7 @@ def verify(config, config_path, repo):
     original=pd.read_csv(source/"paired_psd_integrals.csv")
     compare_cells(python,original[python.columns],keys=KEY+["onset_trim_s","roi"],numeric=True)
     sample=[]; bh=[]
-    waveform_lengths={s["participant"]:float(loadmat(s["set_path"],variable_names=["pnts"],squeeze_me=True)["pnts"]) for s in manifest["psd_cache"]["sources"]}
+    waveform_lengths={s["participant"]:set_sample_count(s["set_path"]) for s in manifest["psd_cache"]["sources"]}
     frozen_keys=None
     for trim in (0,5,10,15):
         frames={v:pd.read_csv(source/v/f"trim_{trim}s/input.csv") for v in "ABC"}
@@ -537,6 +550,12 @@ def prepare_handoff(config,repo):
         line(f"|{label}|{value}|",paths,label,quantitative=True)
     line("B→C用于判断分母影响，A→B单独记录当前源文件与历史输入的复现差异，A→C用于核对论文。",
          [source/"input_reproduction_differences.csv",source/"model_comparisons.csv"],"pair")
+    line("主模型为WWR*Complexity + WWR*ExperienceGroup + Complexity*ExperienceGroup + Gender + Block + PositionWithinBlockCentered + OrderGroup + (1|Participant)。CR2按参与者聚类；六类factor-level采用等权边际CR2/HTZ。保留Model0、PreviousScene及Block1补充模型。",
+         [source/"analysis_contract.json",root/"design_matrix_checks.csv",root/"r_refit_diagnostics.csv"],"formula/factor_levels/design/sample")
+    line("四窗口联合BH族规模：系数级核心relative 144项，扩展relative/absolute各324项；factor-level核心96项、扩展relative/absolute各216项；temporal relative/absolute各72项；核心previous-scene 48项。各版本分开校正，窗口内与联合q均保留。",
+         [root/"BH_checks.csv",source/"A/family_status.csv",source/"B/family_status.csv",source/"C/family_status.csv"],"family_id/scope/tests",quantitative=True)
+    line("场景、事件边界、Round/Block、Position、OrderGroup及前序变量在A/B/C冻结输入中逐字段一致；Q1.0含中点的全名按仓库既有姓名规则匹配，原问卷姓名和Q1.4回答保持原样。此处核对冻结输入和PSD片段对应，不将其扩大描述为已完成附件阶段B的最终独立审计。",
+         [root/"read_cell_checks.csv",root/"sample_checks.csv",root/"questionnaire_name_mapping.csv",source/"analysis_contract.json"],"model_input fields/epoch endpoints/name mapping")
     line()
     line("## 高频贡献与分母减少")
     line("|窗口s|40–45占1–45总功率均值%|实际分母减少均值%|relative增加均值%|");line("|---:|---:|---:|---:|")

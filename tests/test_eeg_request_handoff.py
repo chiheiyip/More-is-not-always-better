@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 from paper_analysis.teacher.request_handoff import (compare_cells, bh_checks,
-    unique_keys, archive_publish, r_environment, independent_design_column, questionnaire_identity)
+    unique_keys, archive_publish, r_environment, independent_design_column, questionnaire_identity, set_sample_count)
 
 
 def test_independent_cell_reader_detects_columns_values_and_missingness():
@@ -28,6 +28,17 @@ def test_questionnaire_full_names_use_existing_identity_rule():
     assert questionnaire_identity(' 甲·乙 ')== '甲'
     assert questionnaire_identity('甲•乙') == '甲'
     assert questionnaire_identity('张三') == '张三'
+
+
+def test_set_headers_read_both_mat_formats(tmp_path):
+    import h5py
+    from scipy.io import savemat
+    old=tmp_path/'old.set';savemat(old,{'pnts':1000},appendmat=False)
+    new=tmp_path/'new.set'
+    with h5py.File(new,'w',userblock_size=512) as x:x.create_dataset('pnts',data=np.array([[1000.]]))
+    with new.open('r+b') as f:
+        f.write(b'MATLAB 7.3 MAT-file'.ljust(124,b' ')+b'\x00\x02IM')
+    assert set_sample_count(old)==set_sample_count(new)==1000
 
 
 def test_bh_invalid_family_not_shrunk():
