@@ -37,6 +37,10 @@ to statistical parsing, samples, integrals, fits or BH reject this reuse path.
 Prepare writes a focused report, a typed nine-sheet workbook payload, and a source
 manifest in the new analysis-root request directory. Author the workbook using the
 bundled Artifact Tool exporter with its optional preview directory. Run the
+standard-library `scripts/add_teacher_relative_links.py tables.json workbook.xlsx`
+after export to add native relative hyperlinks (the renderer does not evaluate
+HYPERLINK). The helper verifies every target, handles XML relationships and checks
+ZIP integrity without authoring tables or changing numeric/formula cells. Run the
 `document` phase to author the guide. Render and review every Word page and the
 workbook sheets, validate numerical cells/formulas/relative links, and record
 `artifact_verification.json` with artifact SHA256 and `visually_reviewed: true`.

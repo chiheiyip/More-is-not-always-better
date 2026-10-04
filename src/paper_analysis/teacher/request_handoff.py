@@ -497,7 +497,7 @@ def refresh_evidence(config,repo):
         if before.rstrip()!=(repo/name).read_text(encoding="utf-8").rstrip():raise ValueError("Independent R verification code changed")
     manifest,protected,methods=source_inventory(config,repo)
     if protected!=json.loads((root/"input_hashes_after.json").read_text()):raise ValueError("Verified source hashes changed")
-    outputs=[{"path":str(p),"sha256":file_sha256(p)} for p in sorted(root.rglob("*")) if p.is_file() and (p.suffix==".csv" or p.name in {"R_environment.json","model_R_environment.json"}) and p.name!="preprocessing_history_check.csv" and "handoff_staging" not in p.parts]
+    outputs=[{"path":str(p),"sha256":file_sha256(p)} for p in sorted(root.rglob("*")) if p.is_file() and (p.suffix==".csv" or p.name in {"R_environment.json","model_R_environment.json"}) and not p.name.startswith("preprocessing_history") and p.name not in {"key_numbers.csv","paragraph_source_map.csv"} and "handoff_staging" not in p.parts]
     dump(root/"verification_before_evidence_refresh.json",previous)
     shutil.copyfile(root/"preprocessing_history_check.csv",root/"preprocessing_history_before_refresh.csv")
     pd.DataFrame(preprocessing_records(manifest["psd_cache"])).to_csv(root/"preprocessing_history_check.csv",index=False,encoding="utf-8-sig")
@@ -661,7 +661,8 @@ def prepare_handoff(config,repo):
     comparisons=pd.read_csv(source/"model_comparisons.csv")
     changes=comparisons.loc[comparisons.pair.eq("B→C")&(comparisons.flip_joint_q.eq(True)|comparisons.direction_changed.eq(True))]
     for _,r in changes.iterrows():
-        line(f"{int(r.onset_trim_s)} s，{r.outcome}，{r.model}，{r.term}：β {r.estimate_from:.9g}→{r.estimate_to:.9g}，原始p {r['p.value_from']:.9g}→{r['p.value_to']:.9g}，联合q {r.joint_q_from:.9g}→{r.joint_q_to:.9g}。",
+        q=f"{r.joint_q_from:.9g}→{r.joint_q_to:.9g}" if pd.notna(r.joint_q_from) and pd.notna(r.joint_q_to) else "不适用（此补充系数未加入校正族）"
+        line(f"{int(r.onset_trim_s)} s，{r.outcome}，{r.model}，{r.term}：β {r.estimate_from:.9g}→{r.estimate_to:.9g}，原始p {r['p.value_from']:.9g}→{r['p.value_to']:.9g}，联合q {q}。",
              [source/"model_comparisons.csv"],"estimate/p.value/joint_q",f"pair=B→C; window={r.onset_trim_s}; outcome={r.outcome}; model={r.model}; term={r.term}; family={r.family_id}",True)
     line("边界q翻转不能据此增加跨窗口稳定效应的表述；接近零且不显著的变号不构成新的实质方向证据。")
     line("factor-level采用等权边际CR2/HTZ重新实现并独立核对；历史原脚本仍未找到。PreviousScene保持PreviousWWR + PreviousComplexity，论文交互项描述与实际执行代码的差异继续记录。",

@@ -61,6 +61,7 @@ def make_docx(markdown: str, target: Path):
             borders.append(item)
         style.element.get_or_add_pPr().append(borders)
     document.styles["Normal"].paragraph_format.line_spacing = 1.18
+    document.styles["Title"].font.color.rgb = RGBColor(0, 0, 0)
     lines = markdown.splitlines()
     index = 0
     while index < len(lines):
