@@ -104,10 +104,14 @@ def verify_prior(config, repo):
             p = Path(record.get("path", record.get("file", "")))
             if not p.is_absolute():
                 p = root / p
+            original = str(p)
             expected = record.get("sha256")
+            if not p.is_file() and original in config.get("prior_source_relocations", {}):
+                p = Path(config["prior_source_relocations"][original])
             if not expected or not p.is_file() or sha(p) != expected:
                 raise ValueError(f"Prior verification source/output changed: {p}")
-            checks.append({"path": str(p), "sha256": expected, "status": "unchanged"})
+            checks.append({"original_path":original,"path": str(p), "sha256": expected,
+                           "status": "relocated_identical_bytes" if str(p)!=original else "unchanged"})
     # Statistical implementations are unchanged; entrypoint/presentation changes
     # are checked by their relevant module hashes rather than whole CLI bytes.
     for record in summary["methods"]:
