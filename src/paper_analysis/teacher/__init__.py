@@ -12,7 +12,12 @@ from paper_analysis.teacher.contracts import (
     canonicalize_trials,
 )
 from paper_analysis.teacher.state import StageBlockedError
-from paper_analysis.teacher.eye_figures import build_eye_scene_figures
+
+
+def build_eye_scene_figures(*args, **kwargs):
+    """Load production eye processing only when its figure API is requested."""
+    from paper_analysis.teacher.eye_figures import build_eye_scene_figures as builder
+    return builder(*args, **kwargs)
 
 __all__ = [
     "REQUIRED_PARTICIPANT_COLUMNS",

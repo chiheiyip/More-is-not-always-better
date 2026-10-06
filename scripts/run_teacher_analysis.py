@@ -12,17 +12,11 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from paper_analysis.teacher.eeg import run_eeg_order, run_eeg_primary
-from paper_analysis.teacher.eeg_audit import run_eeg_audit, prepare_inputs, validate_provenance
-from paper_analysis.teacher.eeg_denominator import run_eeg_denominator, preflight as denominator_preflight
-from paper_analysis.teacher.complete import run_all_results
-from paper_analysis.teacher.eye import (
-    run_eye_stage1,
-    run_eye_stage2,
-    run_eye_stage3,
-    run_eye_stage3_plan,
-)
 from paper_analysis.teacher.state import StageBlockedError
+from paper_analysis.teacher.incremental_audit import (
+    load_config as incremental_config, preflight as incremental_preflight,
+    run as run_incremental,
+)
 
 
 STAGE_FOLDERS = {
@@ -34,6 +28,7 @@ STAGE_FOLDERS = {
     "eeg-primary": "06_eeg_primary",
     "eeg-audit": "08_eeg_audit",
     "eeg-denominator-sensitivity": "09_eeg_denominator_sensitivity",
+    "incremental-audit": "11_independent_audit",
 }
 
 
@@ -77,8 +72,10 @@ def _parser() -> argparse.ArgumentParser:
         child.add_argument("--config", required=True, type=Path)
         child.add_argument("--outputs-root", type=Path)
         child.add_argument("--run-id")
-        if command in {"eeg-audit", "eeg-denominator-sensitivity"}:
+        if command in {"eeg-audit", "eeg-denominator-sensitivity", "incremental-audit"}:
             child.add_argument("--outdir", type=Path, help="New, isolated analysis directory; existing results are protected.")
+        if command == "incremental-audit":
+            child.add_argument("--phase", choices=["all", "eye-process", "eye-models", "eeg-source", "compare"], default="all")
         child.add_argument("--dry-run", action="store_true")
         child.add_argument(
             "--skip-r",
@@ -101,6 +98,24 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     config_path = args.config.resolve()
+    if args.command == "incremental-audit":
+        config = incremental_config(config_path)
+        plan = incremental_preflight(config, REPO_ROOT)
+        if args.dry_run:
+            print(json.dumps(plan, ensure_ascii=False, indent=2))
+            return 0
+        if args.skip_r:
+            raise ValueError("Independent audit requires formal R inference")
+        outdir = args.outdir or Path(plan["outdir"])
+        run_incremental(config, config_path, REPO_ROOT, outdir, args.phase)
+        print(json.dumps({"outdir": str(outdir), "phase": args.phase, "status": "completed"}, ensure_ascii=False))
+        return 0
+    # Independent auditing does not load the production processing modules.
+    from paper_analysis.teacher.eeg import run_eeg_order, run_eeg_primary
+    from paper_analysis.teacher.eeg_audit import run_eeg_audit, prepare_inputs, validate_provenance
+    from paper_analysis.teacher.eeg_denominator import run_eeg_denominator, preflight as denominator_preflight
+    from paper_analysis.teacher.complete import run_all_results
+    from paper_analysis.teacher.eye import run_eye_stage1, run_eye_stage2, run_eye_stage3, run_eye_stage3_plan
     config = _resolve_paths(
         json.loads(config_path.read_text(encoding="utf-8")), config_path
     )
