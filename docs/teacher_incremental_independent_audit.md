@@ -88,3 +88,17 @@ conditional interior beta, logit-LMM and a raw-share CR2 companion are separate
 supplements. The formal CSV contains all candidate trials, so comparisons must
 apply its explicit IncludedPrimary flag. `reuse-eeg` copies already verified EEG
 stages byte-for-byte, retaining original computation SHAs and documenting reuse.
+
+`eye-canonical` independently reconstructs the recorded PIL polygon/floor sample
+semantics from frozen valid fixations, preserving rounded/cv2 outputs as a pixel
+rule sensitivity. It fits only six main outcomes and two share CR2 companions.
+The comparison uses like inference layers; primary likelihood and companion CR2
+estimates, p values, CIs and correction families must never be mixed.
+
+The focused publisher accepts the same `--request-config`, with
+`request_type=eye_eeg_incremental`, for read-only `--dry-run`, `prepare`,
+`document` and `finalize`. It creates the fixed nine-sheet handoff payload and
+requires byte-identical evidence copies, sealed calculations, independent source
+reader agreement, and recorded visual QA before publication. Old deliveries are
+archived outside the active root transactionally. Research data and artifacts
+remain local; computed phase SHAs are retained separately from publication SHA.

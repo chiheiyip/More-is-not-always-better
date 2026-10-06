@@ -13,7 +13,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pandas as pd
-from PIL import Image
+from PIL import Image, ImageDraw
 
 KEY = ["Participant", "GlobalTrialOrder"]
 AOIS = ["Table", "Window", "Equipment", "Background"]
@@ -135,7 +135,7 @@ def load_measurement_inputs(config):
     return data, scene, q, audit
 
 
-def make_masks(record, delta=0, spherical=False):
+def make_masks(record, delta=0, spherical=False, rasterization='rounded_cv2'):
     labels = json.loads(Path(record["AOIFile"]).read_text(encoding="utf-8-sig"))
     width, height = int(labels["image"]["width"]), int(labels["image"]["height"])
     with Image.open(record["BaseImageFile"]) as base:
@@ -149,8 +149,12 @@ def make_masks(record, delta=0, spherical=False):
     for aoi in AOIS[:3]:
         mask = np.zeros((height, width), dtype=np.uint8)
         for polygon in labels["aoi_classes"].get(aoi.lower(), []):
-            pts = np.rint(np.asarray(polygon["points"], dtype=float)).astype(np.int32)
-            cv2.fillPoly(mask, [pts], 1)
+            if rasterization=='PIL_polygon':
+                picture=Image.fromarray(mask);ImageDraw.Draw(picture).polygon([tuple(p) for p in polygon['points']],fill=1);mask=np.asarray(picture,dtype=np.uint8)
+            elif rasterization=='rounded_cv2':
+                pts = np.rint(np.asarray(polygon["points"], dtype=float)).astype(np.int32)
+                cv2.fillPoly(mask, [pts], 1)
+            else:raise ValueError('Unknown explicit rasterization rule')
         if delta:
             kernel = np.ones((2 * abs(delta) + 1, 2 * abs(delta) + 1), dtype=np.uint8)
             mask = cv2.dilate(mask, kernel) if delta > 0 else cv2.erode(mask, kernel)
@@ -237,10 +241,12 @@ def deduplicate_fixations(raw, tolerance=1, recording_start_ms=None):
     return pd.DataFrame(events, columns=columns), pd.DataFrame(issues)
 
 
-def assign_events(events, code):
+def assign_events(events, code, coordinate_rule='round'):
     out = events.copy()
-    x = np.rint(out.FixationX).astype(int).to_numpy()
-    y = np.rint(out.FixationY).astype(int).to_numpy()
+    if coordinate_rule not in ['round','floor']:raise ValueError('Unknown coordinate rule')
+    operation=np.rint if coordinate_rule=='round' else np.floor
+    x = operation(out.FixationX).astype(int).to_numpy()
+    y = operation(out.FixationY).astype(int).to_numpy()
     inside = (x >= 0) & (x < code.shape[1]) & (y >= 0) & (y < code.shape[0])
     category = np.zeros(len(out), dtype=int)
     category[inside] = code[y[inside], x[inside]]

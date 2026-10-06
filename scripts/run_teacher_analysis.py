@@ -75,7 +75,7 @@ def _parser() -> argparse.ArgumentParser:
         if command in {"eeg-audit", "eeg-denominator-sensitivity", "incremental-audit"}:
             child.add_argument("--outdir", type=Path, help="New, isolated analysis directory; existing results are protected.")
         if command == "incremental-audit":
-            child.add_argument("--phase", choices=["all", "eye-process", "eye-models", "eye-boundary-models", "eye-seal-models", "eye-boundary-escalation", "eye-compare", "eeg-source", "eeg-current-models", "eeg-compare", "eeg-evidence", "reuse-eeg", "source-readers", "compare"], default="all")
+            child.add_argument("--phase", choices=["all", "eye-process", "eye-models", "eye-boundary-models", "eye-seal-models", "eye-boundary-escalation", "eye-canonical", "eye-compare", "eeg-source", "eeg-current-models", "eeg-compare", "eeg-evidence", "reuse-eeg", "source-readers", "compare"], default="all")
         child.add_argument("--dry-run", action="store_true")
         child.add_argument(
             "--skip-r",

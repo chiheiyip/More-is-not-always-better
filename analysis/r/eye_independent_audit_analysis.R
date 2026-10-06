@@ -51,6 +51,11 @@ if(job$mode=="main") {
   for(o in core)add("main",o,if(o%in%c("TableShare","WindowShare"))"beta" else "lmm")
 } else if(job$mode=="ordered_test") {
   for(o in core)add("main",o,if(o%in%c("TableShare","WindowShare"))"ordered_beta" else "lmm")
+} else if(job$mode=="canonical") {
+  for(o in core) {
+    add("main",o,if(o%in%c("TableShare","WindowShare"))"ordered_beta" else "lmm")
+    if(o%in%c("TableShare","WindowShare"))add("CR2_companion",o,"lmm")
+  }
 } else stop("Unknown independent eye mode")
 
 coefficients <- list(); factors <- list(); contrasts <- list(); matrices <- list(); diagnostics <- list()
@@ -123,7 +128,9 @@ for(i in seq_along(specs)) {
   warnings<-character();error<-"";m<-NULL
   if(nrow(d)>20&&length(unique(d$Participant))>3&&length(unique(d$Y))>1) {
     m<-tryCatch(withCallingHandlers({
-      if(s$kind%in%c("lmm","logit_lmm","log_ttff"))lmer(f,d,REML=FALSE,control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=200000)))
+      if(s$kind%in%c("lmm","logit_lmm","log_ttff")) {
+        if(job$mode=="canonical")lmer(f,d,REML=FALSE) else lmer(f,d,REML=FALSE,control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=200000)))
+      }
       else glmmTMB(f,data=d,family=switch(s$kind,beta=beta_family(link="logit"),ordered_beta=ordbeta(link="logit"),binomial=binomial(link="logit"),negative_binomial=nbinom2(link="log")),control=glmmTMBControl(optCtrl=list(iter.max=10000,eval.max=10000)))
     },warning=function(w){warnings<<-c(warnings,conditionMessage(w));invokeRestart("muffleWarning")}),error=function(e){error<<-conditionMessage(e);NULL})
   } else error<-"insufficient sample or constant outcome"
@@ -185,7 +192,7 @@ if(nrow(co)) {
   co<-merge(co,di[c(identity,"converged")],by=identity,all.x=TRUE,sort=FALSE)
   # Companion estimates and CR2 inference stay together; do not attach a
   # Gaussian companion p to an ordered-beta coefficient or interval.
-  if(job$mode=="main") {
+  if(job$mode%in%c("main","canonical")) {
     companions<-co[(co$variant=="CR2_companion"|co$variant=="main"&co$outcome=="RawCompetition"),,drop=FALSE]
     companions$variant<-"CR2_companion_family";co<-rbind(co,companions)
   }

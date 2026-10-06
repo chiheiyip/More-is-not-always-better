@@ -302,6 +302,17 @@ if __name__ == "__main__":
     parser.add_argument("--pr")
     options = parser.parse_args()
     if options.request_config:
+        request=json.loads(options.request_config.read_text(encoding='utf-8-sig'))
+        if request.get('request_type')=='eye_eeg_incremental':
+            from paper_analysis.teacher import incremental_handoff as handoff
+            config=handoff.load_config(options.request_config)
+            if options.dry_run:
+                print(json.dumps(handoff.preflight(config,REPO),ensure_ascii=True,indent=2))
+            elif options.phase=='prepare':handoff.prepare(config,REPO)
+            elif options.phase=='document':handoff.document(config,REPO,make_docx)
+            elif options.phase=='finalize':handoff.publish(config,REPO)
+            else:parser.error('Incremental handoff supports prepare, document, finalize, and --dry-run')
+            raise SystemExit(0)
         from paper_analysis.teacher.request_handoff import (load_config, preflight, verify,
             prepare_handoff, make_document, publish_handoff, refresh_evidence)
         config=load_config(options.request_config)

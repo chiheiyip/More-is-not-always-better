@@ -146,12 +146,36 @@ def eye_boundary_escalation(config,repo,output):
         for delta in [-10,10]:masks[(row['AOIFile'],delta)]=eye.make_masks(row,delta)[:2]
     groups={key:group for key,group in events.groupby(eye.KEY)};rows=[]
     for record in d.to_dict('records'):
-        source=groups[(record['Participant'],record['GlobalTrialOrder'])]
+        source=groups.get((record['Participant'],record['GlobalTrialOrder']),events.iloc[:0])
         for delta in [-10,10]:
             mask,areas=masks[(record['AOIFile'],delta)];assigned=eye.assign_events(source,mask)
             rows.append({**record,**eye.trial_metrics(assigned,areas,record['RecordingDuration'],record['ValidTrackingRatio'],record['Complexity']),'AuditVariant':f'boundary_{delta:+d}'})
     path=target/'independent_eye_boundary10_trials.csv';eye.save(pd.DataFrame(rows),path)
     run_r(config,repo,'analysis/r/eye_independent_audit_analysis.R',{'input':str(path),'mode':'boundary'},output/'eye_models/boundary10','boundary10')
+
+
+def eye_canonical(config,repo,output):
+    """Recorded measurement semantics, reimplemented from frozen valid fixations."""
+    target=output/'eye';data=pd.read_csv(target/'independent_eye_trials.csv')
+    events=pd.read_csv(target/'independent_fixations.csv');mapping=pd.read_excel(config['scene_aoi_mapping'])
+    linking=['SceneID','WWR','Complexity','OrderGroup','Block']
+    data=data.merge(mapping[linking+['AOIFile']],on=linking,validate='many_to_one')
+    masks={row['AOIFile']:eye.make_masks(row,rasterization='PIL_polygon')[:2] for row in mapping.drop_duplicates('AOIFile').to_dict('records')}
+    groups={key:group for key,group in events.groupby(eye.KEY)};rows=[]
+    for record in data.to_dict('records'):
+        key=(record['Participant'],record['GlobalTrialOrder'])
+        source=groups.get(key,events.iloc[:0]);mask,areas=masks[record['AOIFile']]
+        assigned=eye.assign_events(source,mask,coordinate_rule='floor')
+        metrics=eye.trial_metrics(assigned,areas,record['RecordingDuration'],record['ValidTrackingRatio'],record['Complexity'])
+        quality={'ValidSceneFixationCount':int(assigned.ValidSceneHit.sum()),'OffStimulusFixationCount':int((~assigned.ValidSceneHit).sum()),'PixelRule':'recorded_PIL_polygon_and_floor_sample','PostComparisonRevision':True}
+        for cut in [50,60,70]:quality[f'QC{cut}']=record['ValidTrackingRatio']>=cut/100 and metrics['ValidSceneTFD']>0
+        rows.append({**record,**metrics,**quality})
+    path=target/'canonical_eye_trials.csv';eye.save(pd.DataFrame(rows),path)
+    eye.dump(target/'canonical_measurement_contract.json',{'source':'original annotation JSON and authorized scene mapping','rasterization':'PIL.ImageDraw.polygon with original continuous vertices','sample_coordinate':'floor to pixel indices','measurement_input_sha256':eye.sha(config['scene_aoi_mapping']),'fixation_input_sha256':eye.sha(target/'independent_fixations.csv'),'trial_input_sha256':eye.sha(path),'independence':'Independent implementation with recorded original semantics; post-comparison correction disclosed, not blinded','optimizer':'default lmer for like-method canonical comparison; rounded/cv2 sensitivity retains bobyqa'})
+    run_r(config,repo,'analysis/r/eye_independent_audit_analysis.R',{'input':str(path),'mode':'canonical'},output/'canonical_eye_models','canonical_eye')
+    for filename in ['independent_coefficients.csv','independent_factor_tests.csv','independent_contrasts.csv','08_model_specification_audit.csv','independent_contrast_matrices.csv']:
+        shutil.copyfile(output/'canonical_eye_models'/filename,target/('canonical_'+filename))
+    eye.dump(target/'canonical_calculation_seal.json',{'code_sha':git_sha(repo),'files':[{'path':str(p),'sha256':eye.sha(p)} for p in sorted(target.glob('canonical_*.csv'))]})
 
 
 def seal(directory, filename, repo):
@@ -233,7 +257,7 @@ def compare_eye(config, output):
     saved = json.loads((target / "independent_calculation_seal.json").read_text(encoding="utf-8"))
     for r in saved["files"]:
         if eye.sha(r["path"]) != r["sha256"]: raise ValueError("Independent eye outputs changed before comparison")
-    independent = pd.read_csv(target / "independent_eye_trials.csv", encoding="utf-8-sig")
+    independent = pd.read_csv(target / ("canonical_eye_trials.csv" if (target/'canonical_eye_trials.csv').exists() else "independent_eye_trials.csv"), encoding="utf-8-sig")
     formal = pd.read_csv(Path(config["formal_eye_run"]) / "02_eye_stage2/eye_stage2_model_input.csv", encoding="utf-8-sig")
     rename = {"ExperienceGroup": "ExerciseFrequency"}
     formal = formal.rename(columns={k: v for k, v in rename.items() if v not in formal})
@@ -354,6 +378,8 @@ def run(config, config_path, repo, output, phase):
         merge_eye_models(repo,output)
     if phase == "eye-boundary-escalation":
         eye_boundary_escalation(config,repo,output)
+    if phase == 'eye-canonical':
+        eye_canonical(config,repo,output)
     if phase in ["all", "eeg-source"]:
         eeg_sources(config, repo, output)
     if phase in ["all", "eeg-current-models"]:

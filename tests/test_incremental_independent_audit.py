@@ -72,6 +72,12 @@ def test_measurement_mask_size_overlap_and_background(tmp_path):
     assert sum(v for v in shares.values() if np.isfinite(v)) == pytest.approx(1)
     with pytest.raises(ValueError, match="verified equirectangular"):
         make_masks(row, spherical=True)
+    historical,_,_=make_masks(row,rasterization='PIL_polygon')
+    event=pd.DataFrame({'FixationX':[1.8],'FixationY':[0]})
+    mask=np.array([[0,1,2]],dtype=np.uint8)
+    assert assign_events(event,mask,coordinate_rule='floor').AOICategory.iloc[0]=='Table'
+    assert assign_events(event,mask).AOICategory.iloc[0]=='Window'
+    assert historical.shape==code.shape
 
 
 def test_q1_4_cannot_be_replaced_by_q1_5(tmp_path):
@@ -307,6 +313,11 @@ def test_real_r_independent_models_and_complete_families(tmp_path):
     assert result.returncode==0,result.stdout+result.stderr
     ordered_di=pd.read_csv(tmp_path/'08_model_specification_audit.csv');assert ordered_di.loc[ordered_di.outcome.isin(['TableShare','WindowShare']),'trials'].eq(360).all()
     assert ordered_di.loc[ordered_di.outcome.isin(['TableShare','WindowShare']),'method'].str.startswith('ordered_beta').all()
+    job['mode']='canonical';(tmp_path/'job.json').write_text(json.dumps(job))
+    result=subprocess.run([str(rs),'--vanilla',str(repo/'analysis/r/eye_independent_audit_analysis.R'),str(tmp_path/'job.json')],env=env,capture_output=True,text=True)
+    assert result.returncode==0,result.stdout+result.stderr
+    canonical=pd.read_csv(tmp_path/'independent_coefficients.csv');family=canonical.loc[canonical.variant.eq('CR2_companion_family')]
+    assert set(family.outcome)=={'TableShare','WindowShare','RawCompetition'} and family.family_size.eq(3).all()
     # Boundary data intentionally repeats each trial once per changed mask.
     boundary=pd.concat([pd.DataFrame(records).assign(AuditVariant='boundary_+5'),pd.DataFrame(records).assign(AuditVariant='boundary_-5')],ignore_index=True)
     boundary.to_csv(tmp_path/'boundary.csv',index=False);job['input']=str(tmp_path/'boundary.csv');job['mode']='boundary';(tmp_path/'job.json').write_text(json.dumps(job))
