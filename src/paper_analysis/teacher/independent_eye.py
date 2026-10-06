@@ -41,7 +41,10 @@ def save(frame, path):
 
 
 def canonical_name(value):
-    return re.split(r"[·•]", str(value).strip())[0].strip()
+    name = re.split(r"[·•]", str(value).strip())[0].strip()
+    # Some original eye exports append a numeric pair to the User. Do not infer
+    # its meaning; record the original text and exact normalization in the audit.
+    return re.sub(r"-\d{1,4}-\d{1,4}$", "", name)
 
 
 def truth(value):
@@ -338,6 +341,9 @@ def process(config, output):
                    "OffStimulusFixationCount": int((~events.ValidSceneHit).sum()),
                    "OffStimulusTFDShare": float(events.loc[~events.ValidSceneHit, "FixationDuration"].sum()) / events.FixationDuration.sum() if events.FixationDuration.sum() > 0 else np.nan,
                    "RawEncoding": encoding, "FixationConflictCount": len(issues)}
+        quality["RawUserOriginal"] = ";".join(sorted(raw.User.dropna().astype(str).unique()))
+        quality["RawUserCanonical"] = identities[0]
+        quality["IdentityNormalization"] = "recorded numeric-pair exporter suffix or ethnic-name delimiter" if quality["RawUserOriginal"] != record.Participant else "unchanged"
         metrics = trial_metrics(events, areas[record.AOIFile], duration, tracking, record.Complexity)
         quality["QC50"] = tracking >= .5 and metrics["ValidSceneTFD"] > 0
         quality["QC60"] = tracking >= .6 and metrics["ValidSceneTFD"] > 0
