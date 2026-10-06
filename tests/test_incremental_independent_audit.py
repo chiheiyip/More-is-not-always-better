@@ -10,7 +10,7 @@ from PIL import Image
 
 from paper_analysis.teacher.independent_eye import (
     RAW_COLUMNS, deduplicate_fixations, assign_events, trial_metrics, make_masks,
-    read_questionnaire, unique,
+    read_questionnaire, unique, canonical_name,
 )
 from paper_analysis.teacher.independent_eeg import reconstruct_qc, read_raw_acquisition
 from paper_analysis.teacher.incremental_audit import compare_values, r_env
@@ -69,6 +69,8 @@ def test_q1_4_cannot_be_replaced_by_q1_5(tmp_path):
     pd.DataFrame({"Q1.0_姓名": ["甲", "乙·丙"], "Q1.4_运动": ["偶尔（每月1–2次）", "有时（每月3-4次）"], "Q1.5_经验": ["经常", "从不"], "Q1.4_运动_word": ["经常", "从不"]}).to_excel(p, index=False)
     q = read_questionnaire(p)
     assert q.Participant.tolist() == ["甲", "乙"] and q.ExerciseFrequency.tolist() == ["Low", "High"]
+    assert canonical_name("卢诗晗-600-600") == "卢诗晗"
+    assert canonical_name("甲-研究记录") == "甲-研究记录"
 
 
 def test_comparison_matches_by_key_and_exposes_missingness():
