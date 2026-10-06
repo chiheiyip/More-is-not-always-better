@@ -309,6 +309,12 @@ def run(config, config_path, repo, output, phase):
         eeg_current_models(config, repo, output)
     if phase == "eeg-compare":
         eye.dump(output / "eeg_comparison_summary.json", compare_eeg(config, repo, output))
+    if phase == "eeg-evidence":
+        from .incremental_evidence import eeg_evidence
+        eeg_evidence(config,output)
+    if phase == "eye-compare":
+        from .incremental_evidence import eye_arithmetic
+        eye.dump(output / "eye_comparison_summary.json", {**compare_eye(config,output),**eye_arithmetic(output)})
     if phase in ["all", "compare"]:
         eye_result = compare_eye(config, output)
         eeg_result = compare_eeg(config, repo, output)

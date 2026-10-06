@@ -15,6 +15,7 @@ from paper_analysis.teacher.independent_eye import (
 from paper_analysis.teacher.independent_eeg import reconstruct_qc, read_raw_acquisition, match_scene_epochs, current_model_inputs
 from paper_analysis.teacher.independent_eye import source_identity
 from paper_analysis.teacher.incremental_audit import compare_values, r_env
+from paper_analysis.teacher.incremental_evidence import pair_statistics, bh_checks
 
 
 def test_independent_cli_does_not_import_original_eye_processing():
@@ -82,6 +83,21 @@ def test_comparison_matches_by_key_and_exposes_missingness():
     _, summary = compare_values(a, b, ["x"])
     assert summary.MismatchedRows.iloc[0] == 1
     with pytest.raises(ValueError): unique(pd.concat([a,a]), ["Participant","GlobalTrialOrder"])
+
+
+def test_paired_missing_q_does_not_fabricate_a_threshold_crossing():
+    a=pd.DataFrame({'key':[1,2],'estimate':[1,np.nan],'raw_p':[.0499,np.nan],'joint_q':[np.nan,.1]})
+    b=pd.DataFrame({'key':[2,1],'estimate':[2,1],'raw_p':[.01,.0501],'joint_q':[np.nan,.02]})
+    out=pair_statistics(a,b,['key'])
+    assert out.raw_p_crosses_005.sum()==1 and not out.joint_q_crosses_005.any()
+    assert not out.loc[out.key.eq(2),'DirectionChanged'].any()
+
+
+def test_missing_current_family_requires_all_q_to_remain_unavailable():
+    frame=pd.DataFrame({'version':['D']*3,'family_id':['test']*3,'onset_trim_s':[0]*3,'raw_p':[.01,.04,np.nan],'inference_valid':[True,True,False],'joint_q':[np.nan]*3,'within_q':[np.nan]*3})
+    assert bh_checks(frame,'coefficient').FullFamilySize.iloc[0]==3
+    frame.loc[0,'joint_q']=.02
+    with pytest.raises(ValueError,match='joint BH'):bh_checks(frame,'coefficient')
 
 
 def test_variant_qc_common_identity_and_subject_exclusion():
