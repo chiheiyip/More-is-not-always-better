@@ -49,3 +49,13 @@ def test_stale_artifact_qa_blocks_before_archiving(tmp_path,monkeypatch):
     monkeypatch.setattr(handoff,'require_complete',lambda *args:root)
     with pytest.raises(ValueError,match='QA'):handoff.publish(cfg,tmp_path)
     assert not Path(cfg['archive_root']).exists()
+
+
+def test_active_pointer_updates_zip_hash_and_preserves_archived_history(tmp_path):
+    old={'zip':'old.zip','zip_sha256':'old-hash','git_sha':'original-calculation'}
+    current={'zip':'new.zip','zip_sha256':'new-hash','delivery_root':'delivery','source_count':192,'publication_git_sha':'publisher'}
+    actual=handoff.renew_delivery_pointer(old,current,{'old.zip':'archive/old.zip'},tmp_path)
+    assert actual['zip']=='new.zip' and actual['zip_sha256']=='new-hash'
+    assert actual['previous_delivery']['zip']=='archive/old.zip'
+    assert actual['previous_delivery']['zip_sha256']=='old-hash'
+    assert actual['git_sha']=='original-calculation' and actual['publication_git_sha']=='publisher'

@@ -256,6 +256,18 @@ def document(config,repo,maker):
     doc=Document(path);doc.core_properties.title='眼动与 EEG 增量核查交接说明';doc.save(path)
 
 
+def renew_delivery_pointer(value,pointer,relocated,root):
+    previous=dict(value)
+    for field in ['zip','delivery_zip']:
+        if field in previous:previous[field]=relocated.get(previous[field],previous[field])
+    value.update(previous_delivery=previous,delivery_root=pointer['delivery_root'],
+                 delivery_zip=pointer['zip'],zip=pointer['zip'],zip_sha256=pointer['zip_sha256'],
+                 current_delivery_source_count=pointer['source_count'],
+                 publication_git_sha=pointer['publication_git_sha'],
+                 current_incremental_request=str(root),archive_mapping=str(Path(root)/'archive_path_mapping.json'))
+    return value
+
+
 def publish(config,repo):
     from .request_handoff import archive_publish
     root=require_complete(config,repo);stage=root/'handoff_staging'
@@ -294,7 +306,7 @@ def publish(config,repo):
     for filename in ['eeg_request_handoff_latest.json','eeg_denominator_sensitivity_latest.json']:
         p=outputs/filename
         if p.exists():
-            value=json.loads(p.read_text(encoding='utf-8'));value.update(delivery_root=str(destination),delivery_zip=pointer['zip'],zip=pointer['zip'],current_incremental_request=str(root),archive_mapping=str(root/'archive_path_mapping.json'));dump(p,value)
+            value=json.loads(p.read_text(encoding='utf-8'));dump(p,renew_delivery_pointer(value,pointer,relocated,root))
     (outputs/'README_老师本次EEG交付.md').write_text('当前交付已合并为眼动与 EEG 增量核查。请使用 eye_eeg_incremental_latest.json 和 老师本次眼动与EEG核查报告.md；历史入口保留原计算来源，旧交付位置见 archive_path_mapping.json。\n',encoding='utf-8')
     (outputs/'README_当前有效结果.md').write_text(f"# 当前有效数据分析结果\n\n完整多模态正式运行 teacher_latest_20261003 保留。\n\n本次眼动与 EEG 入口：老师本次眼动与EEG核查报告.md；eye_eeg_incremental_latest.json。核查运行：{root}。\n\n当前老师交付：{destination}；旧交付完整保存在 {archive}。\n\n历史 EEG 1–45 为主分析，1–40 为敏感性；当前源 QC D/E 独立列出。HF QC 与源事件缺口见本次报告，不视为已解决。\n",encoding='utf-8')
     return pointer
