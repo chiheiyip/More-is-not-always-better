@@ -406,6 +406,6 @@ def process(config, output):
     dump(output / "processing_summary.json", {"candidate_participants": int(frame.Participant.nunique()), "raw_trials": len(frame),
          "qc": count, "fixations": len(events), "fixation_anomalies": sum(len(i) for i in issue_frames),
          "projection": sorted(scene.ProjectionType.astype(str).unique()), "variants": ["main", *sorted(pd.DataFrame(variant_rows).AuditVariant.unique())],
-         "independence": "raw sources and approved measurement inputs only; no original processing/models/results read",
-         "prior_context": "Project summaries were seen before this audit; computational isolation, not analyst blinding."})
+         "independence": "independent implementation; corrected after initial sealed comparison" if config.get('post_comparison_revision') else "raw sources and approved measurement inputs only; no original processing/models/results read",
+         "prior_context": "Original code/results were examined after the initial independent calculation was sealed; this revision is not blinded." if config.get('post_comparison_revision') else "Project summaries were seen before this audit; computational isolation, not analyst blinding."})
     return frame
