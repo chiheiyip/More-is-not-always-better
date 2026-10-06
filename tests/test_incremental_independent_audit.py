@@ -131,6 +131,18 @@ def test_scene_epoch_matching_does_not_shift_after_extra_trigger():
     assert len(match)==2 and match.EndpointMatchStatus.eq("both").all()
 
 
+def test_prior_relocation_requires_exact_bytes(tmp_path):
+    from paper_analysis.teacher.independent_eeg import verify_prior
+    from paper_analysis.teacher.independent_eye import sha
+    original=tmp_path/'expired.md';copy=tmp_path/'preserved.md';copy.write_text('original request')
+    (tmp_path/'verification_summary.json').write_text(json.dumps({'status':'verified','source_files_unchanged':True,'methods':[]}))
+    (tmp_path/'input_hashes_after.json').write_text(json.dumps([{'path':str(original),'sha256':sha(copy)}]));(tmp_path/'verification_output_reuse_hashes.json').write_text('[]')
+    config={'prior_verification':str(tmp_path),'prior_source_relocations':{str(original):str(copy)}}
+    _,checks=verify_prior(config,tmp_path);assert checks[0]['status']=='relocated_identical_bytes'
+    copy.write_text('different');
+    with pytest.raises(ValueError,match='changed'): verify_prior(config,tmp_path)
+
+
 def test_current_qc_inputs_preserve_common_keys_and_absolute_powers(tmp_path):
     rows=[]
     for trim in [0,5,10,15]:
