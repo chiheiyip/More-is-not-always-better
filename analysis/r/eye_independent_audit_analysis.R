@@ -28,14 +28,14 @@ add <- function(variant, outcome, kind, filter="QC60", omitted="", random_slope=
 }
 if(job$mode=="main") {
   for(outcome in core) {
-    kind <- if(outcome%in%c("TableShare","WindowShare"))"beta" else "lmm"
+    kind <- if(outcome%in%c("TableShare","WindowShare"))"ordered_beta" else "lmm"
     add("main",outcome,kind)
     for(cut in c("QC50","QC70"))add(tolower(cut),outcome,kind,cut)
     for(block in c("block1","block2"))add(block,outcome,kind)
     add("random_slope",outcome,kind,random_slope=TRUE)
     add("previous_scene",outcome,kind)
     if("SourceIdentityStatus"%in%names(main)&&any(grepl("unverified",main$SourceIdentityStatus)))add("exclude_unverified_identity",outcome,kind)
-    if(kind=="beta")add("logit_lmm",outcome,"logit_lmm")
+    if(kind=="ordered_beta") {add("logit_lmm",outcome,"logit_lmm");add("CR2_companion",outcome,"lmm");add("conditional_beta",outcome,"beta")}
   }
   for(aoi in c("Table","Window","Equipment","Background")) {
     add("secondary",paste0(aoi,"Visited"),"binomial")
@@ -44,11 +44,13 @@ if(job$mode=="main") {
   }
   for(o in c("CompositionTableRest","CompositionWindowRest","CompositionTableWindow"))add("composition",o,"lmm")
 } else if(job$mode=="boundary") {
-  for(v in unique(main$AuditVariant))for(o in core)add(v,o,if(o%in%c("TableShare","WindowShare"))"beta" else "lmm")
+  for(v in unique(main$AuditVariant))for(o in core)add(v,o,if(o%in%c("TableShare","WindowShare"))"ordered_beta" else "lmm")
 } else if(job$mode=="lopo") {
-  for(p in job$participants)for(o in core)add("leave_one_participant_out",o,if(o%in%c("TableShare","WindowShare"))"beta" else "lmm",omitted=p)
+  for(p in job$participants)for(o in core)add("leave_one_participant_out",o,if(o%in%c("TableShare","WindowShare"))"ordered_beta" else "lmm",omitted=p)
 } else if(job$mode=="test") {
   for(o in core)add("main",o,if(o%in%c("TableShare","WindowShare"))"beta" else "lmm")
+} else if(job$mode=="ordered_test") {
+  for(o in core)add("main",o,if(o%in%c("TableShare","WindowShare"))"ordered_beta" else "lmm")
 } else stop("Unknown independent eye mode")
 
 coefficients <- list(); factors <- list(); contrasts <- list(); matrices <- list(); diagnostics <- list()
@@ -109,7 +111,7 @@ for(i in seq_along(specs)) {
   if(nrow(d)>20&&length(unique(d$Participant))>3&&length(unique(d$Y))>1) {
     m<-tryCatch(withCallingHandlers({
       if(s$kind%in%c("lmm","logit_lmm","log_ttff"))lmer(f,d,REML=FALSE,control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=200000)))
-      else glmmTMB(f,data=d,family=switch(s$kind,beta=beta_family(link="logit"),binomial=binomial(link="logit"),negative_binomial=nbinom2(link="log")),control=glmmTMBControl(optCtrl=list(iter.max=10000,eval.max=10000)))
+      else glmmTMB(f,data=d,family=switch(s$kind,beta=beta_family(link="logit"),ordered_beta=ordbeta(link="logit"),binomial=binomial(link="logit"),negative_binomial=nbinom2(link="log")),control=glmmTMBControl(optCtrl=list(iter.max=10000,eval.max=10000)))
     },warning=function(w){warnings<<-c(warnings,conditionMessage(w));invokeRestart("muffleWarning")}),error=function(e){error<<-conditionMessage(e);NULL})
   } else error<-"insufficient sample or constant outcome"
   conv<-FALSE; singular<-NA;variance<-NA_real_;method<-"fit_failed"
@@ -164,6 +166,27 @@ for(i in seq_along(specs)) {
 }
 bind <- function(rows) if(length(rows))do.call(rbind,rows) else data.frame()
 co<-bind(coefficients);fa<-bind(factors);pa<-bind(contrasts);di<-bind(diagnostics)
+if(nrow(co)) {
+  identity<-c("variant","outcome","model_kind","omitted_participant","part")
+  co<-merge(co,di[c(identity,"converged")],by=identity,all.x=TRUE,sort=FALSE)
+  # Companion estimates and CR2 inference stay together; do not attach a
+  # Gaussian companion p to an ordered-beta coefficient or interval.
+  if(job$mode=="main") {
+    companions<-co[(co$variant=="CR2_companion"|co$variant=="main"&co$outcome=="RawCompetition"),,drop=FALSE]
+    companions$variant<-"CR2_companion_family";co<-rbind(co,companions)
+  }
+  co$family<-ifelse(co$outcome%in%core[1:3],"A",ifelse(co$outcome%in%core[4:6],"B","supplementary"))
+  co$q<-NA_real_;co$family_size<-NA_integer_
+  for(v in unique(co$variant))for(term in unique(co$term))for(fam in c("A","B")) {
+    if(is.na(term))next
+    ix<-which(co$variant==v&co$term==term&co$family==fam);co$family_size[ix]<-3L
+    for(p in unique(co$omitted_participant[ix])) {
+      j<-ix[co$omitted_participant[ix]==p]
+      expected<-if(fam=="A")core[1:3] else core[4:6]
+      if(length(j)==3&&setequal(co$outcome[j],expected)&&all(is.finite(co$raw_p[j]))&&all(co$converged[j]))co$q[j]<-p.adjust(co$raw_p[j],method="BH",n=3)
+    }
+  }
+}
 if(nrow(fa)) {
   identity<-c("variant","outcome","model_kind","omitted_participant","part")
   fa<-merge(fa,di[c(identity,"converged")],by=identity,all.x=TRUE,sort=FALSE)
