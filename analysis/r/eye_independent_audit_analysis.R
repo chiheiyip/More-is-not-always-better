@@ -72,6 +72,19 @@ grid_contrasts <- function(m, d) {
   list(L=L, pairs=rbind(`WWR45-WWR15`=avg(45)-avg(15),`WWR75-WWR15`=avg(75)-avg(15),`WWR75-WWR45`=avg(75)-avg(45),`C0-C1`=avg(c="C0")-avg(c="C1")))
 }
 empty_coefficient <- function(id, status) cbind(id,data.frame(term=NA_character_,estimate=NA_real_,SE=NA_real_,CR2_SE=NA_real_,df=NA_real_,CI_low=NA_real_,CI_high=NA_real_,raw_p=NA_real_,inference=status))
+likelihood_pairs <- function(m,id,f) {
+  result<-list()
+  for(factor in c("WWR","Complexity"))if(factor%in%all.vars(f)) {
+    em<-tryCatch(emmeans(m,as.formula(paste("~",factor)),weights="equal"),error=function(e)NULL)
+    if(!is.null(em)) {
+      custom<-if(factor=="WWR")list(`WWR45-WWR15`=c(-1,1,0),`WWR75-WWR15`=c(-1,0,1),`WWR75-WWR45`=c(0,-1,1)) else list(`C0-C1`=c(1,-1))
+      ps<-as.data.frame(summary(contrast(em,method=custom,adjust="none"),infer=c(TRUE,TRUE)))
+      lower<-if("lower.CL"%in%names(ps))ps$lower.CL else ps$asymp.LCL;upper<-if("upper.CL"%in%names(ps))ps$upper.CL else ps$asymp.UCL
+      result[[length(result)+1]]<-cbind(id,data.frame(contrast=ps$contrast,estimate=ps$estimate,SE=ps$SE,df=ps$df,CI_low=lower,CI_high=upper,raw_p=ps$p.value,inference="equal_weight_primary_likelihood"))
+    }
+  }
+  result
+}
 
 for(i in seq_along(specs)) {
   s<-specs[[i]]; d<-main[main[[s$filter]]%in%c(TRUE,"True","TRUE",1),,drop=FALSE]
@@ -120,6 +133,7 @@ for(i in seq_along(specs)) {
       conv<-is.null(m@optinfo$conv$lme4$messages);singular<-isSingular(m,tol=1e-4);variance<-as.numeric(VarCorr(m)$Participant[1,1])
       b<-fixef(m);ordinary<-sqrt(diag(vcov(m)));V<-tryCatch(vcovCR(m,cluster=d$Participant,type="CR2"),error=function(e){error<<-conditionMessage(e);NULL})
       if(!is.null(V)) {
+        contrasts<-c(contrasts,likelihood_pairs(m,id,f))
         ct<-as.data.frame(coef_test(m,vcov=V,test="Satterthwaite"));se<-ct$SE;df<-ct$df_Satt;p<-ct$p_Satt;crit<-qt(.975,df)
         coefficients[[length(coefficients)+1]]<-cbind(id,data.frame(term=names(b),estimate=as.numeric(b),SE=ordinary,CR2_SE=se,df=df,CI_low=b-crit*se,CI_high=b+crit*se,raw_p=p,inference="CR2_Satterthwaite"))
         method<-"LMM_ML_CR2_Satterthwaite"
@@ -203,8 +217,8 @@ if(nrow(fa)) {
 }
 if(nrow(pa)) {
   pa$Holm_p<-NA_real_
-  for(v in unique(pa$variant))for(o in unique(pa$outcome))for(p in unique(pa$omitted_participant)) {
-    j<-which(pa$variant==v&pa$outcome==o&pa$omitted_participant==p&startsWith(pa$contrast,"WWR"))
+  for(v in unique(pa$variant))for(o in unique(pa$outcome))for(p in unique(pa$omitted_participant))for(inference in unique(pa$inference)) {
+    j<-which(pa$variant==v&pa$outcome==o&pa$omitted_participant==p&pa$inference==inference&startsWith(pa$contrast,"WWR"))
     if(length(j)==3&&all(is.finite(pa$raw_p[j])))pa$Holm_p[j]<-p.adjust(pa$raw_p[j],"holm",n=3)
   }
 }

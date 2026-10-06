@@ -76,6 +76,14 @@ def run_r(config, repo, script, job, output, label):
     snapshot = work / "committed_analysis.R"
     shutil.copyfile(Path(repo) / script, snapshot)
     output.mkdir(parents=True, exist_ok=True)
+    eye_summary=output/'eye/processing_summary.json'
+    if config.get('post_comparison_revision') and eye_summary.exists():
+        previous=json.loads(eye_summary.read_text(encoding='utf-8'))
+        description='independent implementation; corrected after initial sealed comparison'
+        if previous['independence']!=description:
+            eye.dump(output/'eye_revision_lineage.json',{'initial_run':config['eeg_reuse_run'],'original_processing_summary':previous,'numerical_CSV_hashes':{p.name:eye.sha(p) for p in (output/'eye').glob('*.csv')},'reason':'Correct provenance description only; source calculations and source SHA unchanged'})
+            previous['independence']=description;previous['prior_context']='Original code/results were examined after the initial independent calculation was sealed; this revision is not blinded.'
+            eye.dump(eye_summary,previous)
     eye.dump(output / "job.json", {**job, "execution_job": str(job_path)})
     with (output / "execution.log").open("w", encoding="utf-8") as log:
         subprocess.run([config["rscript"], "--vanilla", str(snapshot), str(job_path)], env=r_env(config), stdout=log, stderr=subprocess.STDOUT, check=True)
@@ -356,8 +364,21 @@ def run(config, config_path, repo, output, phase):
         from .incremental_evidence import eeg_evidence
         eeg_evidence(config,output)
     if phase == "eye-compare":
-        from .incremental_evidence import eye_arithmetic
-        eye.dump(output / "eye_comparison_summary.json", {**compare_eye(config,output),**eye_arithmetic(output)})
+        from .incremental_evidence import eye_arithmetic, eye_models_comparison
+        eye.dump(output / "eye_comparison_summary.json", {**compare_eye(config,output),**eye_arithmetic(output),**eye_models_comparison(config,output)})
+    if phase == 'source-readers':
+        sources={k:config[k] for k in ['questionnaire_file','participant_information','trial_order_mapping']}
+        before={k:eye.sha(v) for k,v in sources.items()}
+        run_r(config,repo,'analysis/r/incremental_independent_source_readers.R',sources,output/'source_readers','source_readers')
+        independent=pd.read_csv(output/'eye/independent_eye_trials.csv')
+        rdata=pd.read_csv(output/'source_readers/R_original_design_fields.csv')
+        fields=['WWR','Complexity','Block','PositionWithinBlock','PositionWithinBlockCentered','OrderGroup','SceneID','PreviousWWR','PreviousComplexity','Gender','ExerciseFrequency','Q1.4Original']
+        values,summary=compare_values(independent,rdata,fields)
+        eye.save(values,output/'source_readers/Python_R_original_design_comparison.csv');eye.save(summary,output/'source_readers/Python_R_original_design_summary.csv')
+        if summary.MismatchedRows.any():raise ValueError('Python/R original workbook interpretation differs')
+        for k,p in sources.items():
+            if eye.sha(p)!=before[k]:raise ValueError('Original source workbook changed during reading')
+        eye.dump(output/'source_readers/source_hashes.json',[{'path':p,'sha256':before[k]} for k,p in sources.items()])
     if phase in ["all", "compare"]:
         eye_result = compare_eye(config, output)
         eeg_result = compare_eeg(config, repo, output)

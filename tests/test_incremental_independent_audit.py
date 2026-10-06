@@ -102,6 +102,22 @@ def test_paired_missing_q_does_not_fabricate_a_threshold_crossing():
     assert not out.loc[out.key.eq(2),'DirectionChanged'].any()
 
 
+def test_eye_replication_keeps_beta_primary_p_separate_from_companion(tmp_path):
+    from paper_analysis.teacher.incremental_evidence import eye_models_comparison
+    formal=tmp_path/'formal/02_eye_stage2';formal.mkdir(parents=True);target=tmp_path/'eye';target.mkdir()
+    primary={'outcome':'TableShare','term':'WWRWWR45','estimate':-.2,'std.error.likelihood':.1,'std.error.CR2':.003,'conf.low':-.2-1.95996398454005*.1,'conf.high':-.2+1.95996398454005*.1,'p.value.likelihood':.04,'p.value.CR2':.9,'family':'A'}
+    pd.DataFrame([primary]).to_csv(formal/'09_familyA_primary_models.csv',index=False);pd.DataFrame(columns=primary.keys()).to_csv(formal/'10_familyB_primary_models.csv',index=False)
+    pd.DataFrame([{'outcome':'TableShare','term':'WWRWWR45','estimate':-.004,'std.error':.003,'df':9,'p.value':.9,'p.value.BH':.9}]).to_csv(formal/'12_CR2_robust_results.csv',index=False)
+    main={'outcome':'TableShare','term':'WWR45','estimate':-.2,'SE':.1,'CR2_SE':np.nan,'df':np.inf,'CI_low':0,'CI_high':0,'raw_p':.04,'q':.04,'variant':'main','family':'A'}
+    companion={**main,'variant':'CR2_companion_family','estimate':-.004,'CR2_SE':.003,'df':9,'raw_p':.9,'q':.9}
+    pd.DataFrame([main,companion]).to_csv(target/'independent_coefficients.csv',index=False)
+    originals=['WWR15 - WWR45','WWR15 - WWR75','WWR45 - WWR75'];directed=['WWR45-WWR15','WWR75-WWR15','WWR75-WWR45']
+    pd.DataFrame({'outcome':['TableShare']*3,'contrast':originals,'estimate':[-.1,-.2,-.1],'SE':[.1]*3,'df':[np.inf]*3,'p.value':[.1,.2,.3]}).to_csv(formal/'11_WWR_posthoc_Holm.csv',index=False)
+    pd.DataFrame({'outcome':['TableShare']*3,'contrast':directed,'estimate':[.1,.2,.1],'SE':[.1]*3,'df':[np.inf]*3,'Holm_p':[.1,.2,.3],'variant':['main']*3,'inference':['equal_weight_GLMM_Wald']*3}).to_csv(target/'independent_contrasts.csv',index=False)
+    summary=eye_models_comparison({'formal_eye_run':str(tmp_path/'formal')},tmp_path)
+    assert summary['RawPThresholdCrossings']==0 and summary['RobustBHThresholdCrossings']==0 and summary['NearExactRows']==2
+
+
 def test_missing_current_family_requires_all_q_to_remain_unavailable():
     frame=pd.DataFrame({'version':['D']*3,'family_id':['test']*3,'onset_trim_s':[0]*3,'raw_p':[.01,.04,np.nan],'inference_valid':[True,True,False],'joint_q':[np.nan]*3,'within_q':[np.nan]*3})
     assert bh_checks(frame,'coefficient').FullFamilySize.iloc[0]==3
@@ -237,6 +253,22 @@ def test_real_r_current_qc_htz_absolute_reuse_and_missing_family(tmp_path):
     assert np.array_equal(a.estimate,b.estimate)
 
 
+def test_real_r_reads_original_workbooks_without_python_export_conversion(tmp_path):
+    repo=Path(__file__).resolve().parents[1];rs=Path('C:/Program Files/R/R-4.5.3/bin/x64/Rscript.exe')
+    if not rs.exists():pytest.skip('System R unavailable')
+    pd.DataFrame({'Q1.0_姓名':['甲','乙·丙'],'Q1.4_运动':['偶尔','经常'],'Q1.4_运动_word':['经常','从不'],'Q1.5_旧':['经常','偶尔']}).to_excel(tmp_path/'q.xlsx',index=False)
+    pd.DataFrame({'Participant':['甲','乙'],'Gender':['Male','Female']}).to_excel(tmp_path/'people.xlsx',index=False)
+    rows=[]
+    for person in ['甲','乙']:
+        for trial in range(1,13):rows.append({'Participant':person,'GlobalTrialOrder':trial,'WWR':[15,45,75][(trial-1)%3],'Complexity':(trial-1)%2,'Block':(trial-1)//6+1,'PositionWithinBlock':(trial-1)%6+1,'OrderGroup':'order1','SceneID':trial})
+    pd.DataFrame(rows).to_excel(tmp_path/'design.xlsx',index=False)
+    job={'outdir':str(tmp_path),'questionnaire_file':str(tmp_path/'q.xlsx'),'participant_information':str(tmp_path/'people.xlsx'),'trial_order_mapping':str(tmp_path/'design.xlsx')};(tmp_path/'job.json').write_text(json.dumps(job))
+    result=subprocess.run([str(rs),'--vanilla',str(repo/'analysis/r/incremental_independent_source_readers.R'),str(tmp_path/'job.json')],env=r_env({'r_library':str(repo/'.codex_tmp/r45-lib')}),capture_output=True,text=True)
+    assert result.returncode==0,result.stdout+result.stderr
+    groups=pd.read_csv(tmp_path/'R_original_Q1_4_groups.csv');assert dict(zip(groups.Participant,groups.ExerciseFrequency))=={'甲':'Low','乙':'High'}
+    design=pd.read_csv(tmp_path/'R_original_design_fields.csv');assert len(design)==24 and design.loc[design.PositionWithinBlock.eq(1),'PreviousWWR'].isna().all()
+
+
 def test_real_r_independent_models_and_complete_families(tmp_path):
     rs = Path("C:/Program Files/R/R-4.5.3/bin/x64/Rscript.exe")
     if not rs.exists(): pytest.skip("System R unavailable")
@@ -266,7 +298,7 @@ def test_real_r_independent_models_and_complete_families(tmp_path):
     assert len(factors) == 36 and factors.q.notna().all()
     assert factors.family_size.eq(3).all()
     contrasts = pd.read_csv(tmp_path / "independent_contrasts.csv")
-    assert len(contrasts) == 24 and contrasts.contrast.eq("C0-C1").sum() == 6
+    assert len(contrasts) == 40 and contrasts.contrast.eq("C0-C1").sum() == 10
     ordered=pd.DataFrame(records)
     for col in ['TableShare','WindowShare']:
         ordered.loc[ordered.index%11==0,col]=0;ordered.loc[ordered.index%13==0,col]=1
