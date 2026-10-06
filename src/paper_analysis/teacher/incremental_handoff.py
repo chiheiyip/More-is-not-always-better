@@ -67,6 +67,13 @@ def prepare(config,repo):
         if sha(flat/name)!=digest:raise ValueError('Flat source copy differs')
         record={'SourceID':sid,'source_path':str(path),'flat_name':name,'category':category,'size_bytes':path.stat().st_size,'sha256':digest}
         manifest.append(record);by_path[str(path)]=sid;return sid
+    for key_name in ['questionnaire_file','participant_information','trial_order_mapping','scene_aoi_mapping','aoi_approval']:
+        pack(config[key_name],'original_design')
+    for p in [eye/'source_hashes_before.json',eye/'source_hashes_after.json']:
+        pack(p,'original_source_hashes')
+    scene_inputs=pd.read_excel(config['scene_aoi_mapping'])
+    for column in ['AOIFile','ValidSceneFile','BaseImageFile']:
+        for filename in sorted(set(scene_inputs[column].dropna())):pack(filename,'approved_measurement_input')
     for p in sorted(eye.glob('*.csv')):
         if p.name!='independent_fixations.csv':pack(p,'eye_audit')
     for p in sorted(eeg.glob('*.csv')):pack(p,'eeg_audit')
@@ -222,6 +229,8 @@ def prepare(config,repo):
     changes=currents.loc[currents.joint_q_crosses_005.fillna(False),['pair','onset_trim_s','outcome','term','family_id','joint_q_from','joint_q_to']].copy();changes['说明']='当前 QC/epoch 敏感性，非历史纯分母比较'
     failures=nonconv[['variant','outcome','model_kind','participants','trials','warnings','error']].copy();failures.columns=['pair','outcome','term','participants','trials','说明','原因'];changes=pd.concat([changes,failures],ignore_index=True)
     omitted=[]
+    for r in json.loads((eye/'source_hashes_before.json').read_text(encoding='utf-8')):
+        if Path(r['path']).suffix.lower()=='.csv':omitted.append({'资料':'原始眼动 CSV','来源入口':r['path'],'大小字节':r['bytes'],'SHA256':r['sha256'],'说明':'原始逐采样数据不重复交付；冻结 fixation 抽查、trial/model 输入与全部来源哈希已保留'})
     for r in json.loads((eeg/'source_hashes_before.json').read_text(encoding='utf-8')):omitted.append({'资料':'SET/FDT','来源入口':r['path'],'大小字节':r['bytes'],'SHA256':r['sha256'],'说明':'大型波形不重复交付；原数据只读'})
     for r in pd.read_csv(eeg/'independent_raw_acquisition_audit.csv').to_dict('records'):
         p=Path(r['SourceEASY']);omitted.append({'资料':'原始 EASY','来源入口':str(p),'大小字节':p.stat().st_size if p.exists() else None,'SHA256':r['SHA256'],'说明':'原始采集留本地，逐人审计表已交付'})
