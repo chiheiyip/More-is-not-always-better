@@ -204,3 +204,52 @@ def acquisition_audit(config, output):
                 "Match": bool(same and x is not None and y is not None and x.Marker == y.Marker and x.LatencySample == y.LatencySample)})
     save(pd.DataFrame(comparisons), output / "raw_to_SET_scene_event_audit.csv")
     return combined
+
+
+def match_scene_epochs(raw_events, set_events):
+    """Match adjacent 7→8 epochs by endpoints, never by marker ordinal."""
+    def epochs(events, source):
+        rows = []
+        for person, group in events.groupby("Participant"):
+            group = group.sort_values("LatencySample").reset_index(drop=True)
+            marker = group.Marker.astype(str).str.replace(r"\.0$", "", regex=True)
+            for i in range(len(group)-1):
+                if marker.iloc[i] == "7" and marker.iloc[i+1] == "8":
+                    rows.append({"Participant": person, "StartSample": float(group.LatencySample.iloc[i]),
+                                 "EndSample": float(group.LatencySample.iloc[i+1]), source+"Ordinal": len([r for r in rows if r["Participant"]==person])+1})
+        return pd.DataFrame(rows, columns=["Participant","StartSample","EndSample",source+"Ordinal"])
+    a, b = epochs(raw_events, "Raw"), epochs(set_events, "SET")
+    keys = ["Participant","StartSample","EndSample"]
+    unique(a, keys); unique(b, keys)
+    result = a.merge(b, on=keys, how="outer", indicator="EndpointMatchStatus", validate="one_to_one")
+    result["Interpretation"] = result.EndpointMatchStatus.map({"both":"exact original acquisition endpoints", "left_only":"original pair not present in SET; investigate event editing", "right_only":"SET pair not present among adjacent original triggers; investigate event editing"}).astype(str)
+    return result
+
+
+def current_model_inputs(config, output):
+    """Keep historical A/B/C intact; freeze additional current-source QC D/E."""
+    output = Path(output)
+    d = pd.read_csv(output / "independent_eeg_trial_QC.csv", encoding="utf-8-sig")
+    d = d.loc[d.CommonQCIncluded].copy()
+    columns = KEY + ["WWR","Complexity","ExerciseFrequency","Gender","Block","PositionWithinBlock",
+                     "PositionWithinBlockCentered","OrderGroup","PreviousWWR","PreviousComplexity"]
+    powers = [f"{roi}_{band}" for roi in ["F","P","O"] for band in ["theta","alpha","beta"]]
+    for trim in [0,5,10,15]:
+        selected = d.loc[d.onset_trim_s.eq(trim)].copy()
+        unique(selected, KEY)
+        if trim == 0: frozen = set(map(tuple, selected[KEY].to_numpy()))
+        elif frozen != set(map(tuple, selected[KEY].to_numpy())): raise ValueError("Current common-QC identities differ between trims")
+        base = selected[columns].rename(columns={"ExerciseFrequency":"ExperienceGroup"}).copy()
+        for name, prefix in [("WWR","WWR"),("Complexity","C"),("PreviousWWR","WWR"),("PreviousComplexity","C")]:
+            base[name] = base[name].map(lambda v: prefix+str(int(v)) if pd.notna(v) else np.nan)
+        for stem in powers:
+            absolute = selected[stem+"_absolute"].to_numpy()
+            if not np.isfinite(absolute).all() or (absolute<=0).any(): raise ValueError("Invalid current-QC absolute numerator")
+            base["log10_"+stem+"_absolute"] = np.log10(absolute)
+        for version, suffix in [("D_current_QC_1_45",""),("E_current_QC_1_40","_1_40")]:
+            table = base.copy()
+            for stem in powers: table[stem+"_relative"] = selected[stem+"_relative"+suffix].to_numpy()
+            if not np.isfinite(table[[stem+"_relative" for stem in powers]].to_numpy()).all(): raise ValueError("Invalid current-QC relative power")
+            target = output / "current_QC_inputs" / version / f"trim_{trim}s"
+            target.mkdir(parents=True,exist_ok=True); save(table,target/"input.csv")
+    return output / "current_QC_inputs"

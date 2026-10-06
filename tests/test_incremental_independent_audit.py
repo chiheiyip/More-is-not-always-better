@@ -12,7 +12,8 @@ from paper_analysis.teacher.independent_eye import (
     RAW_COLUMNS, deduplicate_fixations, assign_events, trial_metrics, make_masks,
     read_questionnaire, unique, canonical_name,
 )
-from paper_analysis.teacher.independent_eeg import reconstruct_qc, read_raw_acquisition
+from paper_analysis.teacher.independent_eeg import reconstruct_qc, read_raw_acquisition, match_scene_epochs, current_model_inputs
+from paper_analysis.teacher.independent_eye import source_identity
 from paper_analysis.teacher.incremental_audit import compare_values, r_env
 
 
@@ -111,6 +112,65 @@ def test_original_easy_pulses_blank_rows_and_info_identity(tmp_path):
     assert metadata["Samples"] == metadata["InfoSamples"] == 6
     assert metadata["TimestampRegular"] and metadata["InfoEEGChannels"] == 8
     assert events.Marker.tolist() == ["7","8"] and events.LatencySample.tolist() == [2,5]
+
+
+def test_generic_export_identity_remains_unverified_and_explicit():
+    raw = pd.DataFrame({"User":["预实验"]})
+    record = pd.Series({"Participant":"甲","CSVFile":"raw_甲_123.csv"})
+    with pytest.raises(ValueError): source_identity(raw,record,{})
+    result = source_identity(raw,record,{"unresolved_export_labels":{"甲":["预实验"]}})
+    assert result[2].endswith("raw_identity_unverified") and result[1]=="预实验"
+    record.CSVFile="raw_乙_123.csv"
+    with pytest.raises(ValueError): source_identity(raw,record,{"unresolved_export_labels":{"甲":["预实验"]}})
+
+
+def test_scene_epoch_matching_does_not_shift_after_extra_trigger():
+    raw = pd.DataFrame({"Participant":["a"]*6,"Marker":["7","8","7","7","8","9"],"LatencySample":[10,20,25,30,40,50]})
+    sets = pd.DataFrame({"Participant":["a"]*4,"Marker":["7","8","7","8"],"LatencySample":[10,20,30,40]})
+    match = match_scene_epochs(raw,sets)
+    assert len(match)==2 and match.EndpointMatchStatus.eq("both").all()
+
+
+def test_current_qc_inputs_preserve_common_keys_and_absolute_powers(tmp_path):
+    rows=[]
+    for trim in [0,5,10,15]:
+        for trial in [1,2]:
+            row=dict(Participant="a",GlobalTrialOrder=trial,onset_trim_s=trim,CommonQCIncluded=True,WWR=15,Complexity=0,ExerciseFrequency="High",Gender="Female",Block=1,PositionWithinBlock=trial,PositionWithinBlockCentered=trial-3.5,OrderGroup="order1",PreviousWWR=np.nan if trial==1 else 15,PreviousComplexity=np.nan if trial==1 else 0)
+            for roi in ["F","P","O"]:
+                for band in ["theta","alpha","beta"]:
+                    row[f"{roi}_{band}_absolute"]=2;row[f"{roi}_{band}_relative"]=.2;row[f"{roi}_{band}_relative_1_40"]=.21
+            rows.append(row)
+    pd.DataFrame(rows).to_csv(tmp_path/"independent_eeg_trial_QC.csv",index=False)
+    root=current_model_inputs({},tmp_path)
+    a=pd.read_csv(root/"D_current_QC_1_45/trim_0s/input.csv");b=pd.read_csv(root/"E_current_QC_1_40/trim_0s/input.csv")
+    assert a.WWR.eq("WWR15").all() and a.ExperienceGroup.eq("High").all()
+    pd.testing.assert_frame_equal(a.filter(regex="log10_"),b.filter(regex="log10_"))
+    assert np.allclose(a.F_theta_relative,.2,rtol=1e-10,atol=1e-12) and np.allclose(b.F_theta_relative,.21,rtol=1e-10,atol=1e-12)
+
+
+def test_real_r_current_qc_htz_absolute_reuse_and_missing_family(tmp_path):
+    repo=Path(__file__).resolve().parents[1]
+    rs=Path("C:/Program Files/R/R-4.5.3/bin/x64/Rscript.exe")
+    if not rs.exists(): pytest.skip("System R unavailable")
+    rng=np.random.default_rng(92);rows=[]
+    for person in range(32):
+        shift=rng.normal(0,.4);conditions=[(w,c) for _ in range(2) for w in [15,45,75] for c in [0,1]];rng.shuffle(conditions)
+        for trial,(w,c) in enumerate(conditions,1):
+            row=dict(Participant=f"p{person}",GlobalTrialOrder=trial,WWR=f"WWR{w}",Complexity=f"C{c}",ExperienceGroup=["High","Low"][person%2],Gender=["Female","Male"][(person//2)%2],OrderGroup=["new order2","order1","order2"][person%3],Block=(trial-1)//6+1,PositionWithinBlock=(trial-1)%6+1,PositionWithinBlockCentered=(trial-1)%6-2.5,PreviousWWR="WWR15",PreviousComplexity="C0")
+            row['P_theta_relative']=shift+.01*w+rng.normal(0,.25);row['log10_P_theta_absolute']=shift+.02*w+rng.normal(0,.3);rows.append(row)
+    for version in ['D_current_QC_1_45','E_current_QC_1_40']:
+        target=tmp_path/version/'trim_0s';target.mkdir(parents=True);frame=pd.DataFrame(rows)
+        if version.startswith('E'): frame.P_theta_relative*=1.001
+        frame.to_csv(target/'input.csv',index=False)
+    contract={'factor_levels':{'WWR':['WWR15','WWR45','WWR75'],'Complexity':['C0','C1'],'ExperienceGroup':['High','Low'],'Gender':['Female','Male'],'OrderGroup':['new order2','order1','order2'],'PreviousWWR':['WWR15','WWR45','WWR75'],'PreviousComplexity':['C0','C1']}}
+    (tmp_path/'contract.json').write_text(json.dumps(contract));job={'inputs':str(tmp_path),'outdir':str(tmp_path),'contract':str(tmp_path/'contract.json'),'test_trim':0,'test_outcomes':['P_theta_relative','log10_P_theta_absolute']};(tmp_path/'job.json').write_text(json.dumps(job))
+    result=subprocess.run([str(rs),'--vanilla',str(repo/'analysis/r/eeg_independent_current_qc_models.R'),str(tmp_path/'job.json')],env=r_env({'r_library':str(repo/'.codex_tmp/r45-lib')}),capture_output=True,text=True)
+    assert result.returncode==0,result.stdout+result.stderr
+    factors=pd.read_csv(tmp_path/'current_QC_factor_tests.csv');assert len(factors)==24 and np.isfinite(factors.raw_p).all()
+    families=pd.read_csv(tmp_path/'current_QC_coefficient_families.csv');assert len(families.query('family_id=="coefficient_expanded_relative"'))==648
+    assert families.joint_q.isna().all() # missing models remain in full family
+    co=pd.read_csv(tmp_path/'current_QC_coefficients.csv');a=co.query('version=="D_current_QC_1_45" and outcome=="log10_P_theta_absolute"');b=co.query('version=="E_current_QC_1_40" and outcome=="log10_P_theta_absolute"')
+    assert np.array_equal(a.estimate,b.estimate)
 
 
 def test_real_r_independent_models_and_complete_families(tmp_path):

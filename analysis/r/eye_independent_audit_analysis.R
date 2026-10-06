@@ -33,6 +33,7 @@ if(job$mode=="main") {
     for(block in c("block1","block2"))add(block,outcome,kind)
     add("random_slope",outcome,kind,random_slope=TRUE)
     add("previous_scene",outcome,kind)
+    if("SourceIdentityStatus"%in%names(main)&&any(grepl("unverified",main$SourceIdentityStatus)))add("exclude_unverified_identity",outcome,kind)
     if(kind=="beta")add("logit_lmm",outcome,"logit_lmm")
   }
   for(aoi in c("Table","Window","Equipment","Background")) {
@@ -74,6 +75,7 @@ for(i in seq_along(specs)) {
   if(s$variant%in%c("block1","block2"))d<-d[d$Block==if(s$variant=="block1")1 else 2,,drop=FALSE]
   if(job$mode=="boundary")d<-d[d$AuditVariant==s$variant,,drop=FALSE]
   if(nchar(s$omitted))d<-d[d$Participant!=s$omitted,,drop=FALSE]
+  if(s$variant=="exclude_unverified_identity")d<-d[!grepl("unverified",d$SourceIdentityStatus),,drop=FALSE]
   if(startsWith(s$outcome,"Equipment"))d<-d[d$Complexity%in%c(1,"C1"),,drop=FALSE]
   d<-d[is.finite(d[[s$outcome]]),,drop=FALSE]
   zero <- if(nrow(d))mean(d[[s$outcome]]==0) else NA_real_

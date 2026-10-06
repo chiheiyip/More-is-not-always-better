@@ -65,3 +65,15 @@ ICA special audit was explicitly cancelled. Retain the researcher's statement
 about GUI ICA without component removal and existing evidence limitations; do
 not generate an ICA audit table, add artifact removal, or label absent records as
 proof of removal/nonremoval.
+
+Current-source QC drift is an additional D/E sensitivity, not a change to the
+historical frozen A/B/C sample. `--phase eeg-current-models` freezes common-QC
+identities across all four windows, keeps absolute powers/design identical for
+D/E, fits independent CR2/HTZ models and preserves complete BH family skeletons.
+`--phase eeg-compare` can independently verify EEG before eye comparisons.
+Raw/SET scene events are compared by adjacent 7→8 endpoint identity; ordinal
+marker comparisons alone are insufficient in the presence of extra triggers.
+Generic raw User labels require an explicit `unresolved_export_labels` entry and
+a participant-bearing filename; linkage remains unverified and must be disclosed.
+Every phase records its own committed code SHA; older computed stages retain
+original execution provenance.
