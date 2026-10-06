@@ -51,6 +51,21 @@ def truth(value):
     return str(value).strip().lower() in {"true", "1", "yes"}
 
 
+def source_identity(raw, record, config):
+    labels = sorted(raw.User.dropna().astype(str).unique())
+    canonical = sorted({canonical_name(v) for v in labels})
+    if canonical == [record.Participant]:
+        return ";".join(labels), canonical[0], "verified_export_label"
+    # An explicitly registered generic export label is not proof of identity.
+    # The approved mapping and participant-bearing filename supply the linkage;
+    # retain the unresolved raw-label discrepancy for the final audit.
+    allowed = config.get("unresolved_export_labels", {}).get(record.Participant, [])
+    filename = Path(record.CSVFile).name
+    if labels and set(labels).issubset(allowed) and filename.startswith("raw_" + record.Participant + "_"):
+        return ";".join(labels), ";".join(canonical), "mapping_and_filename_only;raw_identity_unverified"
+    raise ValueError(f"Raw User disagrees with mapping: {record.CSVFile}")
+
+
 def unique(frame, columns):
     if frame[columns].isna().any().any() or frame[columns].astype(str).eq("").any().any() or frame.duplicated(columns).any():
         raise ValueError(f"Missing or duplicate identity: {columns}")
@@ -313,9 +328,7 @@ def process(config, output):
         raise ValueError("Scene-to-AOI join lost original trials")
     for number, (_, record) in enumerate(join.iterrows(), 1):
         raw, encoding = read_raw(record.CSVFile)
-        identities = raw.User.dropna().map(canonical_name).unique()
-        if len(identities) != 1 or identities[0] != record.Participant:
-            raise ValueError(f"Raw User disagrees with mapping: {record.CSVFile}")
+        original_user, canonical_user, identity_status = source_identity(raw, record, config)
         timestamps = pd.to_numeric(raw["Recording Time Stamp[ms]"], errors="coerce")
         if timestamps.isna().any() or (timestamps.diff().dropna() < 0).any():
             raise ValueError("Invalid/nonmonotone raw timestamps")
@@ -341,8 +354,9 @@ def process(config, output):
                    "OffStimulusFixationCount": int((~events.ValidSceneHit).sum()),
                    "OffStimulusTFDShare": float(events.loc[~events.ValidSceneHit, "FixationDuration"].sum()) / events.FixationDuration.sum() if events.FixationDuration.sum() > 0 else np.nan,
                    "RawEncoding": encoding, "FixationConflictCount": len(issues)}
-        quality["RawUserOriginal"] = ";".join(sorted(raw.User.dropna().astype(str).unique()))
-        quality["RawUserCanonical"] = identities[0]
+        quality["RawUserOriginal"] = original_user
+        quality["RawUserCanonical"] = canonical_user
+        quality["SourceIdentityStatus"] = identity_status
         quality["IdentityNormalization"] = "recorded numeric-pair exporter suffix or ethnic-name delimiter" if quality["RawUserOriginal"] != record.Participant else "unchanged"
         metrics = trial_metrics(events, areas[record.AOIFile], duration, tracking, record.Complexity)
         quality["QC50"] = tracking >= .5 and metrics["ValidSceneTFD"] > 0

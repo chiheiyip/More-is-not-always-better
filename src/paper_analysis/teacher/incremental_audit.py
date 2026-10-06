@@ -71,14 +71,18 @@ def run_r(config, repo, script, job, output, label):
     payload["outdir"] = str(work / "results")
     (work / "results").mkdir(exist_ok=True)
     job_path = work / "job.json"; eye.dump(job_path, payload)
+    execution_sha = git_sha(repo)
+    script_hash = eye.sha(Path(repo) / script)
+    snapshot = work / "committed_analysis.R"
+    shutil.copyfile(Path(repo) / script, snapshot)
     output.mkdir(parents=True, exist_ok=True)
     eye.dump(output / "job.json", {**job, "execution_job": str(job_path)})
     with (output / "execution.log").open("w", encoding="utf-8") as log:
-        subprocess.run([config["rscript"], "--vanilla", str(Path(repo) / script), str(job_path)], env=r_env(config), stdout=log, stderr=subprocess.STDOUT, check=True)
+        subprocess.run([config["rscript"], "--vanilla", str(snapshot), str(job_path)], env=r_env(config), stdout=log, stderr=subprocess.STDOUT, check=True)
     for p in (work / "results").iterdir():
         if p.is_file(): shutil.copyfile(p, output / p.name)
-    eye.dump(output / "execution_provenance.json", {"code_sha": git_sha(repo), "script": script,
-        "script_sha256": eye.sha(Path(repo) / script), "input_sha256": eye.sha(job["input"]) if "input" in job else None,
+    eye.dump(output / "execution_provenance.json", {"code_sha": execution_sha, "script": script,
+        "script_sha256": script_hash, "input_sha256": eye.sha(job["input"]) if "input" in job else None,
         "computed_at": datetime.now(timezone.utc).isoformat()})
 
 
@@ -130,6 +134,22 @@ def eeg_sources(config, repo, output):
     eeg.acquisition_audit(config, target)
     eye.dump(target / "execution_provenance.json", {"code_sha": git_sha(repo), "source_state": "preprocessed SET/FDT",
         "ICA_special_audit": "cancelled by user", "operator_information": config["ica_operator_statement"]})
+
+
+def eeg_current_models(config, repo, output):
+    target = output / "eeg"
+    raw = pd.read_csv(target / "independent_raw_trigger_events.csv", encoding="utf-8-sig", dtype={"Marker":str})
+    sets = pd.read_csv(target / "independent_eeg_set_events.csv", encoding="utf-8-sig", dtype={"Marker":str})
+    sets = sets.loc[sets.Participant.isin(raw.Participant.unique())]
+    eye.save(eeg.match_scene_epochs(raw, sets), target / "raw_to_SET_epoch_endpoint_matching.csv")
+    inputs = eeg.current_model_inputs(config, target)
+    files = [{"path":str(p),"sha256":eye.sha(p)} for p in sorted(inputs.rglob("input.csv"))]
+    eye.dump(target / "current_QC_input_manifest.json", {"code_sha":git_sha(repo),"files":files,
+        "interpretation":"Additional current-source QC sensitivity; historical A/B/C frozen sample unchanged"})
+    run_r(config, repo, "analysis/r/eeg_independent_current_qc_models.R", {"inputs":str(inputs),
+          "contract":str(Path(config["sensitivity_run"])/"analysis_contract.json")}, target / "current_QC_models", "eeg_current_QC")
+    for record in files:
+        if eye.sha(record["path"])!=record["sha256"]: raise ValueError("Current-QC input changed during model fitting")
 
 
 def compare_values(audit, formal, fields, keys=eye.KEY, rtol=1e-10, atol=1e-12):
@@ -265,12 +285,17 @@ def run(config, config_path, repo, output, phase):
     eye.dump(output / "request_config.json", config)
     eye.dump(output / "run_provenance.json", {"code_sha": git_sha(repo), "config_sha256": eye.sha(config_path),
          "python": sys.version, "ICA_special_audit": "cancelled by user", "request_files": [{"path": p, "sha256": eye.sha(p)} for p in config.get("request_files", [])]})
+    eye.dump(output / ("phase_"+phase+"_provenance.json"), {"code_sha":git_sha(repo),"config_sha256":eye.sha(config_path),"started_at":datetime.now(timezone.utc).isoformat()})
     if phase in ["all", "eye-process"]:
         eye.process(config, output / "eye")
     if phase in ["all", "eye-models"]:
         eye_models(config, repo, output)
     if phase in ["all", "eeg-source"]:
         eeg_sources(config, repo, output)
+    if phase in ["all", "eeg-current-models"]:
+        eeg_current_models(config, repo, output)
+    if phase == "eeg-compare":
+        eye.dump(output / "eeg_comparison_summary.json", compare_eeg(config, repo, output))
     if phase in ["all", "compare"]:
         eye_result = compare_eye(config, output)
         eeg_result = compare_eeg(config, repo, output)
