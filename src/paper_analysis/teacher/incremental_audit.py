@@ -102,7 +102,7 @@ def eye_models(config, repo, output):
 
 def merge_eye_models(repo, output):
     jobs = sorted(p for p in (output / "eye_models").iterdir() if p.is_dir())
-    if {p.name for p in jobs} != {"main", "boundary", "lopo_0", "lopo_1", "lopo_2", "lopo_3"}:
+    if {p.name for p in jobs} - {"boundary10"} != {"main", "boundary", "lopo_0", "lopo_1", "lopo_2", "lopo_3"}:
         raise ValueError("Incomplete independent eye job roster")
     for folder in jobs:
         if not (folder / "execution_provenance.json").is_file(): raise ValueError("Independent eye job unfinished: "+folder.name)
@@ -116,6 +116,31 @@ def merge_eye_models(repo, output):
     eye.save(pd.read_csv(output / "eye" / "independent_factor_tests.csv"), output / "eye" / "09_multiplicity_audit.csv")
     eye.save(pd.read_csv(output / "eye" / "independent_contrasts.csv"), output / "eye" / "10_contrast_direction_audit.csv")
     seal(output / "eye", "independent_calculation_seal.json", repo)
+
+
+def eye_boundary_escalation(config,repo,output):
+    target=output/'eye'
+    main=pd.read_csv(output/'eye_models/main/independent_factor_tests.csv').query('variant=="main"')
+    boundary=pd.read_csv(output/'eye_models/boundary/independent_factor_tests.csv')
+    paired=main.merge(boundary,on=['outcome','effect'],suffixes=('_main','_boundary'),validate='one_to_many')
+    valid=paired.q_main.notna() & paired.q_boundary.notna()
+    crossings=valid & paired.q_main.lt(.05).ne(paired.q_boundary.lt(.05))
+    eye.save(paired,target/'boundary_5px_trigger_comparison.csv')
+    eye.dump(target/'boundary_10px_applicability.json',{'triggered':bool(crossings.any()),'five_pixel_q_crossings':int(crossings.sum()),'criterion':'Any valid Family A/B factor q crosses 0.05 under ±5 px'})
+    if not crossings.any(): return
+    d=pd.read_csv(target/'independent_eye_trials.csv');events=pd.read_csv(target/'independent_fixations.csv')
+    mapping=pd.read_excel(config['scene_aoi_mapping']).drop_duplicates('AOIFile')
+    masks={}
+    for row in mapping.to_dict('records'):
+        for delta in [-10,10]:masks[(row['AOIFile'],delta)]=eye.make_masks(row,delta)[:2]
+    groups={key:group for key,group in events.groupby(eye.KEY)};rows=[]
+    for record in d.to_dict('records'):
+        source=groups[(record['Participant'],record['GlobalTrialOrder'])]
+        for delta in [-10,10]:
+            mask,areas=masks[(record['AOIFile'],delta)];assigned=eye.assign_events(source,mask)
+            rows.append({**record,**eye.trial_metrics(assigned,areas,record['RecordingDuration'],record['ValidTrackingRatio'],record['Complexity']),'AuditVariant':f'boundary_{delta:+d}'})
+    path=target/'independent_eye_boundary10_trials.csv';eye.save(pd.DataFrame(rows),path)
+    run_r(config,repo,'analysis/r/eye_independent_audit_analysis.R',{'input':str(path),'mode':'boundary'},output/'eye_models/boundary10','boundary10')
 
 
 def seal(directory, filename, repo):
@@ -303,6 +328,8 @@ def run(config, config_path, repo, output, phase):
         run_r(config,repo,"analysis/r/eye_independent_audit_analysis.R",{"input":str(output/"eye/independent_eye_sensitivity_trials.csv"),"mode":"boundary"},output/"eye_models/boundary","boundary")
     if phase == "eye-seal-models":
         merge_eye_models(repo,output)
+    if phase == "eye-boundary-escalation":
+        eye_boundary_escalation(config,repo,output)
     if phase in ["all", "eeg-source"]:
         eeg_sources(config, repo, output)
     if phase in ["all", "eeg-current-models"]:

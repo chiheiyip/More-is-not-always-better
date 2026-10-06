@@ -100,6 +100,15 @@ def test_missing_current_family_requires_all_q_to_remain_unavailable():
     with pytest.raises(ValueError,match='joint BH'):bh_checks(frame,'coefficient')
 
 
+def test_boundary_escalation_does_not_run_without_valid_q_crossing(tmp_path):
+    from paper_analysis.teacher.incremental_audit import eye_boundary_escalation
+    (tmp_path/'eye').mkdir();(tmp_path/'eye_models/main').mkdir(parents=True);(tmp_path/'eye_models/boundary').mkdir(parents=True)
+    pd.DataFrame({'variant':['main'],'outcome':['TableShare'],'effect':['WWR'],'q':[.1]}).to_csv(tmp_path/'eye_models/main/independent_factor_tests.csv',index=False)
+    pd.DataFrame({'variant':['boundary_+5','boundary_-5'],'outcome':['TableShare']*2,'effect':['WWR']*2,'q':[.2,np.nan]}).to_csv(tmp_path/'eye_models/boundary/independent_factor_tests.csv',index=False)
+    eye_boundary_escalation({},tmp_path,tmp_path)
+    assert not json.loads((tmp_path/'eye/boundary_10px_applicability.json').read_text())['triggered']
+
+
 def test_variant_qc_common_identity_and_subject_exclusion():
     data = []
     for trim in [0,5,10,15]:
