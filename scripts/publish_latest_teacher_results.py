@@ -311,6 +311,7 @@ if __name__ == "__main__":
             elif options.phase=='prepare':handoff.prepare(config,REPO)
             elif options.phase=='document':handoff.document(config,REPO,make_docx)
             elif options.phase=='finalize':handoff.publish(config,REPO)
+            elif options.phase=='refresh-evidence':handoff.refresh_publication_pointers(config,REPO)
             else:parser.error('Incremental handoff supports prepare, document, finalize, and --dry-run')
             raise SystemExit(0)
         from paper_analysis.teacher.request_handoff import (load_config, preflight, verify,
