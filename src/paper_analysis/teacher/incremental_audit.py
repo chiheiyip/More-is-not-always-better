@@ -97,10 +97,19 @@ def eye_models(config, repo, output):
         tasks = {pool.submit(run_r, config, repo, "analysis/r/eye_independent_audit_analysis.R", job, output / "eye_models" / label, label): label for label, job in jobs}
         for task in concurrent.futures.as_completed(tasks):
             task.result(); print("Independent R finished:", tasks[task], flush=True)
+    merge_eye_models(repo, output)
+
+
+def merge_eye_models(repo, output):
+    jobs = sorted(p for p in (output / "eye_models").iterdir() if p.is_dir())
+    if {p.name for p in jobs} != {"main", "boundary", "lopo_0", "lopo_1", "lopo_2", "lopo_3"}:
+        raise ValueError("Incomplete independent eye job roster")
+    for folder in jobs:
+        if not (folder / "execution_provenance.json").is_file(): raise ValueError("Independent eye job unfinished: "+folder.name)
     for filename in ["independent_coefficients.csv", "independent_factor_tests.csv", "independent_contrasts.csv", "08_model_specification_audit.csv", "independent_contrast_matrices.csv"]:
         frames = []
-        for label, _ in jobs:
-            p = output / "eye_models" / label / filename
+        for folder in jobs:
+            p = folder / filename
             try: frames.append(pd.read_csv(p, encoding="utf-8-sig"))
             except pd.errors.EmptyDataError: pass
         eye.save(pd.concat(frames, ignore_index=True), output / "eye" / filename)
@@ -290,6 +299,10 @@ def run(config, config_path, repo, output, phase):
         eye.process(config, output / "eye")
     if phase in ["all", "eye-models"]:
         eye_models(config, repo, output)
+    if phase == "eye-boundary-models":
+        run_r(config,repo,"analysis/r/eye_independent_audit_analysis.R",{"input":str(output/"eye/independent_eye_sensitivity_trials.csv"),"mode":"boundary"},output/"eye_models/boundary","boundary")
+    if phase == "eye-seal-models":
+        merge_eye_models(repo,output)
     if phase in ["all", "eeg-source"]:
         eeg_sources(config, repo, output)
     if phase in ["all", "eeg-current-models"]:
