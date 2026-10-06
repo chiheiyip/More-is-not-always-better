@@ -215,6 +215,12 @@ def test_real_r_independent_models_and_complete_families(tmp_path):
     assert factors.family_size.eq(3).all()
     contrasts = pd.read_csv(tmp_path / "independent_contrasts.csv")
     assert len(contrasts) == 24 and contrasts.contrast.eq("C0-C1").sum() == 6
+    # Boundary data intentionally repeats each trial once per changed mask.
+    boundary=pd.concat([pd.DataFrame(records).assign(AuditVariant='boundary_+5'),pd.DataFrame(records).assign(AuditVariant='boundary_-5')],ignore_index=True)
+    boundary.to_csv(tmp_path/'boundary.csv',index=False);job['input']=str(tmp_path/'boundary.csv');job['mode']='boundary';(tmp_path/'job.json').write_text(json.dumps(job))
+    result=subprocess.run([str(rs),'--vanilla',str(repo/'analysis/r/eye_independent_audit_analysis.R'),str(tmp_path/'job.json')],env=env,capture_output=True,text=True)
+    assert result.returncode==0,result.stdout+result.stderr
+    assert len(pd.read_csv(tmp_path/'08_model_specification_audit.csv'))==12
 
 
 def test_real_matlab_source_audit_roi_order_endpoints_and_dual_denominators(tmp_path):
