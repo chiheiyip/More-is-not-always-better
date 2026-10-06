@@ -22,5 +22,7 @@
   "r_workers": 3,
   "coordinate_tolerance_px": 1.0,
   "boundary_10px": false,
+  "request_type": "eye_eeg_incremental",
+  "stamp": "YYYYMMDD",
   "ica_operator_statement": "研究者说明：通过EEGLAB界面运行ICA，结束后没有进一步选择或删除成分。ICA专项核查已按用户要求取消。"
 }

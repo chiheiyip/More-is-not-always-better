@@ -94,7 +94,8 @@ def eeg_evidence(config,root):
 
 
 def eye_arithmetic(root):
-    target=Path(root)/'eye';d=pd.read_csv(target/'independent_eye_trials.csv');selected=d.loc[d.QC60]
+    target=Path(root)/'eye';prefix='canonical_' if (target/'canonical_eye_trials.csv').exists() else ''
+    d=pd.read_csv(target/(prefix+'eye_trials.csv' if prefix else 'independent_eye_trials.csv'));selected=d.loc[d.QC60]
     participant=selected.groupby(['Participant','WWR','Complexity'],as_index=False)[CORE].mean()
     save(participant,target/'descriptive_participant_condition_means.csv')
     description=[]
@@ -103,7 +104,7 @@ def eye_arithmetic(root):
             values=g[outcome].dropna();n=len(values);sd=values.std(ddof=1);half=t.ppf(.975,n-1)*sd/np.sqrt(n) if n>1 else np.nan
             description.append(dict(WWR=w,Complexity=c,outcome=outcome,NParticipants=n,Mean=values.mean(),SD=sd,Median=values.median(),CI_low=values.mean()-half,CI_high=values.mean()+half,Unit='participant condition mean, descriptive only'))
     save(pd.DataFrame(description),target/'descriptive_participant_condition_summary.csv')
-    contrasts=pd.read_csv(target/'independent_contrasts.csv');checks=[]
+    contrasts=pd.read_csv(target/(prefix+'independent_contrasts.csv'));checks=[]
     for (variant,outcome,omitted,inference),g in contrasts.groupby(['variant','outcome','omitted_participant','inference'],dropna=False):
         g=g.loc[g.contrast.str.startswith('WWR')]
         if len(g)==3 and np.isfinite(g.raw_p).all():
@@ -111,7 +112,7 @@ def eye_arithmetic(root):
             if not np.allclose(q,g.Holm_p,rtol=1e-10,atol=1e-12):raise ValueError('Independent eye Python/R Holm differs')
             checks.append(dict(variant=variant,outcome=outcome,omitted_participant=omitted,inference=inference,FamilySize=3,PythonRMatch=True))
     save(pd.DataFrame(checks),target/'Python_R_Holm_checks.csv')
-    co=pd.read_csv(target/'independent_coefficients.csv');valid=co.raw_p.notna()&co.estimate.notna()
+    co=pd.read_csv(target/(prefix+'independent_coefficients.csv'));valid=co.raw_p.notna()&co.estimate.notna()
     coef_checks=[]
     for (variant,term,family,omitted),g in co.groupby(['variant','term','family','omitted_participant'],dropna=False):
         if family not in ['A','B']:continue
@@ -133,7 +134,8 @@ def normalize_eye_term(value):
 def eye_models_comparison(config,root):
     """Compare like inference layers, keeping primary and companion separate."""
     root=Path(root);target=root/'eye';formal=Path(config['formal_eye_run'])/'02_eye_stage2'
-    independent=pd.read_csv(target/'independent_coefficients.csv');tables=[]
+    canonical=target/'canonical_independent_coefficients.csv'
+    independent=pd.read_csv(canonical if canonical.exists() else target/'independent_coefficients.csv');tables=[]
     old=pd.concat([pd.read_csv(formal/'09_familyA_primary_models.csv'),pd.read_csv(formal/'10_familyB_primary_models.csv')],ignore_index=True)
     old['term']=old.term.map(normalize_eye_term)
     old['raw_p']=np.where(old.outcome.isin(['TableShare','WindowShare']),old['p.value.likelihood'],old['p.value.CR2'])
@@ -158,9 +160,9 @@ def eye_models_comparison(config,root):
     if not set(pairs.contrast).issubset(directions):raise ValueError('Unknown original WWR contrast direction')
     pairs['estimate']=[value*directions[label][1] for value,label in zip(pairs.estimate,pairs.contrast)]
     pairs['contrast']=[directions[label][0] for label in pairs.contrast]
-    newpairs=pd.read_csv(target/'independent_contrasts.csv');newpairs=newpairs.loc[newpairs.variant.eq('main')&newpairs.inference.isin(['equal_weight_primary_likelihood','equal_weight_GLMM_Wald'])&newpairs.contrast.str.startswith('WWR')]
+    newpairs=pd.read_csv(target/('canonical_independent_contrasts.csv' if canonical.exists() else 'independent_contrasts.csv'));newpairs=newpairs.loc[newpairs.variant.eq('main')&newpairs.inference.isin(['equal_weight_primary_likelihood','equal_weight_GLMM_Wald'])&newpairs.contrast.str.startswith('WWR')]
     post=pairs[['outcome','contrast','estimate','SE','df','Holm_p']].merge(newpairs[['outcome','contrast','estimate','SE','df','Holm_p']],on=['outcome','contrast'],suffixes=('_from','_to'),how='outer',validate='one_to_one',indicator=True)
     post['HolmThresholdCrossing']=post.Holm_p_from.notna()&post.Holm_p_to.notna()&post.Holm_p_from.lt(.05).ne(post.Holm_p_to.lt(.05))
     save(post,target/'WWR_primary_Holm_replication_comparison.csv')
     changed=result.loc[substantive].copy();save(changed,target/'eye_threshold_discrepancy_investigation.csv')
-    return dict(PrimaryAndCR2RowsCompared=len(result),NearExactRows=int(exact.sum()),RawPThresholdCrossings=int(result.raw_p_crosses_005.fillna(False).sum()),RobustBHThresholdCrossings=int(result.joint_q_crosses_005.fillna(False).sum()),WWRHolmThresholdCrossings=int(post.HolmThresholdCrossing.sum()),OriginalRobustNonInterceptPositive=int((robust.term.ne('(Intercept)')&robust.joint_q.lt(.05)).sum()),IndependentRobustNonInterceptPositive=int((new.term.ne('(Intercept)')&new.joint_q.lt(.05)).sum()),InitialIndependence='First calculations sealed before comparison; corrected validity/primary-model revision after comparison is disclosed',PixelRule='Independent rounded coordinates/cv2 polygon masks; original floor coordinates/PIL masks. Interpret boundary differences explicitly, not as proof of original error.')
+    return dict(PrimaryAndCR2RowsCompared=len(result),NearExactRows=int(exact.sum()),RawPThresholdCrossings=int(result.raw_p_crosses_005.fillna(False).sum()),RobustBHThresholdCrossings=int(result.joint_q_crosses_005.fillna(False).sum()),WWRHolmThresholdCrossings=int(post.HolmThresholdCrossing.sum()),OriginalRobustNonInterceptPositive=int((robust.term.ne('(Intercept)')&robust.joint_q.lt(.05)).sum()),IndependentRobustNonInterceptPositive=int((new.term.ne('(Intercept)')&new.joint_q.lt(.05)).sum()),InitialIndependence='First calculations sealed before comparison; corrected validity/primary-model revision after comparison is disclosed',PixelRule='Recorded PIL polygon/floor semantics independently reconstructed; rounded/cv2 outputs retained as pixel-rule sensitivity.' if canonical.exists() else 'Independent rounded coordinates/cv2 polygon masks; original floor coordinates/PIL masks. Interpret boundary differences explicitly, not as proof of original error.')
