@@ -278,14 +278,30 @@ def refresh_publication_pointers(config,repo):
         path=Path(config['outputs_root'])/filename
         value=json.loads(path.read_text(encoding='utf-8'))
         previous=value.get('previous_delivery',{})
-        for field in ['zip','delivery_zip']:
-            if field in previous:
-                normalized=str(Path(previous[field]));previous[field]=relocated.get(normalized,previous[field])
-        value['previous_delivery']=previous
+        previous,status=verify_legacy_zip_reference(previous,relocated,publication['archive_root'])
+        value['previous_delivery']=previous;value['legacy_zip_reference_verification']=status
         value['zip']=publication['zip'];value['zip_sha256']=publication['zip_sha256']
         value['delivery_zip']=publication['zip'];value['pointer_refresh_git_sha']=git_sha(repo)
         dump(path,value)
-    dump(root/'publication_pointer_refresh.json',{'code_sha':git_sha(repo),'publication_sha':publication['publication_git_sha'],'scope':'Normalize legacy duplicated separators before archive lookup; current ZIP and validated artifacts unchanged'})
+    dump(root/'publication_pointer_refresh.json',{'code_sha':git_sha(repo),'publication_sha':publication['publication_git_sha'],'scope':'Normalize legacy paths and verify archived ZIP references by recorded hash; missing historical references explicitly unverified. Current ZIP and validated artifacts unchanged'})
+
+
+def verify_legacy_zip_reference(previous,relocated,archive):
+    previous=dict(previous)
+    for field in ['zip','delivery_zip']:
+        if field in previous:
+            normalized=str(Path(previous[field]));previous[field]=relocated.get(normalized,previous[field])
+    reference=previous.get('zip',previous.get('delivery_zip'))
+    expected=previous.get('zip_sha256')
+    if reference and Path(reference).is_file() and (not expected or sha(reference)==expected):
+        return previous,{'state':'verified_archived_path','recorded_hash_verified':bool(expected)}
+    candidates=[{'path':str(p),'sha256':sha(p)} for p in Path(archive).rglob('*.zip')]
+    matches=[r for r in candidates if expected and r['sha256']==expected]
+    if len(matches)==1:
+        for field in ['zip','delivery_zip']:
+            if field in previous:previous[field]=matches[0]['path']
+        return previous,{'state':'verified_by_recorded_hash','recorded_hash_verified':True}
+    return previous,{'state':'unable_to_verify_historical_ZIP_reference','recorded_reference':reference,'recorded_sha256':expected,'actual_archived_zip_candidates':candidates,'note':'Actual previous-directory contents archived byte-for-byte; historical pointer path/hash is not proof of an unavailable ZIP. No guessed redirection.'}
 
 
 def publish(config,repo):

@@ -63,3 +63,14 @@ def test_active_pointer_updates_zip_hash_and_preserves_archived_history(tmp_path
     doubled=filename.replace('\\','\\\\')
     actual=handoff.renew_delivery_pointer({'zip':doubled},current,{filename:'archive/old.zip'},tmp_path)
     assert actual['previous_delivery']['zip']=='archive/old.zip'
+
+
+def test_missing_historical_zip_is_not_replaced_by_different_archive(tmp_path):
+    archive=tmp_path/'archive';archive.mkdir();actual=archive/'renamed.zip';actual.write_bytes(b'actual-old-package')
+    previous={'zip':str(tmp_path/'missing.zip'),'zip_sha256':'unavailable-original-hash'}
+    record,status=handoff.verify_legacy_zip_reference(previous,{},archive)
+    assert record==previous and status['state']=='unable_to_verify_historical_ZIP_reference'
+    assert status['actual_archived_zip_candidates'][0]['sha256']==handoff.sha(actual)
+    previous['zip_sha256']=handoff.sha(actual)
+    record,status=handoff.verify_legacy_zip_reference(previous,{},archive)
+    assert record['zip']==str(actual) and status['state']=='verified_by_recorded_hash'
