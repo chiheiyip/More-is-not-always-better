@@ -59,3 +59,7 @@ def test_active_pointer_updates_zip_hash_and_preserves_archived_history(tmp_path
     assert actual['previous_delivery']['zip']=='archive/old.zip'
     assert actual['previous_delivery']['zip_sha256']=='old-hash'
     assert actual['git_sha']=='original-calculation' and actual['publication_git_sha']=='publisher'
+    filename=str(tmp_path/'old.zip')
+    doubled=filename.replace('\\','\\\\')
+    actual=handoff.renew_delivery_pointer({'zip':doubled},current,{filename:'archive/old.zip'},tmp_path)
+    assert actual['previous_delivery']['zip']=='archive/old.zip'
