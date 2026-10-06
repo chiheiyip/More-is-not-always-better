@@ -109,6 +109,24 @@ def test_boundary_escalation_does_not_run_without_valid_q_crossing(tmp_path):
     assert not json.loads((tmp_path/'eye/boundary_10px_applicability.json').read_text())['triggered']
 
 
+def test_triggered_boundary_escalation_relinks_approved_aoi_from_design(tmp_path,monkeypatch):
+    import paper_analysis.teacher.incremental_audit as audit
+    (tmp_path/'eye').mkdir();(tmp_path/'eye_models/main').mkdir(parents=True);(tmp_path/'eye_models/boundary').mkdir(parents=True)
+    pd.DataFrame({'variant':['main'],'outcome':['TableShare'],'effect':['WWR'],'q':[.1]}).to_csv(tmp_path/'eye_models/main/independent_factor_tests.csv',index=False)
+    pd.DataFrame({'variant':['boundary_+5'],'outcome':['TableShare'],'effect':['WWR'],'q':[.04]}).to_csv(tmp_path/'eye_models/boundary/independent_factor_tests.csv',index=False)
+    row={'Participant':'a','GlobalTrialOrder':1,'SceneID':1,'WWR':15,'Complexity':0,'OrderGroup':'order1','Block':1,'RecordingDuration':1,'ValidTrackingRatio':.9}
+    pd.DataFrame([row]).to_csv(tmp_path/'eye/independent_eye_trials.csv',index=False)
+    pd.DataFrame({'Participant':['a'],'GlobalTrialOrder':[1],'FixationX':[0],'FixationY':[0],'FixationDuration':[100],'FixationStartMS':[0]}).to_csv(tmp_path/'eye/independent_fixations.csv',index=False)
+    mapping=pd.DataFrame([{**{k:row[k] for k in ['SceneID','WWR','Complexity','OrderGroup','Block']},'AOIFile':'approved.json'}])
+    monkeypatch.setattr(audit.pd,'read_excel',lambda *args,**kwargs:mapping)
+    monkeypatch.setattr(audit.eye,'make_masks',lambda *args,**kwargs:(np.array([[1]],dtype=np.uint8),{'TableAreaShare':.2,'WindowAreaShare':.3,'EquipmentAreaShare':np.nan,'BackgroundAreaShare':.5},{}))
+    called=[];monkeypatch.setattr(audit,'run_r',lambda *args,**kwargs:called.append(args))
+    audit.eye_boundary_escalation({'scene_aoi_mapping':'approved.xlsx'},tmp_path,tmp_path)
+    assert len(called)==1
+    generated=pd.read_csv(tmp_path/'eye/independent_eye_boundary10_trials.csv')
+    assert generated.AOIFile.eq('approved.json').all() and set(generated.AuditVariant)=={'boundary_-10','boundary_+10'}
+
+
 def test_variant_qc_common_identity_and_subject_exclusion():
     data = []
     for trim in [0,5,10,15]:

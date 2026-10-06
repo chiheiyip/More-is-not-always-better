@@ -129,7 +129,10 @@ def eye_boundary_escalation(config,repo,output):
     eye.dump(target/'boundary_10px_applicability.json',{'triggered':bool(crossings.any()),'five_pixel_q_crossings':int(crossings.sum()),'criterion':'Any valid Family A/B factor q crosses 0.05 under ±5 px'})
     if not crossings.any(): return
     d=pd.read_csv(target/'independent_eye_trials.csv');events=pd.read_csv(target/'independent_fixations.csv')
-    mapping=pd.read_excel(config['scene_aoi_mapping']).drop_duplicates('AOIFile')
+    mapping=pd.read_excel(config['scene_aoi_mapping'])
+    linking=['SceneID','WWR','Complexity','OrderGroup','Block']
+    d=d.merge(mapping[linking+['AOIFile']],on=linking,validate='many_to_one')
+    mapping=mapping.drop_duplicates('AOIFile')
     masks={}
     for row in mapping.to_dict('records'):
         for delta in [-10,10]:masks[(row['AOIFile'],delta)]=eye.make_masks(row,delta)[:2]
