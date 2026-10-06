@@ -21,7 +21,7 @@ CORE = ["TableShare", "WindowShare", "RawCompetition", "LogTableEnrichment",
         "LogWindowEnrichment", "AdjustedCompetition"]
 RAW_COLUMNS = ["User", "Recording Time Stamp[ms]", "Tracking Ratio[%]", "Validity Left",
                "Validity Right", "Fixation Index", "Fixation Duration[ms]",
-               "Fixation Point X[px]", "Fixation Point Y[px]"]
+               "Fixation Point X[px]", "Fixation Point Y[px]", "Gaze Point X[px]", "Gaze Point Y[px]"]
 
 
 def sha(path):
@@ -201,12 +201,18 @@ def read_raw(path):
     raise ValueError(f"No valid raw CSV encoding: {path}")
 
 
-def deduplicate_fixations(raw, tolerance=1):
+def tracking_validity(raw):
+    left,right=(pd.to_numeric(raw[c],errors='coerce').eq(1) for c in ['Validity Left','Validity Right'])
+    x,y=(pd.to_numeric(raw[c],errors='coerce') for c in ['Gaze Point X[px]','Gaze Point Y[px]'])
+    return left & right & np.isfinite(x) & np.isfinite(y) & x.ge(0) & y.ge(0),left,right
+
+
+def deduplicate_fixations(raw, tolerance=1, recording_start_ms=None):
     numeric = [c for c in RAW_COLUMNS if c != "User"]
     d = raw.copy()
     for c in numeric:
         d[c] = pd.to_numeric(d[c], errors="coerce")
-    first = float(d["Recording Time Stamp[ms]"].min())
+    first = float(d["Recording Time Stamp[ms]"].min()) if recording_start_ms is None else float(recording_start_ms)
     events, issues = [], []
     valid = d["Fixation Index"].notna() & (d["Fixation Index"] >= 0)
     for index, rows in d.loc[valid].groupby("Fixation Index", sort=True):
@@ -333,10 +339,9 @@ def process(config, output):
         if timestamps.isna().any() or (timestamps.diff().dropna() < 0).any():
             raise ValueError("Invalid/nonmonotone raw timestamps")
         duration = float(timestamps.max() - timestamps.min()) / 1000
-        left, right = (pd.to_numeric(raw[c], errors="coerce").eq(1) for c in ["Validity Left", "Validity Right"])
-        valid = left & right
+        valid,left,right = tracking_validity(raw)
         tracking = float(valid.mean())
-        events, issues = deduplicate_fixations(raw, config.get("coordinate_tolerance_px", 1.0))
+        events, issues = deduplicate_fixations(raw.loc[valid], config.get("coordinate_tolerance_px", 1.0), timestamps.min())
         events = assign_events(events, masks[record.AOIFile])
         for c in KEY:
             events[c] = record[c]

@@ -15,7 +15,7 @@ def main(argv=None):
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--outdir", type=Path)
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--phase", choices=["all", "eye-process", "eye-models", "eye-boundary-models", "eye-seal-models", "eye-boundary-escalation", "eye-compare", "eeg-source", "eeg-current-models", "eeg-compare", "eeg-evidence", "compare"], default="all")
+    parser.add_argument("--phase", choices=["all", "eye-process", "eye-models", "eye-boundary-models", "eye-seal-models", "eye-boundary-escalation", "eye-compare", "eeg-source", "eeg-current-models", "eeg-compare", "eeg-evidence", "reuse-eeg", "compare"], default="all")
     args = parser.parse_args(argv)
     config = load_config(args.config)
     plan = preflight(config, REPO)

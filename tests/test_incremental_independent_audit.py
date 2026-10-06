@@ -10,7 +10,7 @@ from PIL import Image
 
 from paper_analysis.teacher.independent_eye import (
     RAW_COLUMNS, deduplicate_fixations, assign_events, trial_metrics, make_masks,
-    read_questionnaire, unique, canonical_name,
+    read_questionnaire, unique, canonical_name, tracking_validity,
 )
 from paper_analysis.teacher.independent_eeg import reconstruct_qc, read_raw_acquisition, match_scene_epochs, current_model_inputs
 from paper_analysis.teacher.independent_eye import source_identity
@@ -38,6 +38,15 @@ def test_fixations_deduplicate_duration_and_record_coordinate_conflict():
     raw.loc[1, "Fixation Point X[px]"] = 10
     _, issues = deduplicate_fixations(raw)
     assert issues.Issue.tolist() == ["coordinate_conflict"]
+
+
+def test_eye_valid_samples_require_gaze_coordinates_before_fixation_deduplication():
+    raw=pd.DataFrame({c:[0,0,0] for c in RAW_COLUMNS});raw['Validity Left']=1;raw['Validity Right']=1
+    raw['Gaze Point X[px]']=[2,-1,3];raw['Gaze Point Y[px]']=[2,4,3]
+    raw['Fixation Index']=[1,1,2];raw['Fixation Point X[px]']=[2,100,3];raw['Fixation Point Y[px]']=[2,100,3];raw['Fixation Duration[ms]']=[100,100,200];raw['Recording Time Stamp[ms]']=[10,20,30]
+    valid,_,_=tracking_validity(raw);assert valid.tolist()==[True,False,True]
+    events,issues=deduplicate_fixations(raw.loc[valid],recording_start_ms=0)
+    assert issues.empty and events.FixationX.tolist()==[2,3] and events.FixationStartMS.tolist()==[10,30]
 
 
 def test_offstimulus_and_structural_missing_are_distinct():
@@ -258,6 +267,14 @@ def test_real_r_independent_models_and_complete_families(tmp_path):
     assert factors.family_size.eq(3).all()
     contrasts = pd.read_csv(tmp_path / "independent_contrasts.csv")
     assert len(contrasts) == 24 and contrasts.contrast.eq("C0-C1").sum() == 6
+    ordered=pd.DataFrame(records)
+    for col in ['TableShare','WindowShare']:
+        ordered.loc[ordered.index%11==0,col]=0;ordered.loc[ordered.index%13==0,col]=1
+    ordered.to_csv(tmp_path/'ordered.csv',index=False);job['input']=str(tmp_path/'ordered.csv');job['mode']='ordered_test';(tmp_path/'job.json').write_text(json.dumps(job))
+    result=subprocess.run([str(rs),'--vanilla',str(repo/'analysis/r/eye_independent_audit_analysis.R'),str(tmp_path/'job.json')],env=env,capture_output=True,text=True)
+    assert result.returncode==0,result.stdout+result.stderr
+    ordered_di=pd.read_csv(tmp_path/'08_model_specification_audit.csv');assert ordered_di.loc[ordered_di.outcome.isin(['TableShare','WindowShare']),'trials'].eq(360).all()
+    assert ordered_di.loc[ordered_di.outcome.isin(['TableShare','WindowShare']),'method'].str.startswith('ordered_beta').all()
     # Boundary data intentionally repeats each trial once per changed mask.
     boundary=pd.concat([pd.DataFrame(records).assign(AuditVariant='boundary_+5'),pd.DataFrame(records).assign(AuditVariant='boundary_-5')],ignore_index=True)
     boundary.to_csv(tmp_path/'boundary.csv',index=False);job['input']=str(tmp_path/'boundary.csv');job['mode']='boundary';(tmp_path/'job.json').write_text(json.dumps(job))

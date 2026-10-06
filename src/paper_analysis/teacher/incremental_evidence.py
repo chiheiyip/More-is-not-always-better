@@ -112,6 +112,15 @@ def eye_arithmetic(root):
             checks.append(dict(variant=variant,outcome=outcome,omitted_participant=omitted,FamilySize=3,PythonRMatch=True))
     save(pd.DataFrame(checks),target/'Python_R_Holm_checks.csv')
     co=pd.read_csv(target/'independent_coefficients.csv');valid=co.raw_p.notna()&co.estimate.notna()
+    coef_checks=[]
+    for (variant,term,family,omitted),g in co.groupby(['variant','term','family','omitted_participant'],dropna=False):
+        if family not in ['A','B']:continue
+        expected_members=CORE[:3] if family=='A' else CORE[3:]
+        complete=len(g)==3 and set(g.outcome)==set(expected_members) and np.isfinite(g.raw_p).all() and g.converged.all()
+        q=multipletests(g.raw_p,method='fdr_bh')[1] if complete else np.full(len(g),np.nan)
+        if not np.allclose(q,g.q,atol=1e-12,rtol=1e-10,equal_nan=True):raise ValueError('Eye coefficient Python/R BH differs')
+        coef_checks.append(dict(variant=variant,term=term,family=family,omitted_participant=omitted,ExpectedMembers=3,ObservedMembers=len(g),Complete=bool(complete),PythonRMatch=True))
+    save(pd.DataFrame(coef_checks),target/'Python_R_coefficient_BH_checks.csv')
     expected=np.where(co.inference.eq('GLMM_Wald_z'),2*norm.sf(np.abs(co.estimate/co.SE)),2*t.sf(np.abs(co.estimate/co.CR2_SE),co.df))
     if not np.allclose(expected[valid],co.raw_p[valid],atol=1e-6,rtol=1e-10):raise ValueError('Eye coefficient/SE/df/p relation differs')
     return dict(descriptive_rows=len(description),HolmFamiliesVerified=len(checks),CoefficientRelationsVerified=int(valid.sum()))

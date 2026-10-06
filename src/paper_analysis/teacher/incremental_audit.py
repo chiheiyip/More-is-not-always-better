@@ -229,6 +229,9 @@ def compare_eye(config, output):
     formal = pd.read_csv(Path(config["formal_eye_run"]) / "02_eye_stage2/eye_stage2_model_input.csv", encoding="utf-8-sig")
     rename = {"ExperienceGroup": "ExerciseFrequency"}
     formal = formal.rename(columns={k: v for k, v in rename.items() if v not in formal})
+    if 'IncludedPrimary' not in formal: raise ValueError('Formal eye input must explicitly declare primary inclusion')
+    formal_all = formal.copy()
+    formal = formal.loc[formal.IncludedPrimary.map(eye.truth)].copy()
     selected = independent.loc[independent.QC60].copy()
     fields = [c for c in [*CORE, "Gender", "ExerciseFrequency", "WWR", "Complexity", "Block", "PositionWithinBlock", "PositionWithinBlockCentered", "OrderGroup", "PreviousWWR", "PreviousComplexity", "ValidTrackingRatio", "ValidTrackingSeconds", "TableAreaShare", "WindowAreaShare", "EquipmentAreaShare"] if c in formal]
     # Explicitly decode categorical display labels; never infer Q1.4 from these.
@@ -238,7 +241,7 @@ def compare_eye(config, output):
     values, summary = compare_values(selected, formal, fields)
     eye.save(values, target / "trial_input_comparison.csv"); eye.save(summary, target / "trial_input_comparison_summary.csv")
     q = independent.drop_duplicates("Participant")[["Participant", "Q1.4Original", "ExerciseFrequency"]]
-    used = formal.groupby("Participant").ExerciseFrequency.agg(lambda v: ";".join(sorted(set(v.dropna().astype(str))))).reset_index().rename(columns={"ExerciseFrequency": "FormalExerciseFrequency"})
+    used = formal_all.groupby("Participant").ExerciseFrequency.agg(lambda v: ";".join(sorted(set(v.dropna().astype(str))))).reset_index().rename(columns={"ExerciseFrequency": "FormalExerciseFrequency"})
     q = q.merge(used, on="Participant", how="left")
     q["Match"] = q.ExerciseFrequency.eq(q.FormalExerciseFrequency)
     q["Notes"] = np.where(q.FormalExerciseFrequency.isna(), "No retained formal eye trial; candidate still audited", "Q1.4-derived group independently compared")
@@ -325,6 +328,16 @@ def run(config, config_path, repo, output, phase):
     eye.dump(output / ("phase_"+phase+"_provenance.json"), {"code_sha":git_sha(repo),"config_sha256":eye.sha(config_path),"started_at":datetime.now(timezone.utc).isoformat()})
     if phase in ["all", "eye-process"]:
         eye.process(config, output / "eye")
+    if phase == 'reuse-eeg':
+        original=Path(config['eeg_reuse_run']);destination=output/'eeg'
+        if destination.exists():raise ValueError('Reused EEG destination already exists')
+        records=[{'path':str(p),'relative_path':str(p.relative_to(original/'eeg')),'sha256':eye.sha(p)} for p in sorted((original/'eeg').rglob('*')) if p.is_file()]
+        shutil.copytree(original/'eeg',destination)
+        for record in records:
+            if eye.sha(record['path'])!=record['sha256'] or eye.sha(destination/record['relative_path'])!=record['sha256']:raise ValueError('EEG reuse bytes changed')
+        for name in ['eeg_comparison_summary.json','phase_eeg-source_provenance.json','phase_eeg-current-models_provenance.json','phase_eeg-evidence_provenance.json','phase_eeg-compare_provenance.json']:
+            if (original/name).is_file():shutil.copyfile(original/name,output/name)
+        eye.dump(output/'EEG_stage_reuse_manifest.json',{'source_run':str(original),'files':records,'original_execution_provenance_retained':True,'reason':'Only eye validity implementation was revised after initial comparison'})
     if phase in ["all", "eye-models"]:
         eye_models(config, repo, output)
     if phase == "eye-boundary-models":

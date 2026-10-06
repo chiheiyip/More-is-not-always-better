@@ -77,3 +77,14 @@ Generic raw User labels require an explicit `unresolved_export_labels` entry and
 a participant-bearing filename; linkage remains unverified and must be disclosed.
 Every phase records its own committed code SHA; older computed stages retain
 original execution provenance.
+
+The first sealed eye audit omitted nonnegative finite gaze coordinates from its
+validity definition and deduplicated unfiltered sample rows. Keep that initial
+run intact. The corrected run requires both eye codes ==1 and finite nonnegative
+Gaze Point X/Y, then deduplicates only valid sample rows; TTFF retains the original
+recording time origin. It is explicitly a post-comparison revision, not a second
+blind audit. Bounded primary shares use independent ordered-beta mixed models;
+conditional interior beta, logit-LMM and a raw-share CR2 companion are separate
+supplements. The formal CSV contains all candidate trials, so comparisons must
+apply its explicit IncludedPrimary flag. `reuse-eeg` copies already verified EEG
+stages byte-for-byte, retaining original computation SHAs and documenting reuse.
