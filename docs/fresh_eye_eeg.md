@@ -34,3 +34,24 @@ The latest pointer explicitly states eye/EEG scope, while the old questionnaire
 run and its provenance remain historical. Large waveform/PSD caches stay in the
 new run directory. Optional historical comparison paths are read only after
 fresh calculations complete and never supply model inputs.
+
+The numerical calculation SHA and later verification/publication SHA are recorded
+separately. Presentation fixes must never relabel existing models as newly fitted.
+The standalone `verify_fresh_waveform_psd.py --run-root <completed-run>` reads
+current FDT waveforms and source hashes, independently runs SciPy Welch and checks
+band integrals against the committed MATLAB cache. Its default sample includes a
+locked corrected participant when that participant survived QC; all cached
+frequency grids are registered. It does not alter the analysis or source files.
+
+Finalization archives outdated root summaries and indices, updates the formal
+nine-sheet index and latest pointers, and keeps prior questionnaire provenance.
+The document builder uses the bundled Python runtime (`fresh.artifact_python`
+can specify it explicitly); the workbook uses the bundled Node/Artifact Tool.
+Both teacher and formal indices, and all Word pages, require recorded review.
+The teacher index uses relative links inside the portable flat-source folder;
+the formal root index links to the current published delivery files.
+
+All counts refer to their declared grain. Synchronized TimeBins counts table
+rows with both AOI and onset-window dimensions, rather than unique physical bins.
+A missing Stage 3 S3 outcome input leaves questionnaire-prediction models and
+S3-specific intersections deferred; it does not claim these as freshly verified.
