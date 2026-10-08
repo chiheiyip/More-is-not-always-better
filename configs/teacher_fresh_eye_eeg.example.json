@@ -15,6 +15,7 @@
     "verification_rscript": "C:/Program Files/R/R-4.5.3/bin/x64/Rscript.exe",
     "verification_r_library": "D:/study-local/R-library",
     "node": "D:/runtime/node.exe",
+    "artifact_python": "D:/runtime/python/python.exe",
     "locked_source_hashes": {},
     "fdt_aliases": {},
     "stamp": "YYYYMMDD",

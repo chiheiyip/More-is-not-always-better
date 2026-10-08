@@ -19,11 +19,20 @@ for(let t=0;t<payload.tables.length;t++){
     const linkCol=table.columns.indexOf('平铺文件')>=0?table.columns.indexOf('平铺文件'):table.columns.indexOf('flat_name');
     if(linkCol>=0)for(let r=0;r<table.rows.length;r++){
       const target=String(table.rows[r][linkCol]).replaceAll('"','""');
-      sh.getCell(r+1,linkCol).formulas=[[`=HYPERLINK("filesource_flat/${target}","${target}")`]];
+      const prefix=String(payload.linkPrefix ?? 'filesource_flat/').replaceAll('"','""');
+      sh.getCell(r+1,linkCol).formulas=[[`=HYPERLINK("${prefix}${target}","${target}")`]];
     }
   }
   for(let c=0;c<width;c++)sh.getRange(`${col(c+1)}1:${col(c+1)}${table.rows.length+1}`).format.columnWidth=
     /内容|说明|路径|source_path|flat_name|平铺文件/.test(table.columns[c])?65:/SHA256/.test(table.columns[c])?70:23;
+  for(let r=0;r<table.rows.length;r++){
+    const lines=Math.max(...table.rows[r].map((value,c)=>{
+      const text=String(value??''),width=/内容|说明|路径|source_path|flat_name|平铺文件/.test(table.columns[c])?65:/SHA256/.test(table.columns[c])?70:23;
+      const visualLength=[...text].reduce((n,ch)=>n+(ch.charCodeAt(0)>255?2:1),0);
+      return Math.ceil(visualLength/Math.max(10,width-3));
+    }));
+    sh.getRange(`A${r+2}:${col(width)}${r+2}`).format.rowHeight=Math.max(38,lines*15+8);
+  }
   sh.freezePanes.freezeRows(1);
 }
 wb.recalculate();
