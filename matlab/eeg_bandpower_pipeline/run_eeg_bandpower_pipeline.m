@@ -564,7 +564,13 @@ try
     end
     if isfield(cfg, 'strict_structure'), opts.StrictStructure = logical(cfg.strict_structure); end
     if isfield(cfg, 'qc_hf_threshold'), opts.LegacyHfThreshold = double(cfg.qc_hf_threshold); end
-    if isfield(cfg, 'primary_onset_trim_s'), opts.PrimaryOnsetTrimS = double(cfg.primary_onset_trim_s); end
+    % Parallel analysis calls this the reference export, not a sole primary
+    % window. Match the Python config contract while retaining legacy configs.
+    if isfield(cfg, 'reference_onset_trim_s')
+        opts.PrimaryOnsetTrimS = double(cfg.reference_onset_trim_s);
+    elseif isfield(cfg, 'primary_onset_trim_s')
+        opts.PrimaryOnsetTrimS = double(cfg.primary_onset_trim_s);
+    end
     if isfield(cfg, 'onset_trim_variants_s'), opts.OnsetTrimVariantsS = double(cfg.onset_trim_variants_s); end
 catch ME
     warning('Could not read EEG config %s: %s', char(opts.ConfigPath), ME.message);

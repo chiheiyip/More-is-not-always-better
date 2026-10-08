@@ -72,6 +72,27 @@ verifyTrue(testCase, isnan(short.F_theta));
 verifyTrue(testCase, isnan(short.hf_ratio_20_40Hz));
 end
 
+function testCommittedParallelConfigSelectsReferenceExport(testCase)
+global SYNTHETIC_EEG
+fs = 100;
+t = (0:(20 * fs)) / fs;
+SYNTHETIC_EEG = synthetic_eeg(sin(2 * pi * 6 * t), fs);
+input_dir = fullfile(testCase.TestData.test_root, 'config_input');
+outdir = fullfile(testCase.TestData.test_root, 'config_output');
+mkdir(input_dir);
+fclose(fopen(fullfile(input_dir, 'P03.set'), 'w'));
+root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
+outputs = run_eeg_bandpower_pipeline(input_dir, outdir, ...
+    'StrictStructure', false, 'ConfigPath', fullfile(root, 'configs', 'eeg_analysis.json'));
+primary = readtable(outputs.all_subjects_scene_level);
+variants = readtable(outputs.all_subjects_scene_level_onset_sensitivity);
+verifyEqual(testCase, primary.onset_trim_s, 10);
+verifyEqual(testCase, sort(variants.onset_trim_s)', [0 5 10 15]);
+reference = variants(variants.onset_trim_s == 10, :);
+verifyEqual(testCase, primary.F_theta, reference.F_theta, 'AbsTol', 1e-12);
+verifyEqual(testCase, primary.hf_ratio_20_40Hz, reference.hf_ratio_20_40Hz, 'AbsTol', 1e-12);
+end
+
 function EEG = synthetic_eeg(signal, fs)
 labels = {'F3', 'F4', 'P3', 'PZ', 'P4', 'O1', 'OZ', 'O2'};
 EEG.data = repmat(signal, numel(labels), 1);
