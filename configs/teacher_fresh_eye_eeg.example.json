@@ -1,0 +1,37 @@
+{
+  "request_type": "eye_eeg_fresh",
+  "run_id": "eye_eeg_fresh_YYYYMMDD",
+  "outputs_root": "D:/study-local/results",
+  "participant_information": "D:/study-local/participant_information.xlsx",
+  "trial_order_mapping": "D:/study-local/trial_order_mapping.xlsx",
+  "scene_aoi_mapping": "D:/study-local/scene_AOI_mapping.xlsx",
+  "questionnaire_file": "D:/study-local/original_questionnaire.xlsx",
+  "rscript": "C:/Program Files/R/R-4.5.3/bin/x64/Rscript.exe",
+  "fresh": {
+    "preprocessed_root": "D:/study-local/preprocessed_eeg",
+    "acquisition_root": "D:/study-local/original_acquisition",
+    "matlab": "D:/Program Files/MATLAB/R2026a/bin/matlab.exe",
+    "eeglab_root": "D:/Program Files/MATLAB/eeglab",
+    "verification_rscript": "C:/Program Files/R/R-4.5.3/bin/x64/Rscript.exe",
+    "verification_r_library": "D:/study-local/R-library",
+    "node": "D:/runtime/node.exe",
+    "locked_source_hashes": {},
+    "fdt_aliases": {},
+    "stamp": "YYYYMMDD",
+    "delivery_root": "D:/study-local/current_delivery",
+    "archive_root": "D:/study-local/delivery_history"
+  },
+  "eye": {
+    "raw_root": "D:/study-local/eye", "aoi_root": "D:/study-local/eye", "base_images_root": "D:/study-local/eye",
+    "point_source": "fixation", "validity_accepted": [1], "validity_rule": "both",
+    "primary_tracking_threshold": 0.6, "sensitivity_tracking_thresholds": [0.5, 0.7]
+  },
+  "eeg": {
+    "onset_trim_strategy": "parallel", "reference_onset_trim_s": 10, "onset_trim_variants_s": [0, 5, 10, 15],
+    "preprocessing_confirmed": true, "preprocessing_parameters": {},
+    "core_metrics": ["O_theta", "F_theta", "O_alpha", "O_beta"],
+    "secondary_metrics": ["P_theta", "P_alpha", "F_alpha"], "supplemental_metrics": ["F_beta", "P_beta"],
+    "primary_measure": "relative_power", "crossmodal_metrics": ["O_theta", "O_alpha"], "bootstrap_iterations": 5000
+  },
+  "stage3": {"bootstrap_iterations": 5000, "run_boundary_sensitivity": true, "run_area_composition_sensitivity": true, "run_time_effects": true, "run_experience_moderation": true}
+}

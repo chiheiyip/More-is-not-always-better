@@ -92,6 +92,8 @@ def _parser() -> argparse.ArgumentParser:
     all_results.add_argument("--reuse-valid", action="store_true")
     all_results.add_argument("--resume", action="store_true")
     all_results.add_argument("--promote", action="store_true")
+    all_results.add_argument("--scope", choices=["all", "eye-eeg"], default="all")
+    all_results.add_argument("--fresh-from-source", action="store_true")
     return parser
 
 
@@ -162,6 +164,18 @@ def main(argv: list[str] | None = None) -> int:
             "eye-stage1", "eye-stage3-plan"
         },
     }
+    if args.command == "all-results" and (args.scope == "eye-eeg" or args.fresh_from_source):
+        from paper_analysis.teacher.fresh import preflight, run_fresh
+        if args.scope != "eye-eeg" or not args.fresh_from_source:
+            raise ValueError("Fresh execution requires --scope eye-eeg --fresh-from-source")
+        if args.reuse_valid or args.skip_r:
+            raise ValueError("Fresh execution requires R and prohibits historical reuse")
+        if args.dry_run:
+            print(json.dumps(preflight(config, REPO_ROOT), ensure_ascii=False, indent=2))
+            return 0
+        run_fresh(config, config_path, outputs_root, str(run_id), REPO_ROOT,
+                  resume=args.resume, promote=args.promote)
+        return 0
     if args.dry_run:
         if args.command == "eeg-denominator-sensitivity":
             try:

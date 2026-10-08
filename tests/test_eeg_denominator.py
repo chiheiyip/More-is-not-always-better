@@ -107,7 +107,9 @@ def test_omnibus_beta_is_unavailable_and_near_zero_percentage():
 def test_sensitivity_command_read_only_and_requires_r(tmp_path,monkeypatch,capsys):
     root=Path(__file__).resolve().parents[1]
     module=runpy.run_path(str(root/'scripts/run_teacher_analysis.py'))
-    monkeypatch.setitem(module['main'].__globals__,'denominator_preflight',lambda *args: ({},{},{'common_trials':461}))
+    # The CLI imports the callable lazily; patch its owning module.
+    import paper_analysis.teacher.eeg_denominator as denominator_module
+    monkeypatch.setattr(denominator_module,'preflight',lambda *args: ({},{},{'common_trials':461}))
     config=tmp_path/'config.json';config.write_text('{}')
     out=tmp_path/'new-run'
     assert module['main'](['eeg-denominator-sensitivity','--config',str(config),'--outdir',str(out),'--dry-run'])==0
