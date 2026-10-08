@@ -303,6 +303,16 @@ if __name__ == "__main__":
     options = parser.parse_args()
     if options.request_config:
         request=json.loads(options.request_config.read_text(encoding='utf-8-sig'))
+        if request.get('request_type')=='eye_eeg_fresh':
+            from paper_analysis.teacher import fresh_handoff as handoff
+            run=Path(request['outputs_root'])/'teacher_runs'/request['run_id']
+            if options.dry_run:
+                print(json.dumps({'scope':'eye-eeg','run_root':str(run),'completed':(run/'fresh_summary.json').is_file()},ensure_ascii=True))
+            elif options.phase=='prepare':handoff.build_report(request,run,REPO)
+            elif options.phase in {'document','index'}:handoff.make_artifacts(request,run,REPO)
+            elif options.phase=='finalize':handoff.publish(request,run,Path(request['outputs_root']),REPO)
+            else:parser.error('Fresh handoff supports prepare, document, index, finalize and --dry-run')
+            raise SystemExit(0)
         if request.get('request_type')=='eye_eeg_incremental':
             from paper_analysis.teacher import incremental_handoff as handoff
             config=handoff.load_config(options.request_config)

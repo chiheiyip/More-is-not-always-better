@@ -61,7 +61,8 @@ for (i in seq_along(job$cache$sources)) {
   cat("R PSD verified",i,"of",length(job$cache$sources),"\n")
 }
 write_utf8(do.call(rbind,rows),file.path(out,"r_psd_integrals.csv"))
-for (version in c("A","B","C")) for (kind in c("coefficients","factors")) {
+versions_to_check <- if (is.null(job$versions)) c("A","B","C") else unlist(job$versions)
+for (version in versions_to_check) for (kind in c("coefficients","factors")) {
   x <- read_text_csv(file.path(job$source_run,version,paste0("family_",kind,".csv")))
   x$p.value <- as.numeric(x$p.value)
   x$within_q <- x$joint_q <- NA_real_

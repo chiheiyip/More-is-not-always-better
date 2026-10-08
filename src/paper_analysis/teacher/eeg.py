@@ -109,9 +109,8 @@ def _normalize_eeg(config: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame]:
 def _scene_qc_mask(frame: pd.DataFrame) -> pd.Series:
     """Return the formal scene-level EEG eligibility mask.
 
-    The 42-person registry defines the structural cohort (504 expected trials).
-    Scene-level quality flags then define the model cohort (471 trials in the
-    current real data). Missing quality columns are treated as a contract error,
+    The run's registry defines the structural cohort. Scene-level quality flags
+    then define the model cohort. Missing quality columns are a contract error,
     not as implicit passes.
     """
     required = {"bad_eeg_quality", "eeg_subject_quality_exclusion"}
@@ -644,7 +643,7 @@ def run_eeg_primary(
         "sample_flow": write_table(
             pd.DataFrame([
                 {
-                    "Stage": "structural_42_person_cohort",
+                    "Stage": "structural_participant_cohort",
                     "Participants": structural_trials["Participant"].nunique(),
                     "Trials": len(structural_trials),
                 },
@@ -665,8 +664,9 @@ def run_eeg_primary(
                     "ExpectedTrialsPerParticipant": 12,
                     "ExpectedBlocks": 2,
                     "Pass": (
-                        structural_trials["Participant"].nunique() == 42
-                        and len(structural_trials) == 504
+                        not structural_trials.empty
+                        and structural_trials.groupby("Participant")["GlobalTrialOrder"].nunique().eq(12).all()
+                        and not structural_trials.duplicated(["Participant", "GlobalTrialOrder"]).any()
                     ),
                 },
                 {
