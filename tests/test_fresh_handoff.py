@@ -13,7 +13,8 @@ def test_calculation_identity_is_preserved_when_publisher_changes(tmp_path):
 
 
 def test_generated_files_and_archived_results_cannot_become_new_sources(tmp_path):
-    for name in ['fresh_summary.json','handoff_guide.json','formal_index_tables.json','previous_publication.json']:
+    for name in ['fresh_summary.json','handoff_guide.json','formal_index_tables.json','previous_publication.json',
+                 'artifact_data_verification.json','published_data_verification.json']:
         (tmp_path/name).write_text('{}')
     (tmp_path/'superseded_formal_results').mkdir()
     (tmp_path/'superseded_formal_results/old.csv').write_text('estimate\n99\n')

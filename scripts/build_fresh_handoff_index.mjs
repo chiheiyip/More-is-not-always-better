@@ -39,6 +39,12 @@ wb.recalculate();
 await fs.mkdir(previews,{recursive:true});
 await fs.writeFile(path.join(previews,'xlsx_inspection.json'),JSON.stringify(await wb.inspect({kind:'sheet,table',maxChars:4500,tableMaxRows:3,tableMaxCols:5})));
 const xlsx=await SpreadsheetFile.exportXlsx(wb);await xlsx.save(output);
+// Export diagnostics belong with previews, outside the portable delivery root.
+try {
+  await fs.rename(`${output}.inspect.ndjson`,path.join(previews,'xlsx_export_inspection.ndjson'));
+} catch(error) {
+  if(error.code!=='ENOENT')throw error;
+}
 for(const name of ['先看这里','样本与数据粒度','功率与统计复核']){
   const image=await wb.render({sheetName:name,range:'A1:D14',scale:1.5,format:'png'});
   await fs.writeFile(path.join(previews,`${name}.png`),new Uint8Array(await image.arrayBuffer()));
