@@ -41,7 +41,7 @@ def collect_sources(run, original_design=()):
         if any(v in rel.parts for v in ["samples", "psd_cache", "irregular_timestamps", "handoff_staging", "stage_seals", "artifact_previews", "superseded_formal_results"]):
             continue
         if p.name.startswith("previous_"): continue
-        if p.name in {"handoff_tables.json", "handoff_guide.json", "fresh_summary.json", "source_manifest.json", "paragraph_source_map.csv", "artifact_verification.json", "publication.json", "archive_path_mapping.json", "结果文件总索引.xlsx", "formal_index_tables.json", "previous_result_summary.json"}:
+        if p.name in {"handoff_tables.json", "handoff_guide.json", "fresh_summary.json", "source_manifest.json", "paragraph_source_map.csv", "artifact_verification.json", "artifact_data_verification.json", "published_data_verification.json", "publication.json", "archive_path_mapping.json", "结果文件总索引.xlsx", "formal_index_tables.json", "previous_result_summary.json"}:
             continue
         if p.name == "论文数据分析结果报告.md": continue
         records.append({"Source ID": f"SRC{len(records)+1:04d}", "source_path": str(p),
@@ -517,6 +517,9 @@ def publish(config, run, outputs, repo):
     if manifest["status"]!="complete": raise StageBlockedError("Run incomplete")
     verify_inputs(json.loads((run / "source_hashes_before.json").read_text(encoding="utf-8")))
     stage=run / "handoff_staging"
+    expected_entries={"论文数据分析结果报告.md","数据来源交接索引.xlsx","数据来源交接说明.docx","filesource_flat"}
+    if {p.name for p in stage.iterdir()} != expected_entries:
+        raise StageBlockedError("Unexpected delivery entries; retain diagnostics outside staging")
     qa=json.loads((run / "artifact_verification.json").read_text(encoding="utf-8"))
     for name in ["数据来源交接索引.xlsx","数据来源交接说明.docx"]:
         if not qa["files"][name]["visually_reviewed"] or qa["files"][name]["sha256"]!=file_sha256(stage/name):
