@@ -23,3 +23,9 @@ historical ZIP references and numerical version identities remain intact.
 
 Study payloads, manuscript text, statistics, artifacts, and machine configuration
 stay local and are not committed to Git.
+
+After exporting indices, run `scripts/fix_hyperlink_caches.py <teacher.xlsx>
+<formal.xlsx>` with the bundled Python runtime. This repairs unsupported
+HYPERLINK cache diagnostics to their literal friendly labels, preserves the
+formulas and numerical cells, and enables native recalculation on open. Check
+both formula-mode and cached-value reads before sealing artifact QA.
