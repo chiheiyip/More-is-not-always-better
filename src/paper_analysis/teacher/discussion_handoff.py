@@ -120,6 +120,9 @@ def update_pointer_tree(value, old_zip, new_zip, digest, supplement):
     out = {k: update_pointer_tree(v, old_zip, new_zip, digest, supplement) for k, v in value.items()}
     if out.get('zip') == old_zip:
         out.update(zip=new_zip, zip_sha256=digest, discussion_supplement=supplement)
+        if out.get('source_count') == supplement.get('original_source_count'):
+            out['original_source_count'] = out['source_count']
+            out['source_count'] = supplement['source_count']
     return out
 
 
@@ -160,6 +163,7 @@ def publish(config, repo):
     dump(work/'archive_path_mapping.json', mapping)
     supplement = {'document': str(delivery/config['document_name']), 'code_sha': git_sha(repo),
                   'work_root': str(work), 'scope': 'Discussion only; numerical calculations unchanged',
+                  'archive_path': str(archive),
                   'original_source_count': preparation['original_source_count'], 'source_count': len(records)}
     old_zip, new_zip = str(delivery/config['previous_zip_name']), str(delivery/config['zip_name'])
     digest = file_sha256(Path(new_zip))

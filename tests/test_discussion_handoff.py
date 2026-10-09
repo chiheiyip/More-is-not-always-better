@@ -24,12 +24,13 @@ def test_extension_preserves_existing_numeric_values_and_source_ids():
 
 
 def test_only_current_zip_references_are_updated_without_relabeling_calculations():
-    original = {'git_commit': 'numerical', 'publication_git_sha': 'original-publisher', 'zip': 'current.zip',
+    original = {'git_commit': 'numerical', 'publication_git_sha': 'original-publisher', 'zip': 'current.zip', 'source_count': 10,
                 'nested': {'zip': 'current.zip'}, 'previous': {'zip': 'archive/old.zip', 'zip_sha256': 'historical'}}
-    changed = update_pointer_tree(original, 'current.zip', 'new.zip', 'new-sha', {'code_sha': 'discussion'})
+    changed = update_pointer_tree(original, 'current.zip', 'new.zip', 'new-sha', {'code_sha': 'discussion', 'original_source_count': 10, 'source_count': 12})
     assert changed['git_commit'] == 'numerical' and changed['publication_git_sha'] == 'original-publisher'
     assert changed['nested']['zip'] == 'new.zip' and changed['previous'] == original['previous']
     assert original['zip'] == 'current.zip'
+    assert changed['source_count'] == 12 and changed['original_source_count'] == 10
 
 
 def test_zip_rejects_extra_members_and_changed_bytes(tmp_path):
