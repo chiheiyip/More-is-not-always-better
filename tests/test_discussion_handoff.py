@@ -4,7 +4,7 @@ import zipfile
 
 import pytest
 
-from paper_analysis.teacher.discussion_handoff import extend_tables, update_pointer_tree, validate_zip
+from paper_analysis.teacher.discussion_handoff import extend_tables, refresh_package_hashes, update_pointer_tree, validate_zip
 
 
 def test_extension_preserves_existing_numeric_values_and_source_ids():
@@ -24,12 +24,13 @@ def test_extension_preserves_existing_numeric_values_and_source_ids():
 
 
 def test_only_current_zip_references_are_updated_without_relabeling_calculations():
-    original = {'git_commit': 'numerical', 'publication_git_sha': 'original-publisher', 'zip': 'current.zip',
+    original = {'git_commit': 'numerical', 'publication_git_sha': 'original-publisher', 'zip': 'current.zip', 'source_count': 10,
                 'nested': {'zip': 'current.zip'}, 'previous': {'zip': 'archive/old.zip', 'zip_sha256': 'historical'}}
-    changed = update_pointer_tree(original, 'current.zip', 'new.zip', 'new-sha', {'code_sha': 'discussion'})
+    changed = update_pointer_tree(original, 'current.zip', 'new.zip', 'new-sha', {'code_sha': 'discussion', 'original_source_count': 10, 'source_count': 12})
     assert changed['git_commit'] == 'numerical' and changed['publication_git_sha'] == 'original-publisher'
     assert changed['nested']['zip'] == 'new.zip' and changed['previous'] == original['previous']
     assert original['zip'] == 'current.zip'
+    assert changed['source_count'] == 12 and changed['original_source_count'] == 10
 
 
 def test_zip_rejects_extra_members_and_changed_bytes(tmp_path):
@@ -41,3 +42,14 @@ def test_zip_rejects_extra_members_and_changed_bytes(tmp_path):
     with pytest.raises(ValueError, match='inventory'): validate_zip(target, expected)
     with zipfile.ZipFile(target, 'w') as z: z.writestr('中文.md', b'changed')
     with pytest.raises(ValueError, match='bytes'): validate_zip(target, expected)
+
+
+def test_portable_hash_manifest_replaces_stale_index_digest(tmp_path):
+    (tmp_path/'filesource_flat').mkdir()
+    (tmp_path/'index.xlsx').write_bytes(b'updated-index')
+    manifest = tmp_path/'filesource_flat/交付文件哈希.json'
+    manifest.write_text('[{"path":"index.xlsx","sha256":"old"}]')
+    hashes = refresh_package_hashes(tmp_path)
+    entries = json.loads(manifest.read_text(encoding='utf-8'))
+    assert entries == [{'path': 'index.xlsx', 'sha256': hashlib.sha256(b'updated-index').hexdigest()}]
+    assert 'filesource_flat/交付文件哈希.json' in hashes
