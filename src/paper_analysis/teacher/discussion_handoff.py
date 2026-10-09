@@ -87,6 +87,7 @@ def prepare(config, repo):
     formal['linkPrefix'] = (delivery/'filesource_flat').as_posix() + '/'
     dump(work/'formal_index_tables.json', formal)
     dump(work/'source_manifest.json', records + additions)
+    dump(stage/'filesource_flat/source_manifest.json', records + additions)
     dump(work/'preparation.json', {'code_sha': git_sha(repo), 'old_inventory': old,
          'config_sha256': hashlib.sha256(json.dumps(config, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
          'original_source_count': len(records), 'added_source_count': len(additions)})
@@ -100,6 +101,15 @@ def validate_zip(path, hashes):
         for name, digest in hashes.items():
             if hashlib.sha256(z.read(name)).hexdigest() != digest:
                 raise ValueError('ZIP bytes differ: ' + name)
+
+
+def refresh_package_hashes(stage):
+    """The portable manifest describes this package, excluding its own bytes."""
+    manifest = stage/'filesource_flat/交付文件哈希.json'
+    hashes = {name: digest for name, digest in inventory(stage).items()
+              if name != manifest.relative_to(stage).as_posix()}
+    dump(manifest, [{'path': name, 'sha256': digest} for name, digest in hashes.items()])
+    return inventory(stage)
 
 
 def update_pointer_tree(value, old_zip, new_zip, digest, supplement):
@@ -127,13 +137,15 @@ def publish(config, repo):
         if qa['files'][name]['sha256'] != file_sha256(stage/name) or not qa['files'][name]['visually_reviewed']:
             raise ValueError('Artifact QA missing or stale')
     if not qa['source_and_index_checks_passed']: raise ValueError('Data/source checks failed')
+    if qa['formal_index_sha256'] != file_sha256(work/'formal_index.xlsx'):
+        raise ValueError('Formal index QA stale')
     for name in ['论文数据分析结果报告.md', '数据来源交接说明.docx']:
         if file_sha256(stage/name) != preparation['old_inventory'][name]: raise ValueError('Unrelated artifact changed')
     records = json.loads((work/'source_manifest.json').read_text(encoding='utf-8'))
     for item in records:
         if file_sha256(stage/'filesource_flat'/item['flat_name']) != item['SHA256']:
             raise ValueError('Source bytes changed')
-    payload_hashes = inventory(stage)
+    payload_hashes = refresh_package_hashes(stage)
     zpath = stage/config['zip_name']
     with zipfile.ZipFile(zpath, 'w', zipfile.ZIP_DEFLATED) as z:
         for name in payload_hashes: z.write(stage/name, name)

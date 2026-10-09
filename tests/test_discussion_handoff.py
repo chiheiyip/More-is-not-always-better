@@ -4,7 +4,7 @@ import zipfile
 
 import pytest
 
-from paper_analysis.teacher.discussion_handoff import extend_tables, update_pointer_tree, validate_zip
+from paper_analysis.teacher.discussion_handoff import extend_tables, refresh_package_hashes, update_pointer_tree, validate_zip
 
 
 def test_extension_preserves_existing_numeric_values_and_source_ids():
@@ -41,3 +41,14 @@ def test_zip_rejects_extra_members_and_changed_bytes(tmp_path):
     with pytest.raises(ValueError, match='inventory'): validate_zip(target, expected)
     with zipfile.ZipFile(target, 'w') as z: z.writestr('中文.md', b'changed')
     with pytest.raises(ValueError, match='bytes'): validate_zip(target, expected)
+
+
+def test_portable_hash_manifest_replaces_stale_index_digest(tmp_path):
+    (tmp_path/'filesource_flat').mkdir()
+    (tmp_path/'index.xlsx').write_bytes(b'updated-index')
+    manifest = tmp_path/'filesource_flat/交付文件哈希.json'
+    manifest.write_text('[{"path":"index.xlsx","sha256":"old"}]')
+    hashes = refresh_package_hashes(tmp_path)
+    entries = json.loads(manifest.read_text(encoding='utf-8'))
+    assert entries == [{'path': 'index.xlsx', 'sha256': hashlib.sha256(b'updated-index').hexdigest()}]
+    assert 'filesource_flat/交付文件哈希.json' in hashes
