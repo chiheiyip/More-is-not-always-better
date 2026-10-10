@@ -15,7 +15,9 @@ def compare_tables(left, right, keys, *, model=True):
             raise StageBlockedError('Missing/duplicate reproducibility comparison keys')
     paired=left.merge(right,on=keys,how='outer',suffixes=('_a','_b'),indicator=True,validate='one_to_one')
     if not paired._merge.eq('both').all():raise StageBlockedError('Recalculated sample/test identities differ')
-    rows=[]
+    rows=[{'field':'__keys__','rows':len(paired),'missing_differences':0,
+           'outside_tolerance':0,'p_q_crossings':0,'direction_changes':0,
+           'max_absolute_difference':0.,'passed':True}]
     for field in left.columns:
         if field in keys:continue
         a=paired[field+'_a'];b=paired[field+'_b']
