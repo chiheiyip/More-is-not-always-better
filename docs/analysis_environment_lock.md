@@ -102,6 +102,13 @@ model boolean), and scope_notes. It seals inputs and comparisons, treats every
 Publish requires the generated `reproducibility_verification.json` and unchanged
 evidence. The calculation environment and numerical evidence are separate checks.
 
+EEG bootstrap writes `bootstrap_draw_provenance.json`: participant ordering,
+sampling unit, per-outcome starting/ending RNG state, requested draws and draw
+digests. `analysis/r/verify_bootstrap_draws.R` replays every sampled participant
+sequence without repeating the model fits. Recording digests does not call RNG or
+change the sampling algorithm. A real-R simulation repeats the production fits
+and checks exact bootstrap estimates as well as replayed draw identities.
+
 ## Recalculate against a historical eye package
 
 `scripts/verify_historical_eye_environment.py` has `--phase prepare`, `run`

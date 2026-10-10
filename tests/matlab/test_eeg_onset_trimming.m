@@ -7,23 +7,12 @@ root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
 addpath(fullfile(root, 'matlab', 'eeg_bandpower_pipeline'));
 test_root = tempname;
 mkdir(test_root);
-stub_dir = fullfile(test_root, 'eeg_stubs');
-mkdir(stub_dir);
-write_stub(fullfile(stub_dir, 'pop_loadset.m'), [
-    "function EEG = pop_loadset(varargin)" newline ...
-    "global SYNTHETIC_EEG" newline ...
-    "EEG = SYNTHETIC_EEG;" newline ...
-    "end" newline]);
-write_stub(fullfile(stub_dir, 'eeg_checkset.m'), [
-    "function EEG = eeg_checkset(EEG)" newline ...
-    "end" newline]);
-addpath(stub_dir, '-begin');
-testCase.TestData.stub_dir = stub_dir;
+addpath(fullfile(root,'matlab'));
+assert_analysis_runtime();
 testCase.TestData.test_root = test_root;
 end
 
 function teardownOnce(testCase)
-rmpath(testCase.TestData.stub_dir);
 rmdir(testCase.TestData.test_root, 's');
 end
 
@@ -37,7 +26,7 @@ SYNTHETIC_EEG = synthetic_eeg(signal, fs);
 input_dir = fullfile(testCase.TestData.test_root, 'synthetic_input');
 outdir = fullfile(testCase.TestData.test_root, 'synthetic_output');
 mkdir(input_dir);
-fclose(fopen(fullfile(input_dir, 'P01.set'), 'w'));
+EEG=SYNTHETIC_EEG;save(fullfile(input_dir,'P01.set'),'EEG','-v7');
 outputs = run_eeg_bandpower_pipeline( ...
     input_dir, outdir, 'StrictStructure', false, ...
     'PrimaryOnsetTrimS', 10, 'OnsetTrimVariantsS', [0 5 10 15]);
@@ -60,7 +49,7 @@ SYNTHETIC_EEG = synthetic_eeg(sin(2 * pi * 6 * t), fs);
 input_dir = fullfile(testCase.TestData.test_root, 'short_input');
 outdir = fullfile(testCase.TestData.test_root, 'short_output');
 mkdir(input_dir);
-fclose(fopen(fullfile(input_dir, 'P02.set'), 'w'));
+EEG=SYNTHETIC_EEG;save(fullfile(input_dir,'P02.set'),'EEG','-v7');
 outputs = run_eeg_bandpower_pipeline( ...
     input_dir, outdir, 'StrictStructure', false, ...
     'PrimaryOnsetTrimS', 10, 'OnsetTrimVariantsS', [0 10]);
@@ -80,7 +69,7 @@ SYNTHETIC_EEG = synthetic_eeg(sin(2 * pi * 6 * t), fs);
 input_dir = fullfile(testCase.TestData.test_root, 'config_input');
 outdir = fullfile(testCase.TestData.test_root, 'config_output');
 mkdir(input_dir);
-fclose(fopen(fullfile(input_dir, 'P03.set'), 'w'));
+EEG=SYNTHETIC_EEG;save(fullfile(input_dir,'P03.set'),'EEG','-v7');
 root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
 outputs = run_eeg_bandpower_pipeline(input_dir, outdir, ...
     'StrictStructure', false, 'ConfigPath', fullfile(root, 'configs', 'eeg_analysis.json'));
@@ -95,9 +84,12 @@ end
 
 function EEG = synthetic_eeg(signal, fs)
 labels = {'F3', 'F4', 'P3', 'PZ', 'P4', 'O1', 'OZ', 'O2'};
+EEG=eeg_emptyset;
 EEG.data = repmat(signal, numel(labels), 1);
+EEG.nbchan=numel(labels);EEG.trials=1;
 EEG.srate = fs;
 EEG.pnts = size(EEG.data, 2);
+EEG.xmin=0;EEG.xmax=(EEG.pnts-1)/fs;
 EEG.chanlocs = struct('labels', labels);
 EEG.event = struct('type', {'7', '8'}, 'latency', {1, EEG.pnts});
 end
