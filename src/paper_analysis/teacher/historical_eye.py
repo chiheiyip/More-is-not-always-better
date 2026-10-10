@@ -275,6 +275,7 @@ def compare(package: Path, out: Path):
     main = table.loc[table.file.isin(PRIMARY_FILES)]
     areas = table.loc[table.file.eq("08_AOI_area_report.xlsx") & table.field.isin(["PixelArea", "ValidScenePixels"])]
     summary = {"participants": int(primary.Participant.nunique()), "trials": len(primary),
+               "comparison_code_sha": git_commit(Path(__file__).resolve().parents[3]),
                "missing_mismatches": int(standalone.missing_mismatches.sum()),
                "beyond_tolerance": int(standalone.beyond_tolerance.sum()),
                "significance_flips": int(standalone.significance_flips.sum()), "direction_flips": int(standalone.direction_flips.sum()),
@@ -292,6 +293,7 @@ def compare(package: Path, out: Path):
               f"本次 R 复拟合 SHA：{proof['verification_sha']}；Python 原始数据重建 SHA：{proof.get('python_calculation_sha', proof['verification_sha'])}；"
               "Python 和八个历史已登记库版本全部匹配；"
               f"核对历史已加载 R 包 {proof['historical_recorded_R_packages']} 个。",
+              f"本次比较与报告 SHA：{summary['comparison_code_sha']}。",
               "历史未登记全部 Python 间接依赖，不能宣称完整恢复旧操作系统及每个间接依赖。", "",
               f"原始眼动文件/标注/底图哈希通过核对 {proof['original_eye_source_hashes_verified']} 个。"
               "先从原始 CSV 重建试次，区域设置修正后复用这批已核验 Python 表并重新拟合全部 R 模型。"
