@@ -68,7 +68,17 @@ def test_eye_probability_variants_use_probability_tolerance_and_boundary_check(f
     from paper_analysis.teacher.reproducibility import compare_tables
     a=pd.DataFrame({'key':[1],field:[.0499999]})
     b=pd.DataFrame({'key':[1],field:[.0500001]})
-    result=compare_tables(a,b,['key']).iloc[0]
+    result=compare_tables(a,b,['key']).set_index('field').loc[field]
     assert result.outside_tolerance==0
     assert result.p_q_crossings==1
     assert not result.passed
+
+def test_key_only_model_sample_tables_have_nonempty_positive_evidence():
+    from paper_analysis.teacher.reproducibility import compare_tables
+    a=pd.DataFrame({'Participant':['P1','P2'],'trial':[1,2]})
+    result=compare_tables(a,a.iloc[::-1],['Participant','trial'])
+    assert result.field.tolist()==['__keys__']
+    assert result.iloc[0].rows==2
+    assert result.passed.all()
+    with pytest.raises(StageBlockedError,match='identities'):
+        compare_tables(a,a.iloc[:1],['Participant','trial'])
