@@ -25,3 +25,9 @@ def test_duplicate_key_or_removed_family_member_rejected():
         compare_frames(data, data.iloc[:1], ["outcome"], "model")
     with pytest.raises(StageBlockedError, match="duplicate"):
         compare_frames(data, pd.concat([data, data.iloc[:1]]), ["outcome"], "model")
+
+
+def test_historical_r_platform_is_not_a_package_version():
+    from paper_analysis.teacher.historical_eye import historical_r_packages
+    text = "Platform: x86_64-w64-mingw32/x64\r\r\nloaded via a namespace (and not attached):\r\r\n[1] lme4_2.0-6 broom.mixed_0.2.9.7"
+    assert historical_r_packages(text) == [("lme4", "2.0-6"), ("broom.mixed", "0.2.9.7")]
