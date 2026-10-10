@@ -7,6 +7,8 @@ import pandas as pd
 from .state import StageBlockedError, file_sha256
 
 def compare_tables(left, right, keys, *, model=True):
+    if left.empty or right.empty:
+        raise StageBlockedError('Empty/failed result tables cannot establish reproducibility')
     if set(left.columns)!=set(right.columns):raise StageBlockedError('Comparison fields differ')
     for table in (left,right):
         if table[keys].isna().any().any() or table.duplicated(keys).any():

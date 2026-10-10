@@ -54,3 +54,4 @@ def test_comparison_preserves_family_keys_and_investigates_small_crossing():
     assert result.set_index('field').loc['p.value','outside_tolerance']==0
     assert not result.passed.all()
     with pytest.raises(StageBlockedError,match='identities'):compare_tables(a,b.iloc[:1],['key'])
+    with pytest.raises(StageBlockedError,match='Empty/failed'):compare_tables(a.iloc[:0],b.iloc[:0],['key'])

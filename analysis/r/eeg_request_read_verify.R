@@ -1,6 +1,9 @@
 # Independent source-file reader, discrete PSD integration, and full-family BH.
 # Does not consume Python's parsed data or production calculation helpers.
-invisible(Sys.setlocale("LC_CTYPE", ".UTF-8"))
+runtime_arg <- grep('^--file=', commandArgs(), value=TRUE)[1]
+runtime_dir <- dirname(sub('^--file=', '', runtime_arg))
+source(file.path(runtime_dir,'runtime_profile.R'))
+configure_locked_runtime(file.path(runtime_dir,'runtime-versions.lock.json'),'independent')
 args <- commandArgs(TRUE)
 job <- jsonlite::fromJSON(args[[1]], simplifyVector=FALSE)
 out <- job$output
