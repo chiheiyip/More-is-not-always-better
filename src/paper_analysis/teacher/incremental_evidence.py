@@ -27,6 +27,9 @@ def pair_statistics(a,b,keys):
     unique(a,keys);unique(b,keys)
     merged=a.merge(b,on=keys,how='outer',suffixes=('_from','_to'),indicator=True,validate='one_to_one')
     for c in ['estimate','SE','CR2_SE','df','CI_low','CI_high','raw_p','within_q','joint_q','Fstat','df_num','df_denom']:
+        for suffix in ('_from','_to'):
+            if c+suffix in merged:
+                merged[c+suffix]=pd.to_numeric(merged[c+suffix],errors='raise').to_numpy(dtype=float,na_value=np.nan)
         if c+'_from' in merged and c+'_to' in merged: merged[c+'_difference']=merged[c+'_to']-merged[c+'_from']
     for c in ['raw_p','within_q','joint_q']:
         if c+'_from' in merged and c+'_to' in merged:

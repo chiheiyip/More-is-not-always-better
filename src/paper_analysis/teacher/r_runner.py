@@ -148,7 +148,8 @@ def invoke_r(rscript: str, script: Path, arguments: list[str], *, required: bool
                 staged_arguments[index] = name
         log = output / f"{script.stem}_execution.log"
         with log.open("w", encoding="utf-8") as handle:
-            subprocess.run([executable, script.name, *staged_arguments], cwd=stage,
+            from .runtime_lock import locked_r_environment
+            subprocess.run([executable, script.name, *staged_arguments], cwd=stage, env=locked_r_environment(),
                            stdout=handle, stderr=subprocess.STDOUT, check=True)
         for artifact in (stage / "out").iterdir():
             if artifact.is_dir():

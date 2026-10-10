@@ -17,6 +17,13 @@ def test_native_thread_or_library_change_is_rejected(tmp_path,monkeypatch):
         monkeypatch.setattr(native_runtime,'python_native_snapshot',lambda:changed)
         with pytest.raises(StageBlockedError,match='DLL/thread'):native_runtime.validate_python_native(tmp_path)
 
+def test_r_startup_locale_is_fixed_before_unicode_library_loading(monkeypatch):
+    from paper_analysis.teacher.runtime_lock import locked_r_environment
+    monkeypatch.setenv('LANG','C.UTF-8');monkeypatch.setenv('LC_ALL','C.UTF-8')
+    monkeypatch.setattr('paper_analysis.teacher.runtime_lock.platform.system',lambda:'Windows')
+    env=locked_r_environment()
+    assert env['LANG']==env['LC_ALL']=='Chinese (Simplified)_China.utf8'
+
 def test_python_install_and_runtime_locks_agree():
     repo=Path(__file__).resolve().parents[1]
     canonical=lambda n:n.lower().replace('_','-')

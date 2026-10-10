@@ -54,8 +54,11 @@ def preflight(config, repo):
 
 def r_env(config):
     env = os.environ.copy()
-    for k in ["R_HOME", "LC_ALL", "LC_CTYPE", "LC_COLLATE", "LC_MONETARY", "LC_TIME", "LANG"]:
+    for k in ["R_HOME", "LC_CTYPE", "LC_COLLATE", "LC_MONETARY", "LC_TIME"]:
         env.pop(k, None)
+    from .runtime_lock import locked_r_environment
+    startup=locked_r_environment()
+    for field in ('LANG','LC_ALL'):env[field]=startup[field]
     env["R_LIBS_USER"] = config["r_library"] + ";" + str(Path.home() / "AppData/Local/R/win-library/4.5")
     return env
 
