@@ -15,6 +15,7 @@ boundary_path <- args[[5]]
 iterations <- as.integer(args[[6]])
 dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
 
+input$IncludedPrimary <- read_teacher_boolean(input$IncludedPrimary, "IncludedPrimary")
 input <- input[input$IncludedPrimary %in% TRUE, , drop = FALSE]
 for (column in c(
   "Participant", "WWR", "Complexity", "ExperienceGroup", "Gender", "OrderGroup",
@@ -304,13 +305,17 @@ if ("G" %in% triggers) {
   failure_rows <- list()
   set.seed(20260728)
   participants <- levels(input$Participant)
+  draw_audits <- list()
   for (outcome in c("RawCompetition", "AdjustedCompetition")) {
     model <- fit_lmer_or_record(
       primary_formula(outcome), input, outcome, "experience_moderation"
     )
     if (!inherits(model, "teacher_model_failure")) {
+      # emmeans' existing Kenward-Roger path updates ML to REML. Preserve an
+      # evaluable source-data name after the fitting helper has returned.
+      model@call$data <- quote(input)
       simple <- as.data.frame(emmeans::emmeans(
-        model, pairwise ~ WWR | ExperienceGroup, adjust = "holm"
+        model, pairwise ~ WWR | ExperienceGroup, adjust = "holm", data = input
       )$contrasts)
       simple$outcome <- outcome
       simple_rows[[length(simple_rows) + 1]] <- simple
@@ -320,8 +325,11 @@ if ("G" %in% triggers) {
         dimnames = list(NULL, terms)
       )
       failed <- character()
+      initial_rng_state <- .Random.seed
+      draw_hashes <- character(iterations)
       for (b in seq_len(iterations)) {
         sampled <- sample(participants, length(participants), replace = TRUE)
+        draw_hashes[b] <- digest::digest(sampled, algo = "sha256")
         pieces <- lapply(seq_along(sampled), function(i) {
           part <- input[input$Participant == sampled[[i]], , drop = FALSE]
           part$Participant <- factor(paste0("boot_", i))
@@ -340,6 +348,9 @@ if ("G" %in% triggers) {
         common <- intersect(names(coefficient), terms)
         estimates[b, common] <- coefficient[common]
       }
+      draw_audits[[outcome]] <- list(initial_rng_state = as.list(initial_rng_state),
+        final_rng_state = as.list(.Random.seed), requested = iterations,
+        draw_sha256 = digest::digest(draw_hashes, algo = "sha256"))
       boot_rows[[length(boot_rows) + 1]] <- data.frame(
         outcome = outcome,
         term = terms,
@@ -387,6 +398,10 @@ if ("G" %in% triggers) {
     bind_rows_fill(simple_rows),
     file.path(outdir, "08c_experience_simple_effects_Holm.csv")
   )
+  jsonlite::write_json(list(seed = 20260728,
+    unit = "Participant; all trials retained; duplicate draws relabelled",
+    participants = as.list(participants), outcomes = draw_audits),
+    file.path(outdir, "bootstrap_draw_provenance.json"), auto_unbox = TRUE, pretty = TRUE)
   write_csv_utf8(
     bind_rows_fill(boot_rows),
     file.path(outdir, "08d_experience_cluster_bootstrap_5000.csv")
@@ -406,7 +421,11 @@ if ("G" %in% triggers) {
 if (("H" %in% triggers || "I" %in% triggers) &&
     nzchar(aoi_path) && file.exists(aoi_path)) {
   aoi <- read_teacher_csv(aoi_path)
+  aoi$IncludedPrimary <- read_teacher_boolean(aoi$IncludedPrimary, "IncludedPrimary")
   aoi <- aoi[aoi$IncludedPrimary %in% TRUE, , drop = FALSE]
+  if ("Visited" %in% names(aoi)) {
+    aoi$Visited <- as.integer(read_teacher_boolean(aoi$Visited, "Visited"))
+  }
   for (column in c(
     "Participant", "WWR", "Complexity", "ExperienceGroup", "Gender",
     "OrderGroup", "AOICategory"
