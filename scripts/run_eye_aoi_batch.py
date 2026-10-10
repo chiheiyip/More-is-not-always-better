@@ -23,6 +23,8 @@ def main() -> None:
     parser.add_argument("--require_validity", action="store_true")
     parser.add_argument("--validity_accepted", default=None, help="Comma-separated accepted validity values; used only with --require_validity.")
     args = parser.parse_args()
+    from paper_analysis.teacher.runtime_lock import validate_python
+    validate_python()
     validity_accepted = tuple(v.strip() for v in args.validity_accepted.split(",") if v.strip()) if args.validity_accepted else None
 
     out = run_eye_aoi_batch(

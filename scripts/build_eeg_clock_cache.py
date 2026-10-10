@@ -28,6 +28,8 @@ def main() -> None:
     parser.add_argument("--allow-partial", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
+    from paper_analysis.teacher.runtime_lock import validate_python
+    validate_python()
 
     acquisition_root = Path(args.acquisition_root)
     eeg_root = Path(args.eeg_root)

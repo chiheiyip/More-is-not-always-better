@@ -73,7 +73,7 @@ def verify(run, sample_count=12):
         assert passed,record
         for band,(low,high) in {'theta':(4,7),'alpha':(8,12),'beta':(13,30)}.items():
             mask=(f>=low)&(f<=high)
-            actual=float(np.trapz(pxx[mask],f[mask]))
+            actual=float(np.trapezoid(pxx[mask],f[mask]))
             assert np.isclose(actual,row[band],rtol=1e-10,atol=1e-12)
             record[band+'_abs_difference']=abs(actual-row[band])
         rows.append(record)

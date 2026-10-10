@@ -50,7 +50,11 @@ def run_clock_synchronized_fusion(
         raise ValueError(f"Scene manifest missing {sorted(required_scene - set(scene.columns))}")
     if not required_eeg.issubset(eeg_manifest.columns):
         raise ValueError(f"EEG sample manifest missing {sorted(required_eeg - set(eeg_manifest.columns))}")
-    merged = scene.merge(eeg_manifest, on=["participant_id", "scene_id"], how="inner", suffixes=("", "_eeg"))
+    keys=['participant_id','scene_id']
+    for name,table in [('eye scene manifest',scene),('EEG sample manifest',eeg_manifest)]:
+        if table[keys].isna().any().any() or table.duplicated(keys).any():
+            raise ValueError('Missing or duplicate participant/trial key in '+name)
+    merged = scene.merge(eeg_manifest, on=keys, how="inner", suffixes=("", "_eeg"),validate='one_to_one')
     if merged.empty:
         raise ValueError("No participant_id + scene_id overlap between eye and EEG sample manifests")
 

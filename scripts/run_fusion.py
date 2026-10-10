@@ -26,6 +26,8 @@ def main() -> None:
     parser.add_argument("--screen_h", type=int, default=None)
     parser.add_argument("--require_validity", action="store_true")
     args = parser.parse_args()
+    from paper_analysis.teacher.runtime_lock import validate_python
+    validate_python()
 
     out = run_fusion(
         participants_csv=args.participants,

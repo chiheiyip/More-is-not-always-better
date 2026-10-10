@@ -743,6 +743,8 @@ def _build_sync_outputs(
     run_root: Path,
     config: dict[str, Any],
 ) -> dict[str, Path]:
+    from .runtime_lock import validate_python
+    runtime = validate_python()
     out = run_root / "08_synchronized_crossmodal"
     out.mkdir(parents=True, exist_ok=True)
     configured = str(config.get("synchronized_timebin_file", "")).strip()
@@ -845,6 +847,9 @@ def _build_sync_outputs(
         & _scene_qc_mask(eeg_trials)
     ].copy()
     eye_trials = read_table(eye_trial_path)
+    for name,table in [('EEG QC',eeg_trials),('eye QC',eye_trials)]:
+        if table[['Participant','GlobalTrialOrder']].isna().any().any() or table.duplicated(['Participant','GlobalTrialOrder']).any():
+            raise StageBlockedError('Missing/duplicate trial keys in '+name)
     eye_trials = eye_trials.loc[
         eye_trials["IncludedPrimary"].map(is_truthy)
     ].copy()
@@ -883,6 +888,11 @@ def _build_sync_outputs(
             "a window-specific table without its clock QC is not promotable."
         )
     clock_frame = read_table(clock_qc)
+    (out/'joint_input_provenance.json').write_text(json.dumps({
+        'environment':runtime,'inputs':{str(p):file_sha256(p) for p in
+            (source,eeg_trial_path,eye_trial_path,clock_qc)},
+        'windows':expected_trims,'join_keys':['Participant','GlobalTrialOrder']},
+        ensure_ascii=False,indent=2),encoding='utf-8')
     if "clock_alignment_pass" not in clock_frame:
         raise RuntimeError(
             "Clock scene QC is missing clock_alignment_pass."
@@ -1453,11 +1463,11 @@ def _build_top_report(outputs_root: Path, run_root: Path) -> Path:
 ### 1. 数据来源与样本流
 
 - 眼动为独立模态样本。Stage 1 审核 57 名候选、12 个真实场景/AOI；Stage 2 按 60% 主阈值实际保留 {eye_valid_participants} 人、{eye_valid_trials} 个试次。来源：`12_teacher_analysis/02_eye_stage2/04_participant_quality_summary.xlsx`。
-- EEG 的 42 人、{int(structural['Trials'])} 个试次用于结构完整性审核；场景级 QC 后，正式模型使用 {int(model['Participants'])} 人、{int(model['Trials'])} 个试次。来源：`12_teacher_analysis/06_eeg_primary/03b_eeg_sample_flow.xlsx`。
+- EEG 的 {int(structural['Participants'])} 人、{int(structural['Trials'])} 个试次用于结构完整性审核；场景级 QC 后，正式模型使用 {int(model['Participants'])} 人、{int(model['Trials'])} 个试次。来源：`12_teacher_analysis/06_eeg_primary/03b_eeg_sample_flow.xlsx`。
 - 问卷正式口径使用 EEG 有效的 42 人，共 {int(questionnaire_audit['Trials'])} 个参与者×场景试次；入口文件为 `E:\\26\\补\\VR+EEG实验问卷-总-原始数据-文字.xlsx`。来源：`12_teacher_analysis/07_reviewer_analysis/Questionnaire_42_person_sample_audit.xlsx`。
 - 眼动主分析没有因缺少 EEG 而丢弃合格眼动试次。统一样本稳健性使用精确 Participant × GlobalTrialOrder 交集，实际为 {int(common['Participants'])} 人、{int(common['Trials'])} 个试次。来源：`12_teacher_analysis/02_eye_stage2/16b_EEG_valid_common_sample_counts.xlsx`。
 - 时序同步表经本次复核包含 {int(sync_row['Participants'])} 人、{int(sync_row['Trials'])} 个 Participant × Trial、{int(sync_row['TimeBins'])} 行 time-bin。来源：`12_teacher_analysis/08_synchronized_crossmodal/synchronized_crossmodal_sample_and_source.xlsx`。
-- 42名 EEG 有效参与者中有 {no_clock_count} 人缺少通过验证的时钟缓存/样本导出，因此同步分析不会强行补值；逐人原因见 `12_teacher_analysis/08_synchronized_crossmodal/eeg_clock_coverage_audit.xlsx`。
+- {int(model['Participants'])}名 EEG 有效参与者中有 {no_clock_count} 人缺少通过验证的时钟缓存/样本导出，因此同步分析不会强行补值；逐人原因见 `12_teacher_analysis/08_synchronized_crossmodal/eeg_clock_coverage_audit.xlsx`。
 
 ### 2. 问卷结果
 

@@ -20,6 +20,8 @@ def main() -> None:
     parser.add_argument("--scene-model-results", default=None)
     parser.add_argument("--onset-trim-filter-s", type=float, default=None)
     args = parser.parse_args()
+    from paper_analysis.teacher.runtime_lock import validate_python
+    validate_python()
     outputs = run_timebin_models(
         synchronized_timebin_csv=args.synchronized_timebins,
         clock_scene_qc_csv=args.clock_scene_qc,

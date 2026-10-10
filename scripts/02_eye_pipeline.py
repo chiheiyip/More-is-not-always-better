@@ -21,6 +21,8 @@ def main() -> None:
     parser.add_argument("--validity_accepted", default=None, help="Comma-separated accepted validity values; omitted means audit only.")
     parser.add_argument("--timestamp_gap_ms", type=float, default=5000.0)
     args = parser.parse_args()
+    from paper_analysis.teacher.runtime_lock import validate_python
+    validate_python()
     validity_accepted = tuple(v.strip() for v in args.validity_accepted.split(",") if v.strip()) if args.validity_accepted else None
     for name, path in run_eye_pipeline(
         args.participants,

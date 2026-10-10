@@ -33,6 +33,8 @@ def main() -> None:
     parser.add_argument("--clock-timezone", default="Asia/Shanghai")
     parser.add_argument("--clock-match-tolerance-ms", type=int, default=2)
     args = parser.parse_args()
+    from paper_analysis.teacher.runtime_lock import validate_python
+    validate_python()
     eye_validity_accepted = tuple(v.strip() for v in args.eye_validity_accepted.split(",") if v.strip()) if args.eye_validity_accepted else None
     for name, path in run_fusion_pipeline(
         questionnaire_long=args.questionnaire_long,

@@ -36,6 +36,8 @@ addParameter(p, 'OnsetTrimVariantsS', 0, @(x) isnumeric(x) && isvector(x) && all
 parse(p, input_path, outdir, varargin{:});
 opts = p.Results;
 opts = apply_config(opts);
+addpath(fileparts(fileparts(mfilename('fullpath'))));
+assert_analysis_runtime();
 
 if exist('pop_loadset', 'file') ~= 2
     error('EEGLAB is required. Add EEGLAB to the MATLAB path before running this function.');

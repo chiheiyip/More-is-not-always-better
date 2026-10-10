@@ -27,4 +27,4 @@ if (length(errors)) stop(paste(errors, collapse = "; "))
 cat("ANALYSIS_RUNTIME_LOCK=", jsonlite::toJSON(list(status = "passed", profile = profile,
     R = as.character(getRversion()), platform = R.version$platform,
     locale = runtime_settings$locale, timezone = runtime_settings$timezone,
-    packages = actual, library_paths = .libPaths()), auto_unbox = TRUE), "\n", sep = "")
+    packages = actual, native = runtime_native_snapshot(), library_paths = .libPaths()), auto_unbox = TRUE), "\n", sep = "")

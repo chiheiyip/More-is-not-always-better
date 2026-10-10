@@ -22,6 +22,8 @@ def main() -> None:
     parser.add_argument("--eeg-onset-trials", required=True)
     parser.add_argument("--outdir", required=True)
     args = parser.parse_args()
+    from paper_analysis.teacher.runtime_lock import validate_python
+    validate_python()
     outputs = combine_parallel_synchronized_timebins(
         reference_timebin_csv=args.reference_timebins,
         variant_timebin_csv=args.variant_timebins,

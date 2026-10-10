@@ -189,6 +189,12 @@ def compute_psd(config, frames, sources, root, out):
     trials = pd.concat([f[[*KEYS, "view_start_s", "view_end_s", "onset_trim_s"]] for f in frames.values()])
     trials = trials.sort_values([*KEYS, "onset_trim_s"]).reset_index(drop=True)
     code = {p: file_sha256(root/p) for p in METHOD_FILES if p.endswith(".m")}
+    from .native_runtime import validate_matlab
+    eeglab_root=cfg.get('eeglab_root') or config.get('fresh',{}).get('eeglab_root')
+    if not eeglab_root:
+        raise StageBlockedError('eeglab_root is required for registered PSD calculation')
+    native=validate_matlab(cfg['matlab'],eeglab_root,root)
+    code['native_runtime']=native['lock_sha256']
     key = cache_identity(sources, trials, code)
     cache = Path(cfg["psd_cache_dir"])/key
     reused = cache.exists()
@@ -198,7 +204,8 @@ def compute_psd(config, frames, sources, root, out):
         cache.mkdir(parents=True, exist_ok=False)
         trials.to_csv(cache/"frozen_epochs.csv", index=False, encoding="utf-8-sig")
         write_json(cache/"matlab_config.json", {"cache_key": key, "sources": sources,
-            "trials": str(cache/"frozen_epochs.csv"), "cache_dir": str(cache)})
+            "trials": str(cache/"frozen_epochs.csv"), "cache_dir": str(cache),
+            "eeglab_root":str(eeglab_root)})
         quote = lambda p: str(p).replace("'", "''").replace("\\", "/")
         expression = f"addpath('{quote(root/'matlab/eeg_bandpower_pipeline')}'); run_eeg_denominator_psd('{quote(cache/'matlab_config.json')}')"
         with (out/"MATLAB_execution.log").open("w", encoding="utf-8") as log:

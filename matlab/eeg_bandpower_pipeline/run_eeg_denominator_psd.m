@@ -2,6 +2,11 @@ function run_eeg_denominator_psd(config_path)
 % Cache complete spectra only for the frozen historical sample. Source hashes
 % and cache identity are supplied and verified before/after by the Python runner.
 cfg=jsondecode(fileread(config_path));
+addpath(fileparts(fileparts(mfilename('fullpath'))));
+if isfield(cfg,'eeglab_root')
+    addpath(cfg.eeglab_root); addpath(genpath(fullfile(cfg.eeglab_root,'functions')));
+end
+assert_analysis_runtime();
 trials=readtable(cfg.trials,'TextType','string','VariableNamingRule','preserve');
 roi_names={'F','P','O'}; roi_channels={{'F3','F4'},{'P3','PZ','P4'},{'O1','OZ','O2'}};
 rows=cell(height(trials)*3,16); count=0;

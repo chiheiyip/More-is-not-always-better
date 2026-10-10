@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "basis": "current verified source-data MATLAB environment; not an assertion about unrecorded historical installs",
+  "snapshot": {
+    "matlab": "26.1.0.3346908 (R2026a) Update 5",
+    "release": "2026a",
+    "platform": "PCWIN64",
+    "blas": "Intel(R) oneAPI Math Kernel Library Version 2025.3-Product Build 20251007 for Intel(R) 64 architecture applications (CNR branch AVX2)",
+    "lapack": "Intel(R) oneAPI Math Kernel Library Version 2025.3-Product Build 20251007 for Intel(R) 64 architecture applications (CNR branch AVX2) supporting Linear Algebra PACKage (LAPACK 3.12.1)",
+    "threads": 10,
+    "rng_type": "twister",
+    "signal_version": "26.1",
+    "eeglab_version": "2025.1.0",
+    "user_options_sha256": "",
+    "functions": {
+      "pwelch": {
+        "path": "D:\\Program Files\\MATLAB\\R2026a\\toolbox\\signal\\signal\\pwelch.m",
+        "sha256": "8115d5584e37805d50b13151e8028d4a82ea4c30be7d2e71b3a6667434cadb5d"
+      },
+      "trapz": {
+        "path": "D:\\Program Files\\MATLAB\\R2026a\\toolbox\\matlab\\datafun\\trapz.m",
+        "sha256": "b7360c99df9ed99e83c7ece0656023422a2495ade361572cd99ffceb494800da"
+      },
+      "pop_loadset": {
+        "path": "D:\\Program Files\\MATLAB\\eeglab\\functions\\popfunc\\pop_loadset.m",
+        "sha256": "3efa606a05068c898d04c9b93cf41afc29023617e9237d2a382c123212b93673"
+      },
+      "eeg_checkset": {
+        "path": "D:\\Program Files\\MATLAB\\eeglab\\functions\\adminfunc\\eeg_checkset.m",
+        "sha256": "fa6356b4a64ea6e16683acc4c65b257084dd1bfc995848de402244ccba00d6f0"
+      },
+      "eeg_getdatact": {
+        "path": "D:\\Program Files\\MATLAB\\eeglab\\functions\\adminfunc\\eeg_getdatact.m",
+        "sha256": "ca7bae07f9b3051cd8bec52ca0a3da6836beacc81b2346ba3aebc13f7b86fec3"
+      },
+      "floatread": {
+        "path": "D:\\Program Files\\MATLAB\\eeglab\\functions\\sigprocfunc\\floatread.m",
+        "sha256": "eb3ac46e28d338771bd8b097e89f99b73120d229ffbc0e99e270816287fbb784"
+      },
+      "eeg_getversion": {
+        "path": "D:\\Program Files\\MATLAB\\eeglab\\functions\\adminfunc\\eeg_getversion.m",
+        "sha256": "e3ae03d837fdfa561f776b2c7e4554924e1f2406d7791d8b8f8ddbd6f8fa8985"
+      }
+    }
+  }
+}

@@ -88,6 +88,8 @@ def main() -> None:
 
 
 def run_realdata_all(args: argparse.Namespace) -> dict[str, Any]:
+    from paper_analysis.teacher.runtime_lock import validate_python
+    validate_python()
     _validate_requested_workflow(args)
     eeg_analysis = load_eeg_analysis_config(args.eeg_analysis_config)
     outputs_root = Path(args.outputs_root)

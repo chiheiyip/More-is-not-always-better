@@ -21,6 +21,18 @@ configure_locked_runtime <- function(lock_path, profile) {
       stop("Locked R locale unavailable: ", category, ": ", settings$locale[[category]])
   }
   Sys.setenv(TZ = settings$timezone)
+  if (!is.null(settings$native)) {
+    if (!identical(runtime_native_snapshot(), settings$native))
+      stop('Locked R numerical library/RNG/thread environment mismatch')
+  }
   invisible(list(locale = setNames(lapply(names(settings$locale), Sys.getlocale), names(settings$locale)),
                  timezone = Sys.getenv("TZ")))
+}
+
+runtime_native_snapshot <- function() {
+  paths <- list.files(R.home('bin'), pattern='^(Rblas|Rlapack)\\.dll$', recursive=TRUE, full.names=TRUE)
+  hashes <- setNames(lapply(paths, function(p) digest::digest(file=p, algo='sha256')), basename(paths))
+  vars <- c('OMP_NUM_THREADS','OPENBLAS_NUM_THREADS','MKL_NUM_THREADS','NUMEXPR_NUM_THREADS','VECLIB_MAXIMUM_THREADS')
+  list(libraries=hashes, rng_kind=as.list(RNGkind()),
+       thread_environment=setNames(as.list(Sys.getenv(vars)),vars))
 }

@@ -133,7 +133,7 @@ def input_inventory(config, repo):
 def preflight(config, repo):
     from .runtime_lock import validate_analysis
     from .aoi_lock import verify_aoi
-    environment = validate_analysis(config, repo)
+    environment = validate_analysis(config, repo, require_matlab=True)
     aoi = verify_aoi(config, required=True)
     fresh = config.get("fresh", {})
     for key in ["preprocessed_root", "acquisition_root", "matlab", "eeglab_root"]:
