@@ -12,6 +12,21 @@ def test_calculation_identity_is_preserved_when_publisher_changes(tmp_path):
     assert handoff.calculation_sha(tmp_path)=='numerical-version'
 
 
+def test_stage3_reproduced_failures_remain_invalid_inference(tmp_path):
+    path = tmp_path / 'diagnostics.csv'
+    pd.DataFrame([
+        {'outcome': 'RawCompetition', 'model': 'boundary', 'status': 'fit', 'diagnostic': None},
+        {'outcome': 'Visited', 'model': 'equipment_C1', 'status': 'fit_failed',
+         'diagnostic': 'only one factor level'},
+        {'outcome': 'TFD', 'model': 'equipment_C1', 'status': None,
+         'diagnostic': 'missing fit status'},
+    ]).to_csv(path, index=False)
+    diagnostics, failures = handoff.stage3_diagnostic_summary(path)
+    assert len(diagnostics) == 3
+    assert failures.outcome.tolist() == ['Visited', 'TFD']
+    assert failures.diagnostic.tolist() == ['only one factor level', 'missing fit status']
+
+
 def test_generated_files_and_archived_results_cannot_become_new_sources(tmp_path):
     for name in ['fresh_summary.json','handoff_guide.json','formal_index_tables.json','previous_publication.json',
                  'artifact_data_verification.json','published_data_verification.json']:

@@ -31,6 +31,13 @@ def number(value):
     return "无法给出" if pd.isna(value) else f"{float(value):.8g}"
 
 
+def stage3_diagnostic_summary(path):
+    """Keep reproduced failures separate from valid model evidence."""
+    diagnostics = pd.read_csv(path)
+    failed = diagnostics.loc[~diagnostics.status.eq("fit")].copy()
+    return diagnostics, failed
+
+
 def collect_sources(run, original_design=()):
     records = []
     for p in sorted(run.rglob("*")):
@@ -369,6 +376,15 @@ def build_report(config, run, repo):
             statistics(robust,robust_path,f"CR2 companion;outcome={r.outcome};term={r.term}",["estimate","std.error","df","p.value","p.value.BH"])
     add("眼动主要模型、50%／70%敏感性、Block1、LOPO、AOI边界、补充模型和诊断均在本轮重新运行。结构性缺失、未访问TTFF及失败模型保留原规则；WWR配对的Holm与CR2 BH分别解释。")
     add("部分眼动Family B源表未提供主似然p，报告保留为无法给出；其CR2原始p和BH见12_CR2_robust_results.csv及对应源表。此处缺失不自动代表拟合失败。", [run/"02_eye_stage2/12_CR2_robust_results.csv"])
+    stage3_diagnostic_path = run / "04_eye_stage3/17_stage3_model_diagnostics.csv"
+    stage3_diagnostics, stage3_failures = stage3_diagnostic_summary(stage3_diagnostic_path)
+    add(f"眼动Stage 3诊断登记 {len(stage3_diagnostics)} 个模型，其中 {int(stage3_diagnostics.status.eq('fit').sum())} 个拟合成功、{len(stage3_failures)} 个没有有效推断。复算一致不把失败模型计为通过，也不将其解释为不显著。",
+        [stage3_diagnostic_path], "status", numeric=True)
+    numeric_row("眼动Stage 3 / 拟合成功", int(stage3_diagnostics.status.eq('fit').sum()), stage3_diagnostic_path, "status", "status=fit")
+    numeric_row("眼动Stage 3 / 无有效推断", len(stage3_failures), stage3_diagnostic_path, "status", "status!=fit")
+    for _, row in stage3_failures.iterrows():
+        add(f"无法推断：{row.model}/{row.outcome}；原因 `{row.diagnostic}`。原公式与失败记录保留，未通过删减因子来强行拟合。",
+            [stage3_diagnostic_path], "model/outcome/status/diagnostic/formula", f"model={row.model};outcome={row.outcome}")
     if old_eye:
         p=comparison_dir/"historical_to_fresh_eye.csv";old_to_new=pd.read_csv(p)
         for field in [c for c in old_to_new if c.startswith("flip_")]:
@@ -450,7 +466,7 @@ def build_report(config, run, repo):
     tables = [typed(SHEETS[0],overview),typed(SHEETS[1],pd.DataFrame(mapping)),typed(SHEETS[2],pd.DataFrame(numbers)),
               typed(SHEETS[3],pd.DataFrame(records)),typed(SHEETS[4],samples),
               typed(SHEETS[5],pd.read_csv(sensitivity / "exporter_PSD_regression.csv")),
-              typed(SHEETS[6],pd.concat([changed,issues],ignore_index=True)),typed(SHEETS[7],pd.DataFrame(omitted)),typed(SHEETS[8],glossary)]
+              typed(SHEETS[6],pd.concat([changed,issues,stage3_failures.assign(scope="eye_stage3", inference_valid=False)],ignore_index=True)),typed(SHEETS[7],pd.DataFrame(omitted)),typed(SHEETS[8],glossary)]
     dump(run / "handoff_tables.json", {"tables":tables})
     guide = ["眼动与 EEG 全量重跑交接说明", f"本轮EEG为{int(common.Participants)}人／{int(common.Trials)}共同试次，眼动为{selected.Participant.nunique()}人／{len(selected)}主分析试次。当前源数据重新计算，方法保持不变。",
         "先阅读论文数据分析结果报告.md，再用Excel段落来源映射的Source ID打开filesource_flat中的实际数据文件。解压后保留文件夹相对位置。",
@@ -461,6 +477,9 @@ def build_report(config, run, repo):
         "主似然模型、CR2 companion、factor HTZ、BH和Holm使用不同检验口径，请勿拼接估计和其他模型的p值。失败及无效推断与不显著分别保存。",
         "HF原QC规则保留，其局限继续记录。factor-level历史原脚本缺口、previous-scene加性公式及AOI来源限制见报告。大型波形和PSD留在正式结果位置，索引登记哈希。",
         "个体级源表按此前约定保留参与者标识。论文需按本轮源表更新人数、试次数、Results 3.2／3.3及相关表格。"]
+    if proof_path.is_file():
+        guide.append("环境恢复与复算证据见MD对应章节及filesource_flat中的reproducibility_verification.json：眼动、EEG、联合分析分别验收，具体覆盖范围和原计算／复核版本均登记。复算一致证明同一输入和方法下的计算稳定，不将失败模型或无法验证的来源算作有效科学推断。")
+    guide.append(f"眼动Stage 3有{len(stage3_failures)}个模型没有有效推断，详见17_stage3_model_diagnostics.csv；其余拟合结果与主模型分开使用。发现的筛选实现问题、修正影响和阶段代码版本见MD，不把补充模型修正误报为主分析库版本漂移。")
     dump(run / "handoff_guide.json", guide)
     stage = run / "handoff_staging"; stage.mkdir(exist_ok=True)
     flat = stage / "filesource_flat"; flat.mkdir(exist_ok=True)
