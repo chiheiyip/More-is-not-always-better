@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import zipfile
 from pathlib import Path
@@ -55,8 +56,9 @@ def compare_frames(before: pd.DataFrame, after: pd.DataFrame, keys: list[str], n
                 "conf.low", "conf.high", "statistic", "z.ratio", "t.ratio"} else 1e-12)
             if field in {"PixelArea", "ValidScenePixels"}:
                 tolerance = 0.0
-            delta = np.abs(x - y)
             exact = np.equal(x, y)
+            with np.errstate(invalid="ignore"):
+                delta = np.where(exact, 0.0, np.abs(x - y))
             passed = np.isclose(x, y, rtol=0, atol=tolerance)
             records.append({"file": name, "field": field, "rows": len(a), "missing_mismatches": missing,
                 "unequal_values": int((~exact).sum()), "max_abs_difference": float(delta.max()) if len(delta) else 0,
@@ -69,6 +71,30 @@ def compare_frames(before: pd.DataFrame, after: pd.DataFrame, keys: list[str], n
                             "unequal_values": changed, "beyond_tolerance": changed,
                             "max_abs_difference": None, "tolerance": 0,
                             "significance_flips": 0, "direction_flips": 0})
+    return records
+
+
+def factor_encoding_check(before: pd.DataFrame, after: pd.DataFrame) -> list[dict]:
+    keys = ["Participant", "GlobalTrialOrder"]
+    a = before.sort_values(keys).set_index(keys)
+    b = after.sort_values(keys).set_index(keys)
+    if not a.index.equals(b.index):
+        raise StageBlockedError("Factor encoding sample keys differ")
+    previous_scene = a.groupby([a.index.get_level_values("Participant"), a.Block], sort=False).SceneID.shift()
+    records = []
+    for field, scene in [("Complexity", a.SceneID), ("PreviousComplexity", previous_scene)]:
+        value = a[field].copy()
+        baseline = value.isna() & scene.astype(str).str.contains("C0", regex=False)
+        if field == "PreviousComplexity":
+            baseline &= a.PreviousWWR.notna()
+        value = value.astype(object)
+        value.loc[baseline] = "C0"
+        missing = int((value.isna() != b[field].isna()).sum())
+        valid = value.notna() & b[field].notna()
+        mismatches = int((value[valid].astype(str) != b[field][valid].astype(str)).sum()) + missing
+        records.append({"field": field, "historical_empty_baseline_labels": int(baseline.sum()),
+                        "canonical_mismatches": mismatches,
+                        "proof": "C0 verified from current/previous within-block SceneID; true block-start missing stays missing"})
     return records
 
 
@@ -172,6 +198,7 @@ def compare(package: Path, out: Path):
                 raise StageBlockedError(f"Fresh output changed after freeze: {record['path']}")
     results = []
     inventory = []
+    encoding = []
     with zipfile.ZipFile(package) as archive:
         def read(stage, name, excel=False):
             data = io.BytesIO(archive.read(next(n for n in archive.namelist() if f"__{stage}__{name}" in n)))
@@ -186,7 +213,10 @@ def compare(package: Path, out: Path):
             results.extend(compare_frames(read("02_eye_stage2", name), pd.read_csv(out/"02_eye_stage2"/name),
                                           ["outcome", "model", "term", *extra], name))
         name = "06_trial_level_eye_tracking_data.xlsx"
-        results.extend(compare_frames(read("02_eye_stage2", name, True), pd.read_excel(out/"02_eye_stage2"/name),
+        historical_trials = read("02_eye_stage2", name, True)
+        current_trials = pd.read_excel(out/"02_eye_stage2"/name)
+        encoding = factor_encoding_check(historical_trials, current_trials)
+        results.extend(compare_frames(historical_trials, current_trials,
                        ["Participant", "GlobalTrialOrder"], name))
         name = "08_AOI_area_report.xlsx"
         results.extend(compare_frames(read("01_eye_stage1", name, True), pd.read_excel(out/"01_eye_stage1"/name),
@@ -220,10 +250,13 @@ def compare(package: Path, out: Path):
             inventory.append(record)
     table = pd.DataFrame(results)
     table["scope"] = "eye_standalone"
+    verified_encoding = [r["field"] for r in encoding if r["canonical_mismatches"] == 0]
+    table.loc[table.file.eq("06_trial_level_eye_tracking_data.xlsx") & table.field.isin(verified_encoding), "scope"] = "historical_empty_C0_encoding"
     table.loc[table.file.eq("16_EEG_valid_common_sample_sensitivity.csv") |
               (table.file.eq("06_trial_level_eye_tracking_data.xlsx") & table.field.str.startswith("IncludeEEG")), "scope"] = "current_eeg_common_sample"
     table.to_csv(out / "historical_primary_comparison.csv", index=False, encoding="utf-8-sig")
     pd.DataFrame(inventory).to_csv(out / "historical_supplemental_inventory.csv", index=False, encoding="utf-8-sig")
+    pd.DataFrame(encoding).to_csv(out / "factor_encoding_check.csv", index=False, encoding="utf-8-sig")
     sample = pd.read_excel(out / "02_eye_stage2/06_trial_level_eye_tracking_data.xlsx")
     primary = sample.loc[sample.IncludedPrimary.eq(True)]
     standalone = table.loc[table.scope.eq("eye_standalone")]
@@ -238,6 +271,7 @@ def compare(package: Path, out: Path):
     summary["primary_model_comparison"] = {k: int(main[k].sum()) for k in
         ("missing_mismatches", "unequal_values", "beyond_tolerance", "significance_flips", "direction_flips")}
     summary["pixel_count_unequal_values"] = int(areas.unequal_values.sum())
+    summary["factor_encoding_check"] = encoding
     (out / "comparison_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     report = ["# 眼动历史环境复算核查", "",
               f"历史包：{package.name}；历史计算 SHA：{proof['historical_calculation_sha']}。",
@@ -256,6 +290,9 @@ def compare(package: Path, out: Path):
               f"p/q 跨越 0.05：{summary['primary_model_comparison']['significance_flips']} 项。", "",
               "统计容差：系数/SE/CI/df 绝对差 1e-8，p/q 绝对差 1e-6；AOI 整数像素计数要求完全相等。"
               "容差内显著性翻转仍单列；浮点值是否逐位相等也单独报告。", "",
+              "旧表的 C0 使用空基线标签，读取 Excel 后呈缺失；新表明确使用 C0。"
+              "factor_encoding_check.csv 用当前/同 Block 前序 SceneID 验证其语义是否相同；"
+              "原始空值差异保留在完整对照表，不静默修改分析输入。", "",
               "完整字段对照见 historical_primary_comparison.csv；阈值、Block1、逐人剔除和补充模型均重新计算。"
               "Stage 3 旧失败、空表、当前未触发及模型字段变化见 historical_supplemental_inventory.csv，"
               "这些状态不计作已验证相同。", "",
@@ -264,3 +301,71 @@ def compare(package: Path, out: Path):
               "库环境和计算复现的核对，不自动证明稿件中所有理论解释正确。"]
     (out / "眼动历史环境复算核查.md").write_text("\n".join(report) + "\n", encoding="utf-8")
     return summary
+
+
+def refit_statistics(source: Path, out: Path, repo: Path):
+    """Reuse sealed same-source Python tables; refit every eye R model."""
+    from .fresh import verify_inputs
+    from .r_runner import invoke_r
+    if out.exists() or out.resolve().is_relative_to(source.resolve()):
+        raise StageBlockedError("R refit requires a new sibling run directory")
+    if subprocess.check_output(["git", "status", "--porcelain"], cwd=repo, text=True).strip():
+        raise StageBlockedError("R refit requires clean committed code")
+    original = json.loads((source / "environment_and_source_proof.json").read_text(encoding="utf-8"))
+    complete = json.loads((source / "fresh_calculation_complete.json").read_text(encoding="utf-8"))
+    config = json.loads((source / "config.local.json").read_text(encoding="utf-8"))
+    environment = validate_analysis(config, repo)
+    if environment["python"] != original["environment"]["python"]:
+        raise StageBlockedError("Cannot reuse Python tables under a changed Python environment")
+    verify_aoi(config, required=True); verify_inputs(complete["input_hashes"])
+    source_seals = {}
+    for seal in (source / "stage_seals").glob("*.json"):
+        source_seals[seal.name] = file_sha256(seal)
+        for record in json.loads(seal.read_text(encoding="utf-8"))["files"]:
+            if file_sha256(source / record["path"]) != record["sha256"]:
+                raise StageBlockedError(f"Cannot reuse changed source artifact: {record['path']}")
+    out.mkdir(parents=True)
+    for folder in ("01_eye_stage1", "02_eye_stage2", "03_eye_stage3_plan", "04_eye_stage3", "reference", "frozen_aoi"):
+        shutil.copytree(source / folder, out / folder)
+    for key, folder in [("stage1_dir", "01_eye_stage1"), ("stage2_dir", "02_eye_stage2"), ("stage3_plan_dir", "03_eye_stage3_plan")]:
+        config["eye"][key] = str(out / folder)
+    config["eye"]["aoi_pixel_lock"] = str(out / "frozen_aoi/aoi_pixel_lock.json")
+    config_path = out / "config.local.json"
+    config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+    original.update(verification_sha=git_commit(repo), environment=environment,
+                    config_sha256=file_sha256(config_path), reused_python_source=str(source),
+                    python_calculation_sha=complete["sha"], reused_stage_seals=source_seals)
+    (out / "environment_and_source_proof.json").write_text(json.dumps(original, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.environ.pop("PAPER_ANALYSIS_R_REUSE_ROOT", None)
+    print("Refitting Stage 2 with locked historical R locale", flush=True)
+    stage2 = out / "02_eye_stage2"
+    invoke_r(config["rscript"], repo / "analysis/r/eye_stage2_analysis.R",
+             [str(stage2 / "eye_stage2_model_input.csv"), str(stage2), str(config["eye"]["primary_tracking_threshold"])])
+    stage3 = out / "04_eye_stage3"
+    metadata = json.loads((stage3 / "run_manifest.json").read_text(encoding="utf-8"))
+    triggers = metadata["arguments"]["triggers"]
+    print("Refitting Stage 3 with locked historical R locale", flush=True)
+    invoke_r(config["rscript"], repo / "analysis/r/eye_stage3_analysis.R",
+             [str(stage3 / "eye_stage3_model_input.csv"), str(stage3), ",".join(triggers),
+              str(stage3 / "eye_stage3_AOI_model_input.csv"), str(stage3 / "eye_stage3_boundary_model_input.csv"),
+              str(config["stage3"]["bootstrap_iterations"])])
+    from .eye import _package_r_csv_outputs
+    _package_r_csv_outputs(stage2)
+    _package_r_csv_outputs(stage3)
+    for folder in (stage2, stage3):
+        stage_manifest = json.loads((folder / "run_manifest.json").read_text(encoding="utf-8"))
+        stage_manifest["R_refit"] = {"git_commit": git_commit(repo), "source_python_git_commit": complete["sha"],
+                                       "runtime_lock": environment["r_primary"]}
+        (folder / "run_manifest.json").write_text(json.dumps(stage_manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Keep original Python stage manifests; record the new R calculation separately.
+    (out / "r_refit_provenance.json").write_text(json.dumps({"source_python_sha": complete["sha"],
+        "r_calculation_sha": git_commit(repo), "environment": environment, "source_stage_seals": source_seals,
+        "reuse": "verified Python trial/AOI/boundary inputs only; all R models refitted"}, ensure_ascii=False, indent=2), encoding="utf-8")
+    (out / "stage_seals").mkdir()
+    for folder in ("01_eye_stage1", "02_eye_stage2", "03_eye_stage3_plan", "04_eye_stage3"):
+        records = [{"path": p.relative_to(out).as_posix(), "sha256": file_sha256(p)} for p in sorted((out/folder).rglob("*")) if p.is_file()]
+        (out / "stage_seals" / f"{folder}.json").write_text(json.dumps({"files": records}, ensure_ascii=False, indent=2), encoding="utf-8")
+    verify_inputs(complete["input_hashes"])
+    (out / "fresh_calculation_complete.json").write_text(json.dumps({"status": "complete", "sha": git_commit(repo),
+        "source_python_sha": complete["sha"], "input_hashes": complete["input_hashes"],
+        "config_sha256": file_sha256(config_path)}, ensure_ascii=False, indent=2), encoding="utf-8")

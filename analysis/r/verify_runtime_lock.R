@@ -11,6 +11,8 @@ if (profile == "auto") {
 }
 expected <- lock$profiles[[profile]]
 if (is.null(expected)) stop("Unknown R lock profile: ", profile)
+source(file.path(dirname(args[1]), "runtime_profile.R"))
+runtime_settings <- configure_locked_runtime(args[1], profile)
 errors <- character()
 if (!identical(expected$R, as.character(getRversion())))
   errors <- c(errors, paste("R expected", expected$R, "found", getRversion()))
@@ -24,4 +26,5 @@ for (p in names(expected$packages)) if (!identical(expected$packages[[p]], actua
 if (length(errors)) stop(paste(errors, collapse = "; "))
 cat("ANALYSIS_RUNTIME_LOCK=", jsonlite::toJSON(list(status = "passed", profile = profile,
     R = as.character(getRversion()), platform = R.version$platform,
+    locale = runtime_settings$locale, timezone = runtime_settings$timezone,
     packages = actual, library_paths = .libPaths()), auto_unbox = TRUE), "\n", sep = "")

@@ -12,7 +12,7 @@ from paper_analysis.teacher.state import file_sha256
 
 
 def test_unicode_inputs_and_optional_files_are_exactly_staged(tmp_path, monkeypatch):
-    monkeypatch.setattr("paper_analysis.teacher.runtime_lock.validate_r", lambda *a, **k: {"status": "passed"})
+    monkeypatch.setattr("paper_analysis.teacher.runtime_lock.validate_r", lambda *a, **k: {"status": "passed", "profile": "primary"})
     monkeypatch.setattr(shutil, "which", lambda _: "Rscript")
     repo = tmp_path / "repo"
     scripts = repo / "analysis" / "r"
@@ -30,6 +30,7 @@ def test_unicode_inputs_and_optional_files_are_exactly_staged(tmp_path, monkeypa
         assert (cwd / "input_0.csv").read_bytes() == source.read_bytes()
         assert (cwd / "input_3.csv").read_bytes() == extra.read_bytes()
         assert (cwd / "common.R").is_file()
+        assert (cwd / "analysis.R").read_text(encoding="utf-8").startswith('source("runtime_profile.R")')
         (cwd / "out" / "result.csv").write_bytes(b"beta,p\n0.1,0.02\n")
         return subprocess.CompletedProcess(command, 0)
     monkeypatch.setattr(subprocess, "run", run)
@@ -38,7 +39,7 @@ def test_unicode_inputs_and_optional_files_are_exactly_staged(tmp_path, monkeypa
 
 
 def test_failed_r_does_not_publish_partial_results(tmp_path, monkeypatch):
-    monkeypatch.setattr("paper_analysis.teacher.runtime_lock.validate_r", lambda *a, **k: {"status": "passed"})
+    monkeypatch.setattr("paper_analysis.teacher.runtime_lock.validate_r", lambda *a, **k: {"status": "passed", "profile": "primary"})
     monkeypatch.setattr(shutil, "which", lambda _: "Rscript")
     scripts = tmp_path / "repo" / "analysis" / "r"
     scripts.mkdir(parents=True)
@@ -90,6 +91,8 @@ def test_registered_reuse_requires_equal_inputs_methods_and_hashes(tmp_path, mon
     reused = _reuse_r(script, [str(current), str(output), ".7" if alter == "threshold" else ".6"], output)
     assert reused == (alter is None)
     assert (output / "results.csv").exists() == (alter is None)
+    assert not _reuse_r(script, [str(current), str(output), ".6"], output,
+                        environment={"lock_sha256": "unregistered-locale-profile"})
 
 
 def test_real_r_reads_chinese_identifiers_without_locale_transcoding(tmp_path):

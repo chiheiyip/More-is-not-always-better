@@ -5,6 +5,14 @@
     "primary": {
       "R": "4.4.2",
       "platform": "x86_64-w64-mingw32",
+      "locale": {
+        "LC_COLLATE": "Chinese (Simplified)_China.utf8",
+        "LC_CTYPE": "Chinese (Simplified)_China.utf8",
+        "LC_MONETARY": "Chinese (Simplified)_China.utf8",
+        "LC_NUMERIC": "C",
+        "LC_TIME": "Chinese (Simplified)_China.utf8"
+      },
+      "timezone": "Asia/Shanghai",
       "packages": {
         "Deriv": "4.2.0",
         "MASS": "7.3.66",
@@ -117,6 +125,14 @@
     "independent": {
       "R": "4.5.3",
       "platform": "x86_64-w64-mingw32",
+      "locale": {
+        "LC_COLLATE": "C",
+        "LC_CTYPE": "Chinese (Simplified)_China.utf8",
+        "LC_MONETARY": "C",
+        "LC_NUMERIC": "C",
+        "LC_TIME": "C"
+      },
+      "timezone": "America/New_York",
       "packages": {
         "Deriv": "4.3.5",
         "R.matlab": "3.8.1",

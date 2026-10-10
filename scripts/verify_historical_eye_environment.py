@@ -6,13 +6,14 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
-from paper_analysis.teacher.historical_eye import prepare, run, compare
+from paper_analysis.teacher.historical_eye import prepare, run, compare, refit_statistics
 from paper_analysis.teacher.state import StageBlockedError
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Recalculate eye data in the locked 0805 environment, compare after freezing outputs")
-    parser.add_argument("--phase", choices=["prepare", "run", "compare"], required=True)
+    parser.add_argument("--phase", choices=["prepare", "run", "compare", "refit-r"], required=True)
+    parser.add_argument("--source-run", type=Path)
     parser.add_argument("--config", type=Path)
     parser.add_argument("--historical-package", type=Path, required=True)
     parser.add_argument("--outdir", type=Path, required=True)
@@ -27,6 +28,11 @@ def main(argv=None):
         elif args.phase == "run":
             run(args.outdir / "config.local.json", args.outdir, REPO)
             result = "fresh eye calculation complete"
+        elif args.phase == "refit-r":
+            if not args.source_run:
+                parser.error("refit-r requires --source-run")
+            refit_statistics(args.source_run, args.outdir, REPO)
+            result = "all eye R models refitted with locked locale; verified Python tables reused"
         else:
             result = compare(args.historical_package, args.outdir)
     except StageBlockedError as exc:
