@@ -23,6 +23,11 @@ and independent R 4.5.3 have separate package snapshots in
 another. A mismatch stops before model outputs are created. Artifact authoring
 uses its bundled runtime separately; this lock governs numerical calculation.
 
+Primary R also locks the historical Chinese UTF-8 collation and locale categories
+and `Asia/Shanghai` time zone. The staged execution applies the same profile as
+the preflight; factor ordering must not change merely because the parent shell
+uses a C locale. Independent R retains its separately registered locale profile.
+
 ## Freeze AOI evidence once, then compare exactly
 
 Use the committed checker with an explicitly declared formal area table and
@@ -70,3 +75,9 @@ direction/significance crossings separately from numerical tolerances.
 Current EEG-derived common-sample results are declared separately: changing
 the eye environment does not restore a historical EEG inclusion list. Existing
 formal publications and historical archives are preserved by this verifier.
+
+`--phase refit-r --source-run <sealed-fresh-eye-run> --outdir <new-sibling-run>`
+can reuse verified Python trial/AOI/boundary tables when only the R runtime
+profile changes. It verifies source, environment and stage hashes, keeps the
+original Python calculation SHA, and refits all R models with a separately
+recorded code SHA. No source waveform or eye CSV needs to be processed again.

@@ -299,7 +299,7 @@ def run_models(frames, config, root, folder, contract, reuse_absolute=None):
             for source,target in ((dest/"input.csv","input.csv"),(folder/"outcomes.csv","outcomes.csv"),
                                   (Path(contract),"contract.json")):
                 shutil.copyfile(source,stage/target)
-            for name in ("eeg_audit.R","eeg_factor_tests.R","common.R"):
+            for name in ("eeg_audit.R","eeg_factor_tests.R","common.R", "runtime_profile.R", "runtime-versions.lock.json"):
                 shutil.copyfile(root/"analysis/r"/name,stage/name)
             with (dest/"R_execution.log").open("w",encoding="utf-8") as log:
                 subprocess.run([config["rscript"],"eeg_audit.R","input.csv",".","outcomes.csv","contract.json"],

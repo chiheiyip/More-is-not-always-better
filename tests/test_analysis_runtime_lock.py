@@ -93,9 +93,11 @@ def test_actual_registered_r_environments():
         pytest.skip("Registered R environment unavailable")
     main = runtime_lock.validate_r(str(repo / "scripts/portable_rscript.cmd"), profile="primary")
     assert main["R"] == "4.4.2"
+    assert main["locale"]["LC_COLLATE"] == "Chinese (Simplified)_China.utf8"
+    assert main["timezone"] == "Asia/Shanghai"
     independent = Path("C:/Program Files/R/R-4.5.3/bin/x64/Rscript.exe")
     if independent.is_file() and (repo / ".codex_tmp/r45-lib").is_dir():
         other = runtime_lock.validate_r(str(independent), profile="independent", library=str(repo / ".codex_tmp/r45-lib"))
         assert other["R"] == "4.5.3"
-    with pytest.raises(StageBlockedError, match="R expected"):
+    with pytest.raises(StageBlockedError, match="version/platform mismatch"):
         runtime_lock.validate_r(str(repo / "scripts/portable_rscript.cmd"), profile="independent")

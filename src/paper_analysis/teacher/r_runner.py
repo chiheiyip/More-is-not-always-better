@@ -14,7 +14,7 @@ import pandas as pd
 from paper_analysis.teacher.state import StageBlockedError, file_sha256
 
 
-def _reuse_r(script: Path, arguments: list[str], output: Path) -> bool:
+def _reuse_r(script: Path, arguments: list[str], output: Path, environment: dict | None = None) -> bool:
     """Reuse registered R results only after checking model inputs and methods."""
     reuse_root = os.environ.get("PAPER_ANALYSIS_R_REUSE_ROOT")
     if not reuse_root:
@@ -23,6 +23,10 @@ def _reuse_r(script: Path, arguments: list[str], output: Path) -> bool:
     try:
         run = next(p for p in output.parents if p.parent.name == "teacher_runs")
         source = root / output.relative_to(run)
+        if environment is not None:
+            runtime_record = source / f"{script.stem}_runtime_lock.json"
+            if not runtime_record.is_file() or json.loads(runtime_record.read_text(encoding="utf-8")) != environment:
+                return False
         manifest_folder = next(p for p in [source, *source.parents] if (p / "run_manifest.json").is_file())
         manifest = json.loads((manifest_folder / "run_manifest.json").read_text(encoding="utf-8"))
         if manifest["status"] != "complete":
@@ -115,7 +119,7 @@ def invoke_r(rscript: str, script: Path, arguments: list[str], *, required: bool
     output.mkdir(parents=True, exist_ok=True)
     (output / f"{script.stem}_runtime_lock.json").write_text(
         json.dumps(environment, ensure_ascii=False, indent=2), encoding="utf-8")
-    if _reuse_r(script, arguments, output):
+    if _reuse_r(script, arguments, output, environment):
         return True
     scratch = script.resolve().parents[2] / ".codex_tmp"
     scratch.mkdir(exist_ok=True)
@@ -123,6 +127,14 @@ def invoke_r(rscript: str, script: Path, arguments: list[str], *, required: bool
         stage = Path(temporary)
         for dependency in script.parent.glob("*.R"):
             shutil.copyfile(dependency, stage / dependency.name)
+        # The executing process receives the same settings validated in preflight.
+        from .runtime_lock import REPO as runtime_repo
+        shutil.copyfile(runtime_repo / "analysis/r/runtime_profile.R", stage / "runtime_profile.R")
+        shutil.copyfile(runtime_repo / "analysis/r/runtime-versions.lock.json", stage / "runtime-versions.lock.json")
+        staged_script = stage / script.name
+        prefix = ('source("runtime_profile.R")\n'
+                  'configure_locked_runtime("runtime-versions.lock.json", "' + environment["profile"] + '")\n')
+        staged_script.write_text(prefix + staged_script.read_text(encoding="utf-8"), encoding="utf-8")
         staged_arguments = list(arguments)
         staged_arguments[1] = "out"
         (stage / "out").mkdir()
