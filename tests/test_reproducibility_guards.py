@@ -62,3 +62,13 @@ def test_comparison_preserves_family_keys_and_investigates_small_crossing():
     assert not result.passed.all()
     with pytest.raises(StageBlockedError,match='identities'):compare_tables(a,b.iloc[:1],['key'])
     with pytest.raises(StageBlockedError,match='Empty/failed'):compare_tables(a.iloc[:0],b.iloc[:0],['key'])
+
+@pytest.mark.parametrize('field',['p.value.likelihood','p.value.CR2','p.value.BH'])
+def test_eye_probability_variants_use_probability_tolerance_and_boundary_check(field):
+    from paper_analysis.teacher.reproducibility import compare_tables
+    a=pd.DataFrame({'key':[1],field:[.0499999]})
+    b=pd.DataFrame({'key':[1],field:[.0500001]})
+    result=compare_tables(a,b,['key']).iloc[0]
+    assert result.outside_tolerance==0
+    assert result.p_q_crossings==1
+    assert not result.passed
