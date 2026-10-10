@@ -80,9 +80,13 @@ def factor_encoding_check(before: pd.DataFrame, after: pd.DataFrame) -> list[dic
     b = after.sort_values(keys).set_index(keys)
     if not a.index.equals(b.index):
         raise StageBlockedError("Factor encoding sample keys differ")
-    previous_scene = a.groupby([a.index.get_level_values("Participant"), a.Block], sort=False).SceneID.shift()
+    # SceneID is a numeric trial identifier in the real package; AOIImageID
+    # carries the condition label and is separately checked against the mask source.
+    if not a.AOIImageID.equals(b.AOIImageID):
+        raise StageBlockedError("Factor encoding AOI identities differ")
+    previous_scene = a.groupby([a.index.get_level_values("Participant"), a.Block], sort=False).AOIImageID.shift()
     records = []
-    for field, scene in [("Complexity", a.SceneID), ("PreviousComplexity", previous_scene)]:
+    for field, scene in [("Complexity", a.AOIImageID), ("PreviousComplexity", previous_scene)]:
         value = a[field].copy()
         baseline = value.isna() & scene.astype(str).str.contains("C0", regex=False)
         if field == "PreviousComplexity":
@@ -94,7 +98,7 @@ def factor_encoding_check(before: pd.DataFrame, after: pd.DataFrame) -> list[dic
         mismatches = int((value[valid].astype(str) != b[field][valid].astype(str)).sum()) + missing
         records.append({"field": field, "historical_empty_baseline_labels": int(baseline.sum()),
                         "canonical_mismatches": mismatches,
-                        "proof": "C0 verified from current/previous within-block SceneID; true block-start missing stays missing"})
+                        "proof": "C0 verified from current/previous within-block AOIImageID; numeric SceneID remains a trial key; true block-start missing stays missing"})
     return records
 
 
@@ -199,6 +203,7 @@ def compare(package: Path, out: Path):
     results = []
     inventory = []
     encoding = []
+    byte_checks = []
     with zipfile.ZipFile(package) as archive:
         def read(stage, name, excel=False):
             data = io.BytesIO(archive.read(next(n for n in archive.namelist() if f"__{stage}__{name}" in n)))
@@ -206,6 +211,11 @@ def compare(package: Path, out: Path):
         for name in PRIMARY_FILES:
             keys = ["outcome", "contrast"] if "posthoc" in name else ["outcome", "model", "term"]
             results.extend(compare_frames(read("02_eye_stage2", name), pd.read_csv(out/"02_eye_stage2"/name), keys, name))
+        for name in (*PRIMARY_FILES, "13_tracking_threshold_sensitivity_models.csv", "14_block1_sensitivity_models.csv", "15_leave_one_participant_out.csv"):
+            old_bytes = archive.read(next(n for n in archive.namelist() if f"__02_eye_stage2__{name}" in n))
+            byte_checks.append({"file": name, "historical_sha256": hashlib.sha256(old_bytes).hexdigest(),
+                                "current_sha256": file_sha256(out/"02_eye_stage2"/name),
+                                "byte_identical": old_bytes == (out/"02_eye_stage2"/name).read_bytes()})
         for name, extra in [("13_tracking_threshold_sensitivity_models.csv", ["Threshold"]),
                             ("14_block1_sensitivity_models.csv", []),
                             ("15_leave_one_participant_out.csv", ["ExcludedParticipant"]),
@@ -250,6 +260,7 @@ def compare(package: Path, out: Path):
             inventory.append(record)
     table = pd.DataFrame(results)
     table["scope"] = "eye_standalone"
+    table.loc[table.field.eq("diagnostic"), "scope"] = "failed_model_diagnostic_text"
     verified_encoding = [r["field"] for r in encoding if r["canonical_mismatches"] == 0]
     table.loc[table.file.eq("06_trial_level_eye_tracking_data.xlsx") & table.field.isin(verified_encoding), "scope"] = "historical_empty_C0_encoding"
     table.loc[table.file.eq("16_EEG_valid_common_sample_sensitivity.csv") |
@@ -257,12 +268,14 @@ def compare(package: Path, out: Path):
     table.to_csv(out / "historical_primary_comparison.csv", index=False, encoding="utf-8-sig")
     pd.DataFrame(inventory).to_csv(out / "historical_supplemental_inventory.csv", index=False, encoding="utf-8-sig")
     pd.DataFrame(encoding).to_csv(out / "factor_encoding_check.csv", index=False, encoding="utf-8-sig")
+    (out / "historical_csv_byte_checks.json").write_text(json.dumps(byte_checks, ensure_ascii=False, indent=2), encoding="utf-8")
     sample = pd.read_excel(out / "02_eye_stage2/06_trial_level_eye_tracking_data.xlsx")
     primary = sample.loc[sample.IncludedPrimary.eq(True)]
     standalone = table.loc[table.scope.eq("eye_standalone")]
     main = table.loc[table.file.isin(PRIMARY_FILES)]
     areas = table.loc[table.file.eq("08_AOI_area_report.xlsx") & table.field.isin(["PixelArea", "ValidScenePixels"])]
     summary = {"participants": int(primary.Participant.nunique()), "trials": len(primary),
+               "comparison_code_sha": git_commit(Path(__file__).resolve().parents[3]),
                "missing_mismatches": int(standalone.missing_mismatches.sum()),
                "beyond_tolerance": int(standalone.beyond_tolerance.sum()),
                "significance_flips": int(standalone.significance_flips.sum()), "direction_flips": int(standalone.direction_flips.sum()),
@@ -272,16 +285,23 @@ def compare(package: Path, out: Path):
         ("missing_mismatches", "unequal_values", "beyond_tolerance", "significance_flips", "direction_flips")}
     summary["pixel_count_unequal_values"] = int(areas.unequal_values.sum())
     summary["factor_encoding_check"] = encoding
+    summary["byte_identical_model_csvs"] = sum(r["byte_identical"] for r in byte_checks)
+    summary["failed_diagnostic_text_differences"] = int(table.loc[table.scope.eq("failed_model_diagnostic_text"), "unequal_values"].sum())
     (out / "comparison_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     report = ["# 眼动历史环境复算核查", "",
               f"历史包：{package.name}；历史计算 SHA：{proof['historical_calculation_sha']}。",
-              f"本次复算 SHA：{proof['verification_sha']}；Python 和八个历史已登记库版本全部匹配；"
+              f"本次 R 复拟合 SHA：{proof['verification_sha']}；Python 原始数据重建 SHA：{proof.get('python_calculation_sha', proof['verification_sha'])}；"
+              "Python 和八个历史已登记库版本全部匹配；"
               f"核对历史已加载 R 包 {proof['historical_recorded_R_packages']} 个。",
+              f"本次比较与报告 SHA：{summary['comparison_code_sha']}。",
               "历史未登记全部 Python 间接依赖，不能宣称完整恢复旧操作系统及每个间接依赖。", "",
               f"原始眼动文件/标注/底图哈希通过核对 {proof['original_eye_source_hashes_verified']} 个。"
-              "本次从原始 CSV 重算，没有复用历史试次指标或模型输出。",
+              "先从原始 CSV 重建试次，区域设置修正后复用这批已核验 Python 表并重新拟合全部 R 模型。"
+              "没有使用 0805 历史试次指标或模型输出作为计算输入。",
               f"主分析：{summary['participants']} 人、{summary['trials']} 试次。",
               f"AOI 像素计数不一致：{summary['pixel_count_unequal_values']} 项。", "",
+              f"与历史原包字节及 SHA256 完全相同的主分析/敏感性 CSV：{summary['byte_identical_model_csvs']}/7；"
+              "逐文件证明见 historical_csv_byte_checks.json。", "",
               "主模型、CR2 与 WWR 配对表逐项核对：",
               f"- 缺失位置变化：{summary['primary_model_comparison']['missing_mismatches']} 项。",
               f"- 非逐位相等字段值：{summary['primary_model_comparison']['unequal_values']} 项。",
@@ -291,11 +311,14 @@ def compare(package: Path, out: Path):
               "统计容差：系数/SE/CI/df 绝对差 1e-8，p/q 绝对差 1e-6；AOI 整数像素计数要求完全相等。"
               "容差内显著性翻转仍单列；浮点值是否逐位相等也单独报告。", "",
               "旧表的 C0 使用空基线标签，读取 Excel 后呈缺失；新表明确使用 C0。"
-              "factor_encoding_check.csv 用当前/同 Block 前序 SceneID 验证其语义是否相同；"
+              "factor_encoding_check.csv 用当前/同 Block 前序 AOIImageID 验证其语义是否相同；"
+              "SceneID 为数字试次键，不用于猜测复杂度。"
               "原始空值差异保留在完整对照表，不静默修改分析输入。", "",
               "完整字段对照见 historical_primary_comparison.csv；阈值、Block1、逐人剔除和补充模型均重新计算。"
               "Stage 3 旧失败、空表、当前未触发及模型字段变化见 historical_supplemental_inventory.csv，"
               "这些状态不计作已验证相同。", "",
+              f"失败模型的错误文本差异：{summary['failed_diagnostic_text_differences']} 个字段值，保留原值；"
+              "不能把 fit_failed 或空结果表写成不显著证据。", "",
               "与当前 EEG 名单相关的 IncludeEEG 字段及共同样本模型独立标记为 current_eeg_common_sample。"
               "历史环境不会恢复旧 EEG 纳入名单；本次不重新计算 EEG，也不替换原正式交付。", "",
               "库环境和计算复现的核对，不自动证明稿件中所有理论解释正确。"]
