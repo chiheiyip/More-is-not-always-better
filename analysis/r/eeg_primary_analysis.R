@@ -268,7 +268,10 @@ set.seed(20260726)
 boot_rows <- list()
 boot_failures <- list()
 participants <- levels(input$Participant)
+draw_audits <- list()
 for (outcome in names(primary$models)) {
+  initial_rng_state <- .Random.seed
+  draw_hashes <- character(iterations)
   original_terms <- names(lme4::fixef(primary$models[[outcome]]))
   estimates <- matrix(
     NA_real_, nrow = iterations, ncol = length(original_terms),
@@ -277,6 +280,7 @@ for (outcome in names(primary$models)) {
   failed <- character()
   for (b in seq_len(iterations)) {
     sampled <- sample(participants, length(participants), replace = TRUE)
+    draw_hashes[b] <- digest::digest(sampled, algo='sha256')
     pieces <- lapply(seq_along(sampled), function(i) {
       part <- input[input$Participant == sampled[[i]], , drop = FALSE]
       part$Participant <- factor(paste0("boot_", i))
@@ -307,7 +311,13 @@ for (outcome in names(primary$models)) {
     failed_replicates = length(failed),
     failure_examples = paste(utils::head(unique(failed), 5), collapse = " | ")
   )
+  draw_audits[[outcome]] <- list(initial_rng_state=as.list(initial_rng_state),
+      final_rng_state=as.list(.Random.seed), requested=iterations,
+      draw_sha256=digest::digest(draw_hashes,algo='sha256'))
 }
+jsonlite::write_json(list(seed=20260726, unit='Participant; all trials retained; duplicate draws relabelled',
+    participants=as.list(participants), outcomes=draw_audits),
+    file.path(outdir,'bootstrap_draw_provenance.json'), auto_unbox=TRUE,pretty=TRUE)
 
 write_csv_utf8(model0_fixed, file.path(outdir, "08_eeg_model0_results.csv"))
 write_csv_utf8(primary$fixed, file.path(outdir, "09_eeg_primary_model1_results.csv"))
