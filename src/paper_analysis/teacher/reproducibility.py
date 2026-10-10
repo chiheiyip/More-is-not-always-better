@@ -23,7 +23,7 @@ def compare_tables(left, right, keys, *, model=True):
         numeric=pd.api.types.is_numeric_dtype(a) and pd.api.types.is_numeric_dtype(b)
         sig=direction=0
         if numeric:
-            pfield=field in {'p','q','p.value','p_value','q_value','within_q','joint_q','p_holm','q_BH','p_CR2','q_CR2'} or field.startswith(('p_','q_'))
+            pfield=field in {'p','q','p.value','p_value','q_value','within_q','joint_q','p_holm','q_BH','p_CR2','q_CR2'} or field.startswith(('p_','q_','p.value.','q.value.'))
             tol=1e-6 if pfield else 1e-8
             av=a.to_numpy(dtype=float,na_value=np.nan);bv=b.to_numpy(dtype=float,na_value=np.nan)
             same=np.isclose(av,bv,atol=tol if model else 1e-12,rtol=0 if model else 1e-10,equal_nan=True)
