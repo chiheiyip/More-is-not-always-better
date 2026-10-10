@@ -1,4 +1,5 @@
 .venv/
+.venv-analysis/
 .venv-system/
 .r-env/
 .tools/

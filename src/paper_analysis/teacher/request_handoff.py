@@ -246,7 +246,8 @@ def python_spectra(cache):
                 row={k:record[k] for k in KEY+["onset_trim_s","roi"]}
                 for name,(low,high) in BANDS.items():
                     mask=(f>=low)&(f<=high)
-                    row[name]=float(np.trapz(pxx[mask],f[mask]))
+                    integrate = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
+                    row[name]=float(integrate(pxx[mask],f[mask]))
                 rows.append(row)
     return pd.DataFrame(rows)
 

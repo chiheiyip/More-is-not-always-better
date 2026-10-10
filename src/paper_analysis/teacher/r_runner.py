@@ -107,10 +107,14 @@ def invoke_r(rscript: str, script: Path, arguments: list[str], *, required: bool
         if required:
             raise StageBlockedError(f"Rscript is unavailable ({rscript}); restore the registered R environment.")
         return False
+    from .runtime_lock import validate_r
+    environment = validate_r(executable)
     # Teacher scripts share the contract: input file, output directory, then
     # optional scalar arguments or additional input files.
     output = Path(arguments[1])
     output.mkdir(parents=True, exist_ok=True)
+    (output / f"{script.stem}_runtime_lock.json").write_text(
+        json.dumps(environment, ensure_ascii=False, indent=2), encoding="utf-8")
     if _reuse_r(script, arguments, output):
         return True
     scratch = script.resolve().parents[2] / ".codex_tmp"

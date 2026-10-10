@@ -104,6 +104,10 @@ def input_inventory(config, repo):
     if not set(r["Participant"] for r in sets).issubset(set(participants.Participant)):
         raise StageBlockedError("EEG source not present in participant/design mapping")
     paths = {Path(config[k]).resolve() for k in ["participant_information", "trial_order_mapping", "scene_aoi_mapping", "questionnaire_file"]}
+    if config.get("eye", {}).get("aoi_pixel_lock"):
+        aoi_lock = Path(config["eye"]["aoi_pixel_lock"]).resolve()
+        paths.add(aoi_lock)
+        paths.add(aoi_lock.parent / json.loads(aoi_lock.read_text(encoding="utf-8"))["mask_archive"])
     for record in sets:
         paths.update(Path(record[k]) for k in ["set_path", "fdt_path"])
     for table, columns in [(mapping, ["CSVFile"]), (scenes, ["AOIFile", "BaseImageFile", "ValidSceneFile"])]:
@@ -127,6 +131,10 @@ def input_inventory(config, repo):
 
 
 def preflight(config, repo):
+    from .runtime_lock import validate_analysis
+    from .aoi_lock import verify_aoi
+    environment = validate_analysis(config, repo)
+    aoi = verify_aoi(config, required=True)
     fresh = config.get("fresh", {})
     for key in ["preprocessed_root", "acquisition_root", "matlab", "eeglab_root"]:
         if not fresh.get(key) or not Path(fresh[key]).exists():
@@ -141,7 +149,7 @@ def preflight(config, repo):
     return {"scope": "eye-eeg", "source_files": len(inventory), "eeg_sources": len(sets),
             "code_sha": git_sha(repo), "questionnaire_models": "out_of_scope",
             "historical_derived_results": "prohibited", "input_inventory": inventory,
-            "set_inventory": sets}
+            "set_inventory": sets, "runtime_lock": environment, "aoi_pixel_lock": aoi}
 
 
 def verify_inputs(records):
@@ -428,7 +436,8 @@ def run_fresh(config, config_path, outputs_root, run_id, repo_root, *, resume=Fa
     if subprocess.check_output(["git", "status", "--porcelain"], cwd=repo, text=True).strip():
         raise StageBlockedError("Fresh real-data execution requires clean committed code")
     plan = preflight(config, repo)
-    identity = {"config": config, "sha": plan["code_sha"], "inputs": plan["input_inventory"]}
+    identity = {"config": config, "sha": plan["code_sha"], "inputs": plan["input_inventory"],
+                "runtime_lock": plan["runtime_lock"], "aoi_pixel_lock": plan["aoi_pixel_lock"]}
     fingerprint = hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     if run.exists() and not resume:
         raise StageBlockedError("Use a new run ID or verified same-run --resume")
@@ -439,6 +448,7 @@ def run_fresh(config, config_path, outputs_root, run_id, repo_root, *, resume=Fa
     dump(manifest, {"status": "running", "fingerprint": fingerprint, "git_commit": plan["code_sha"], "scope": "eye-eeg",
                     "config_sha256": file_sha256(config_path), "Python": sys.version, "platform": platform.platform(),
                     "Python_packages":{"numpy":np.__version__,"pandas":pd.__version__,"h5py":h5py.__version__},
+                    "runtime_lock": plan["runtime_lock"], "aoi_pixel_lock": plan["aoi_pixel_lock"],
                     "random_seeds":{"EEG_models":20260906,"EEG_bootstrap":20260726,"onset":20260802}})
     dump(run / "source_hashes_before.json", plan["input_inventory"])
     os.environ.pop("PAPER_ANALYSIS_R_REUSE_ROOT", None)

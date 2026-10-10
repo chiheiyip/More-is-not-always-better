@@ -12,6 +12,7 @@ from paper_analysis.teacher.state import file_sha256
 
 
 def test_unicode_inputs_and_optional_files_are_exactly_staged(tmp_path, monkeypatch):
+    monkeypatch.setattr("paper_analysis.teacher.runtime_lock.validate_r", lambda *a, **k: {"status": "passed"})
     monkeypatch.setattr(shutil, "which", lambda _: "Rscript")
     repo = tmp_path / "repo"
     scripts = repo / "analysis" / "r"
@@ -37,6 +38,7 @@ def test_unicode_inputs_and_optional_files_are_exactly_staged(tmp_path, monkeypa
 
 
 def test_failed_r_does_not_publish_partial_results(tmp_path, monkeypatch):
+    monkeypatch.setattr("paper_analysis.teacher.runtime_lock.validate_r", lambda *a, **k: {"status": "passed"})
     monkeypatch.setattr(shutil, "which", lambda _: "Rscript")
     scripts = tmp_path / "repo" / "analysis" / "r"
     scripts.mkdir(parents=True)
