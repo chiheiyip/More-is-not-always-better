@@ -21,6 +21,15 @@ PRIMARY_FILES = ("09_familyA_primary_models.csv", "10_familyB_primary_models.csv
                  "11_WWR_posthoc_Holm.csv", "12_CR2_robust_results.csv")
 
 
+def historical_r_packages(session: str) -> list[tuple[str, str]]:
+    # Platform strings such as x86_64-w64-mingw32 also contain underscores.
+    # Only the explicitly declared namespace section lists package versions.
+    marker = "loaded via a namespace (and not attached):"
+    if marker not in session:
+        raise StageBlockedError("Historical R namespace/version section missing")
+    return re.findall(r"([A-Za-z][A-Za-z0-9.]+)_([0-9][A-Za-z0-9.+-]*)", session.split(marker, 1)[1])
+
+
 def compare_frames(before: pd.DataFrame, after: pd.DataFrame, keys: list[str], name: str) -> list[dict]:
     for frame in (before, after):
         if frame.duplicated(keys).any() or frame[keys].isna().any().any():
@@ -79,7 +88,7 @@ def prepare(config: dict, package: Path, out: Path, repo: Path) -> Path:
             raise StageBlockedError("Historical Python patch version differs")
         session = archive.read(next(n for n in members if "02_eye_stage2__R_session_info.txt" in n)).decode("utf-8")
         rversion = re.search(r"R version ([0-9.]+)", session).group(1)
-        packages = re.findall(r"([A-Za-z][A-Za-z0-9.]+)_([0-9][A-Za-z0-9.+-]*)", session)
+        packages = historical_r_packages(session)
         current = environment["r_primary"]
         if current["R"] != rversion or any(current["packages"].get(k) != v.replace("-", ".") for k, v in packages):
             raise StageBlockedError("R or loaded historical statistical packages differ")
