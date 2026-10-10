@@ -41,7 +41,7 @@ def test_equal_infinite_df_remains_equal_and_maximum_is_finite():
 def test_empty_C0_labels_require_scene_proof_and_keep_block_starts_missing():
     from paper_analysis.teacher.historical_eye import factor_encoding_check
     old = pd.DataFrame({"Participant": ["a"]*3, "GlobalTrialOrder": [1,2,3], "Block": [1,1,2],
-                        "SceneID": ["C0W15","C1W15","C0W15"], "Complexity": [None,"C1",None],
+                        "SceneID": [1,2,3], "AOIImageID": ["1-C0W15","1-C1W15","2-C0W15"], "Complexity": [None,"C1",None],
                         "PreviousWWR": [None,15,None], "PreviousComplexity": [None,None,None]})
     new = old.copy(); new["Complexity"] = ["C0","C1","C0"]; new["PreviousComplexity"] = [None,"C0",None]
     checks = factor_encoding_check(old,new)
