@@ -23,6 +23,8 @@
     "archive_root": "D:/study-local/delivery_history"
   },
   "eye": {
+    "aoi_pixel_lock": "D:/study-local/frozen_aoi/aoi_pixel_lock.json",
+    "aoi_pixel_lock_sha256": "SHA256_FROM_EXPLICIT_FREEZE",
     "raw_root": "D:/study-local/eye", "aoi_root": "D:/study-local/eye", "base_images_root": "D:/study-local/eye",
     "point_source": "fixation", "validity_accepted": [1], "validity_rule": "both",
     "primary_tracking_threshold": 0.6, "sensitivity_tracking_thresholds": [0.5, 0.7]

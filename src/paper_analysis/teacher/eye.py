@@ -389,6 +389,10 @@ def run_eye_stage1(
     outdir: str | Path,
     repo_root: str | Path,
 ) -> dict[str, Path]:
+    from .runtime_lock import validate_python
+    from .aoi_lock import verify_aoi
+    validate_python()
+    verify_aoi(config, required=True)
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     participant_path = Path(config["participant_information"])
@@ -1204,6 +1208,10 @@ def run_eye_stage2(
     repo_root: str | Path,
     r_required: bool = True,
 ) -> dict[str, Path]:
+    from .runtime_lock import validate_python
+    from .aoi_lock import verify_aoi
+    validate_python()
+    verify_aoi(config, required=True)
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     eye_config = config.get("eye", {})
@@ -1867,6 +1875,10 @@ def run_eye_stage3_plan(
     outdir: str | Path,
     repo_root: str | Path,
 ) -> dict[str, Path]:
+    from .runtime_lock import validate_python
+    from .aoi_lock import verify_aoi
+    validate_python()
+    verify_aoi(config, required=True)
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     stage2_dir = Path(config.get("eye", {})["stage2_dir"])
@@ -2044,6 +2056,10 @@ def run_eye_stage3(
     repo_root: str | Path,
     r_required: bool = True,
 ) -> dict[str, Path]:
+    from .runtime_lock import validate_python
+    from .aoi_lock import verify_aoi
+    validate_python()
+    verify_aoi(config, required=True)
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     plan_dir = Path(config.get("eye", {})["stage3_plan_dir"])

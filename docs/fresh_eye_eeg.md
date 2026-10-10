@@ -6,6 +6,11 @@ read-only input/runtime preflight. The example configuration supplies measuremen
 inputs, runtime locations and optional exact hashes for corrected source files.
 No questionnaire outcome models run; original Q1.4 supplies grouping covariates.
 
+Formal execution now enforces the exact numerical environment and a frozen AOI
+pixel reference. See [analysis_environment_lock.md](analysis_environment_lock.md).
+Old configurations without `eye.aoi_pixel_lock` and its SHA256 cannot start a
+new fresh run. Original completed manifests retain their actual old versions.
+
 The coordinator preserves the original exporter, HF/RMS/peak-to-peak QC,
 median + 3.5 MAD thresholds, >30% subject exclusion, four parallel windows,
 eye 60% main and 50/70% sensitivity, and existing statistical methods.

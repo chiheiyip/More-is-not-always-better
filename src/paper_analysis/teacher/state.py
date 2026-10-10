@@ -28,6 +28,9 @@ STAGE_METHOD_DEPENDENCIES = {
     "eye-stage1": (
         "src/paper_analysis/teacher/eye.py",
         "src/paper_analysis/teacher/contracts.py",
+        "src/paper_analysis/teacher/runtime_lock.py",
+        "src/paper_analysis/teacher/aoi_lock.py",
+        "configs/analysis_python.lock.json",
     ),
     "eye-stage2": (
         "src/paper_analysis/teacher/r_runner.py",
@@ -225,6 +228,10 @@ def write_run_manifest(
             )
         },
         "platform": platform.platform(),
+        "analysis_environment_lock_sha256": (
+            file_sha256(Path(repo_root) / "configs/analysis_python.lock.json")
+            if (Path(repo_root) / "configs/analysis_python.lock.json").is_file() else None
+        ),
         **(extra or {}),
     }
     path = Path(outdir) / "run_manifest.json"

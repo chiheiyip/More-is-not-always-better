@@ -47,6 +47,7 @@ def _resolve_paths(config: dict[str, Any], config_path: Path) -> dict[str, Any]:
         "eye_scene_registration_file",
         "historical_package", "preprocessed_root", "matlab", "eeglab_root", "psd_cache_dir",
         "candidate_factor_reference", "delivery_root",
+        "aoi_pixel_lock", "verification_r_library",
     }
 
     def walk(value: Any, key: str = "") -> Any:
@@ -177,6 +178,11 @@ def main(argv: list[str] | None = None) -> int:
                   resume=args.resume, promote=args.promote)
         return 0
     if args.dry_run:
+        from paper_analysis.teacher.runtime_lock import validate_analysis
+        plan["runtime_lock"] = validate_analysis(config, require_r=plan["formal_r_inference_required"])
+        if args.command.startswith("eye-") or args.command == "all-results":
+            from paper_analysis.teacher.aoi_lock import verify_aoi
+            plan["aoi_pixel_lock"] = verify_aoi(config, required=True)
         if args.command == "eeg-denominator-sensitivity":
             try:
                 _, _, checks = denominator_preflight(config, REPO_ROOT)
@@ -208,6 +214,11 @@ def main(argv: list[str] | None = None) -> int:
         "eeg-denominator-sensitivity": run_eeg_denominator,
     }
     try:
+        from paper_analysis.teacher.runtime_lock import validate_analysis
+        plan["runtime_lock"] = validate_analysis(config, require_r=not args.skip_r and plan["formal_r_inference_required"])
+        if args.command.startswith("eye-") or args.command == "all-results":
+            from paper_analysis.teacher.aoi_lock import verify_aoi
+            plan["aoi_pixel_lock"] = verify_aoi(config, required=True)
         if args.command == "all-results":
             run_all_results(
                 config,

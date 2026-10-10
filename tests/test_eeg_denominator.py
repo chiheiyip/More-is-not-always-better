@@ -105,6 +105,7 @@ def test_omnibus_beta_is_unavailable_and_near_zero_percentage():
 
 
 def test_sensitivity_command_read_only_and_requires_r(tmp_path,monkeypatch,capsys):
+    monkeypatch.setattr("paper_analysis.teacher.runtime_lock.validate_analysis", lambda *a, **k: {"status": "passed"})
     root=Path(__file__).resolve().parents[1]
     module=runpy.run_path(str(root/'scripts/run_teacher_analysis.py'))
     # The CLI imports the callable lazily; patch its owning module.
