@@ -206,6 +206,27 @@ def build_report(config, run, repo):
     add("Q1.4四档的前两档为Low、后两档为High，未用Q1.5代替；重新从原问卷推导并与参与者信息核对。",
         [run / "00_teacher_inputs/Q1_4_group_check.csv",Path(config["questionnaire_file"])], "Q1.4Original/ExerciseFrequency")
     add("眼动保留原fixation、AOI、60%主阈值及50%／70%敏感性、模型和校正方法；眼动主样本不因缺少EEG而排除。AOI人工标注、投影规则或来源材料的已知限制继续保留，不把全量计算等同于消除来源缺口。")
+    versions_path = run / "stage_calculation_versions.json"
+    if versions_path.is_file():
+        versions = json.loads(versions_path.read_text(encoding="utf-8"))
+        add("## 阶段修正与计算版本")
+        for item in versions.get("stages", []):
+            add(f"{item['stage']}：计算版本 `{item['code_sha']}`。{item['reason']} 原输出保留在 `{item['previous_outputs']}`。",
+                [versions_path], "stage/code_sha/reason/previous_outputs")
+    proof_path = run / "reproducibility_verification.json"
+    if proof_path.is_file():
+        proof = json.loads(proof_path.read_text(encoding="utf-8"))
+        add("## 环境恢复与三部分复算验收")
+        add(f"复算核验代码版本 `{proof['verification_sha']}`，总体状态 `{proof['status']}`。环境可运行与数值复算一致分别验证；失败模型和缺失推断不作为通过证据。",
+            [proof_path], "verification_sha/status")
+        add("|部分|状态|对照表数量|对照记录数量|")
+        add("|---|---|---:|---:|")
+        for scope, label in [("eye", "眼动"), ("eeg", "EEG"), ("joint", "眼动＋EEG")]:
+            result = proof["scopes"][scope]
+            add(f"|{label}|{result['status']}|{result['comparisons']}|{result['rows']}|",
+                [proof_path], f"scopes.{scope}", numeric=True)
+        for note in proof.get("scope_notes", []):
+            add(str(note), [proof_path], "scope_notes")
     add()
     add("## EEG 样本与排除")
     add("|阶段|人数|试次数|"); add("|---|---:|---:|")
@@ -396,7 +417,13 @@ def build_report(config, run, repo):
             statistics(row, path, f"window={trim};outcome={row.outcome}", ["requested","failed_replicates"])
     eye_boot_path = run/"04_eye_stage3/08d_experience_cluster_bootstrap_5000.csv"
     eye_boot = pd.read_csv(eye_boot_path)
-    add(f"眼动经验组bootstrap输出 {len(eye_boot)} 行：代码保留按原触发条件执行的规则，空表表示本轮未触发，不能声称已执行5000次眼动抽样。", [eye_boot_path], "row count", numeric=True)
+    add(f"眼动经验组bootstrap输出 {len(eye_boot)} 行：按原触发条件执行。空表需结合触发清单和拟合诊断区分未触发与拟合失败，不能声称已执行5000次眼动抽样。", [eye_boot_path], "row count", numeric=True)
+    eye_draw_path = run / "04_eye_stage3/bootstrap_draw_provenance.json"
+    if eye_draw_path.is_file():
+        eye_draws = json.loads(eye_draw_path.read_text(encoding="utf-8"))
+        for outcome, item in eye_draws["outcomes"].items():
+            add(f"眼动 {outcome}：请求 {item['requested']} 次参与者聚类bootstrap；seed={eye_draws['seed']}，完整抽样哈希及初末随机状态已保存。",
+                [eye_draw_path], "seed/participants/outcomes", f"outcome={outcome}", True)
     add("论文需要用本轮样本与统计源表更新2.2样本描述、Results 3.2／3.3、表6及相关补充表。分析方法保持不变；若方法文字与实际保留的代码公式不一致，应据实澄清。HF局限、factor历史脚本缺口和AOI来源限制继续记录。")
     report = run / "论文数据分析结果报告.md"; report.write_text("\n".join(lines)+"\n", encoding="utf-8")
     pd.DataFrame(mapping).to_csv(run / "paragraph_source_map.csv", index=False, encoding="utf-8-sig")

@@ -93,6 +93,17 @@ bh_within_family <- function(frame, family_columns) {
   frame$p.value.BH <- ave(frame$p.value, key, FUN = function(x) p.adjust(x, "BH"))
   frame
 }
+read_teacher_boolean <- function(value, field) {
+  text <- tolower(trimws(as.character(value)))
+  missing <- is.na(value) | text == ""
+  if (any(!missing & !text %in% c("true", "false", "t", "f", "1", "0"))) {
+    stop("Invalid boolean value in ", field)
+  }
+  result <- rep(NA, length(value))
+  result[!missing] <- text[!missing] %in% c("true", "t", "1")
+  result
+}
+
 read_teacher_csv <- function(path) {
   # Label UTF-8 strings without transcoding Chinese identifiers to a C locale.
   if (.Platform$OS.type == "windows") {
