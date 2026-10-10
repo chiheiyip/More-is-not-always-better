@@ -26,6 +26,8 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
+    from paper_analysis.teacher.runtime_lock import validate_python
+    validate_python()
     outputs = run_onset_sensitivity_analysis(
         args.sensitivity_trials, args.common_qc, args.participants,
         args.scene_manifest, args.outdir, args.eeg_analysis_config,

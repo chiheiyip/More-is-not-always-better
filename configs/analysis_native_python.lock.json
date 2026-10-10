@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "basis": "verified Windows calculation runtime; unchanged effective thread settings",
+  "snapshot": {
+    "libraries": {
+      "libscipy_openblas64_-63c857e738469261263c764a36be9436.dll": {
+        "sha256": "63c857e738469261263c764a36be9436ebdeaa272e340a828f42047a97131080",
+        "threads": 16
+      },
+      "msvcp140-a4c2229bdc2a2a630acdc095b4d86008.dll": {
+        "sha256": "a4c2229bdc2a2a630acdc095b4d86008e5c3e3bc7773174354f3da4f5beb9cde"
+      },
+      "libscipy_openblas-64eda39e79589aedb16f58e5547eb599.dll": {
+        "sha256": "64eda39e79589aedb16f58e5547eb599f0b5855505d56b9d40022e2eee354a0b",
+        "threads": 16
+      }
+    },
+    "thread_environment": {
+      "OMP_NUM_THREADS": "",
+      "OPENBLAS_NUM_THREADS": "",
+      "MKL_NUM_THREADS": "",
+      "NUMEXPR_NUM_THREADS": "",
+      "VECLIB_MAXIMUM_THREADS": ""
+    }
+  }
+}

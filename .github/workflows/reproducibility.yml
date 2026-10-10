@@ -1,0 +1,15 @@
+name: Calculation locks and reproducibility guards
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  synthetic-checks:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.10'
+      - run: python -m pip install -r requirements-analysis.lock.txt
+      - run: python -m pytest tests/test_reproducibility_guards.py tests/test_clock_synchronization.py tests/test_clock_sync_partition.py
+      - run: python scripts/check_repository_scope.py

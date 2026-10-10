@@ -120,6 +120,24 @@
         "withr": "3.0.3",
         "xts": "0.14.2",
         "zoo": "1.8.15"
+      },
+      "native": {
+        "libraries": {
+          "Rblas.dll": "ff10f8d2300c2ae2ccff7b37b32679c43b41357a8162d48bb018c92ea6fbc40d",
+          "Rlapack.dll": "b7b102a56d5a8fb1ca31d1f593fc7f36b7be6947a502a56f1ae5d8d48d50dea6"
+        },
+        "rng_kind": [
+          "Mersenne-Twister",
+          "Inversion",
+          "Rejection"
+        ],
+        "thread_environment": {
+          "OMP_NUM_THREADS": "",
+          "OPENBLAS_NUM_THREADS": "",
+          "MKL_NUM_THREADS": "",
+          "NUMEXPR_NUM_THREADS": "",
+          "VECLIB_MAXIMUM_THREADS": ""
+        }
       }
     },
     "independent": {
@@ -232,6 +250,24 @@
         "tools": "4.5.3",
         "translations": "4.5.3",
         "utils": "4.5.3"
+      },
+      "native": {
+        "libraries": {
+          "Rblas.dll": "918782031980a0c7a7611b91c63d9cb7430ac5ba105fc2922bce38cf13a394e7",
+          "Rlapack.dll": "dc6bd550fe17f363e9ba469a95434ad99e0c0b31d4e59ca3fec455c6a82a58be"
+        },
+        "rng_kind": [
+          "Mersenne-Twister",
+          "Inversion",
+          "Rejection"
+        ],
+        "thread_environment": {
+          "OMP_NUM_THREADS": "",
+          "OPENBLAS_NUM_THREADS": "",
+          "MKL_NUM_THREADS": "",
+          "NUMEXPR_NUM_THREADS": "",
+          "VECLIB_MAXIMUM_THREADS": ""
+        }
       }
     }
   }

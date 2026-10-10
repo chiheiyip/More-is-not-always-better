@@ -515,6 +515,15 @@ def publish(config, run, outputs, repo):
         raise StageBlockedError("Publish from committed clean code")
     manifest=json.loads((run / "run_manifest.json").read_text(encoding="utf-8"))
     if manifest["status"]!="complete": raise StageBlockedError("Run incomplete")
+    from .reproducibility import verify_seal
+    reproducibility_path=run/'reproducibility_verification.json'
+    if not reproducibility_path.is_file():
+        raise StageBlockedError('Three-scope reproducibility evidence is required before publication')
+    reproducibility=json.loads(reproducibility_path.read_text(encoding='utf-8'))
+    if reproducibility['status']!='passed' or set(reproducibility['scopes'])!={'eye','eeg','joint'} or any(
+        v['status']!='passed' for v in reproducibility['scopes'].values()):
+        raise StageBlockedError('Eye, EEG and joint reproducibility must each pass')
+    verify_seal(reproducibility['inputs']);verify_seal(reproducibility['evidence'])
     verify_inputs(json.loads((run / "source_hashes_before.json").read_text(encoding="utf-8")))
     stage=run / "handoff_staging"
     expected_entries={"论文数据分析结果报告.md","数据来源交接索引.xlsx","数据来源交接说明.docx","filesource_flat"}

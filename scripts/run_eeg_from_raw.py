@@ -31,6 +31,10 @@ def main() -> None:
     parser.add_argument("--eeg-analysis-config", default="configs/eeg_analysis.json")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
+    from paper_analysis.teacher.runtime_lock import validate_python
+    from paper_analysis.teacher.native_runtime import validate_matlab
+    validate_python()
+    validate_matlab(args.matlab_command, args.eeglab_root, Path(__file__).resolve().parents[1])
 
     eeg_root = Path(args.eeg_root)
     eeglab_root = Path(args.eeglab_root)

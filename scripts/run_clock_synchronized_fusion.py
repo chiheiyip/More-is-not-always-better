@@ -25,6 +25,12 @@ def main() -> None:
     parser.add_argument("--no-timebins", action="store_true")
     parser.add_argument("--eeg-analysis-config", default="configs/eeg_analysis.json")
     args = parser.parse_args()
+    from paper_analysis.teacher.runtime_lock import validate_python
+    from paper_analysis.teacher.state import file_sha256
+    import json
+    environment = validate_python()
+    from paper_analysis.teacher.reproducibility import reference_inputs,verify_seal
+    inputs=reference_inputs(args.scene_manifest,args.eeg_sample_manifest,args.eeg_analysis_config)
     onset = load_eeg_analysis_config(args.eeg_analysis_config)
     outputs = run_clock_synchronized_fusion(
         scene_manifest_csv=args.scene_manifest,
@@ -40,6 +46,11 @@ def main() -> None:
     )
     for name, path in outputs.items():
         print(f"{name}: {path}")
+    verify_seal(inputs)
+    proof={'environment':environment,'inputs':inputs,'parameters':vars(args),
+           'outputs':{str(p):file_sha256(Path(p)) for p in outputs.values() if Path(p).is_file()}}
+    (Path(args.outdir)/'synchronization_provenance.json').write_text(
+        json.dumps(proof,ensure_ascii=False,indent=2),encoding='utf-8')
 
 
 if __name__ == "__main__":

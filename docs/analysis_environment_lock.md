@@ -59,6 +59,49 @@ particular, the 20261008 results were computed with Pillow 10.3.0 and must retai
 that original provenance. Version locking does not change EEG QC or repair the
 known upstream waveform-history, projection or inference limitations.
 
+## All three calculation paths
+
+Python additionally verifies numerical DLL SHA256 and the effective NumPy/SciPy
+OpenBLAS thread counts. R verifies Rblas/Rlapack SHA256, RNG kinds and thread
+environment variables. The registered settings are observed historical-compatible
+settings, not a new single-thread or optimizer policy.
+
+MATLAB R2026a Update 5, Signal Toolbox 26.1 and EEGLAB 2025.1.0 are registered
+from the current installation. `configs/analysis_matlab.lock.json` records actual
+function paths/hashes, MKL/LAPACK descriptions, thread count and RNG algorithm.
+This is a current-source baseline, not proof of an unrecorded historical install.
+Export/PSD functions check the executing process before numerical outputs.
+
+`check_analysis_environment.py --config <config> --scope eye|eeg|joint|all`
+reports environment readiness, never a result-verification conclusion. Direct
+raw export, clock-cache and clock-synchronization CLI paths also enforce locks.
+Synchronization rejects duplicate/missing trial keys and records both modalities,
+QC and clock input hashes. Existing formal statistical formulas are retained.
+
+## Offline recovery
+
+Run `archive_analysis_environment.py --phase archive --archive <new-directory>
+--independent-r <R-root> --independent-library <package-library>` with the locked
+Python. It archives Python base, all exact wheels, both R runtimes and package
+library, records all file hashes and generates hash-required offline requirements.
+Preserve the returned manifest SHA256 independently from the archive.
+
+Restore with `--phase restore --archive <directory> --target <new-directory>
+--manifest-sha256 <trusted-SHA256>`. Restoration downloads nothing and refuses
+existing destinations; it checks archive/lock hashes and all restored runtimes.
+The portable R bootstrap now uses this archive rather than latest downloads.
+MATLAB needs the registered licensed installation; it is checked separately and
+is not redistributed in this archive. Numerical CSVs are compared; container
+metadata such as XLSX/ZIP timestamps need not be byte-identical.
+
+`verify_analysis_reproducibility.py --request-config <local-json> --outdir <new-directory>`
+compares explicit left/right CSVs with declared keys, separately for `eye`, `eeg`
+and `joint`. The request lists `config`, `comparisons` (scope, left, right, keys,
+model boolean), and scope_notes. It seals inputs and comparisons, treats every
+0.05 crossing as failure even within tolerance, and refuses missing test families.
+Publish requires the generated `reproducibility_verification.json` and unchanged
+evidence. The calculation environment and numerical evidence are separate checks.
+
 ## Recalculate against a historical eye package
 
 `scripts/verify_historical_eye_environment.py` has `--phase prepare`, `run`

@@ -21,6 +21,8 @@ def main() -> None:
     parser.add_argument("--require-onset-metadata", action="store_true")
     parser.add_argument("--outdir", default="outputs/04_eeg")
     args = parser.parse_args()
+    from paper_analysis.teacher.runtime_lock import validate_python
+    validate_python()
     for name, path in run_eeg_pipeline(
         args.participants, args.scene_manifest, args.eeg_scene_csv, args.outdir,
         args.eeg_qc_config, args.eeg_analysis_config,

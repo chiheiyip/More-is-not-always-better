@@ -33,7 +33,11 @@ def validate_python(repo: Path = REPO) -> dict:
     if differences:
         raise StageBlockedError("Analysis environment lock mismatch; use Python 3.12.10 and "
                                "requirements-analysis.lock.txt. " + "; ".join(differences))
-    return {"status": "passed", "lock_sha256": file_sha256(path), **actual}
+    snapshot = {"status": "passed", "lock_sha256": file_sha256(path), **actual}
+    if (Path(repo) / 'configs/analysis_native_python.lock.json').is_file():
+        from .native_runtime import validate_python_native
+        snapshot['native'] = validate_python_native(repo)
+    return snapshot
 
 
 def validate_r(rscript: str, *, profile: str | None = None,
@@ -59,7 +63,8 @@ def validate_r(rscript: str, *, profile: str | None = None,
     return {"lock_sha256": file_sha256(lock_path), **json.loads(records[0])}
 
 
-def validate_analysis(config: dict, repo: Path = REPO, *, require_r: bool = True) -> dict:
+def validate_analysis(config: dict, repo: Path = REPO, *, require_r: bool = True,
+                      require_matlab: bool = False) -> dict:
     snapshot = {"python": validate_python(repo)}
     if require_r:
         if not config.get("rscript"):
@@ -70,4 +75,10 @@ def validate_analysis(config: dict, repo: Path = REPO, *, require_r: bool = True
         snapshot["r_independent"] = validate_r(fresh["verification_rscript"], repo=repo,
                                               profile="independent",
                                               library=fresh.get("verification_r_library"))
+    if require_matlab:
+        from .native_runtime import validate_matlab
+        native=config.get('fresh', config.get('denominator_sensitivity', {}))
+        if not native.get('matlab') or not native.get('eeglab_root'):
+            raise StageBlockedError('Locked MATLAB and eeglab_root must be specified')
+        snapshot['matlab']=validate_matlab(native['matlab'],native['eeglab_root'],repo)
     return snapshot
