@@ -13,6 +13,16 @@ from .state import StageBlockedError, file_sha256
 REPO = Path(__file__).resolve().parents[3]
 
 
+def locked_r_environment(repo: Path = REPO) -> dict:
+    """Apply UTF-8 before R initializes libraries in Unicode directories."""
+    env = os.environ.copy()
+    if platform.system() == 'Windows':
+        lock=json.loads((Path(repo)/'analysis/r/runtime-versions.lock.json').read_text(encoding='utf-8'))
+        locale=lock['profiles']['primary']['locale']['LC_CTYPE']
+        env['LANG']=locale; env['LC_ALL']=locale
+    return env
+
+
 def validate_python(repo: Path = REPO) -> dict:
     path = Path(repo) / "configs/analysis_python.lock.json"
     lock = json.loads(path.read_text(encoding="utf-8"))
@@ -45,7 +55,7 @@ def validate_r(rscript: str, *, profile: str | None = None,
     """Probe the actual launcher/library selection before inference or reuse."""
     repo = Path(repo)
     lock_path = repo / "analysis/r/runtime-versions.lock.json"
-    env = os.environ.copy()
+    env = locked_r_environment(repo)
     if library:
         env["R_LIBS_USER"] = library
     try:

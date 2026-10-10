@@ -18,6 +18,7 @@ from statsmodels.stats.multitest import multipletests
 from .eeg_audit import (CORE, DESIGN, FACTOR_LEVELS, KEYS, METRICS, TRIMS,
                         family_tables, outcome_spec, sample_hash)
 from .state import StageBlockedError, file_sha256
+from .runtime_lock import locked_r_environment
 
 EFFECTS = ("WWR", "Complexity", "ExperienceGroup", "WWR:Complexity",
            "WWR:ExperienceGroup", "Complexity:ExperienceGroup")
@@ -128,9 +129,10 @@ def preflight(config, repo_root):
         sources.append({"participant": str(participant), "set_path": str(set_path), "fdt_path": str(fdt_path)})
     # Read-only executable/dependency checks; no files or analysis outputs written.
     root = Path(repo_root)
+    from .runtime_lock import locked_r_environment
     check = subprocess.run([str(config["rscript"]), "-e",
         "stopifnot(all(vapply(c('lme4','clubSandwich','jsonlite','glmmTMB','emmeans','broom.mixed'), requireNamespace, logical(1), quietly=TRUE)))"],
-        cwd=root, capture_output=True, text=True)
+        cwd=root, capture_output=True, text=True,env=locked_r_environment(root))
     if check.returncode:
         raise StageBlockedError(f"R preflight failed: {check.stderr[-1500:]}")
     # MATLAB owns SET decoding, including v7.3. ASCII base64 avoids Windows
@@ -310,7 +312,7 @@ def run_models(frames, config, root, folder, contract, reuse_absolute=None):
                 shutil.copyfile(root/"analysis/r"/name,stage/name)
             with (dest/"R_execution.log").open("w",encoding="utf-8") as log:
                 subprocess.run([config["rscript"],"eeg_audit.R","input.csv",".","outcomes.csv","contract.json"],
-                    cwd=stage,stdout=log,stderr=subprocess.STDOUT,check=True)
+                    cwd=stage,stdout=log,stderr=subprocess.STDOUT,check=True,env=locked_r_environment(root))
             for name in (*collected,"R_session_info"):
                 filename=f"{name}.txt" if name=="R_session_info" else f"{name}.csv"
                 shutil.copyfile(stage/filename,dest/filename)

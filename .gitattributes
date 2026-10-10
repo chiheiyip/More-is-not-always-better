@@ -1,0 +1,4 @@
+# Installation-lock hashes must survive Windows/Unix checkouts unchanged.
+requirements*.txt text eol=lf
+configs/*lock.json text eol=lf
+analysis/r/*lock* text eol=lf

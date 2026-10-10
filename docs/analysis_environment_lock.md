@@ -94,6 +94,13 @@ MATLAB needs the registered licensed installation; it is checked separately and
 is not redistributed in this archive. Numerical CSVs are compared; container
 metadata such as XLSX/ZIP timestamps need not be byte-identical.
 
+Windows R starts in the registered UTF-8 locale before loading base libraries;
+this also protects restored runtimes in Chinese directories. The generated
+launchers use ASCII relative paths and explicitly set startup locale. A failed
+post-install validation can be repeated using `--phase verify-restored` with
+the same trusted archive SHA; it downloads/installs nothing and verifies that
+R library paths remain inside the restored runtimes, excluding original libraries.
+
 `verify_analysis_reproducibility.py --request-config <local-json> --outdir <new-directory>`
 compares explicit left/right CSVs with declared keys, separately for `eye`, `eeg`
 and `joint`. The request lists `config`, `comparisons` (scope, left, right, keys,

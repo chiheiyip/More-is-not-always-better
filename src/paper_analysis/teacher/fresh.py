@@ -372,7 +372,8 @@ def independent_power_check(config, run, repo):
            "versions": ["main_1_45", "sensitivity_1_40"]}
     work = repo / ".codex_tmp/fresh_verification" / run.name; work.mkdir(parents=True, exist_ok=True)
     dump(work / "job.json", job)
-    env = os.environ.copy(); env["R_LIBS_USER"] = config["fresh"]["verification_r_library"]
+    from .runtime_lock import locked_r_environment
+    env = locked_r_environment(); env["R_LIBS_USER"] = config["fresh"]["verification_r_library"]
     with (verification / "execution.log").open("w", encoding="utf-8") as log:
         subprocess.run([config["fresh"]["verification_rscript"], str(repo / "analysis/r/eeg_request_read_verify.R"),
                         str(work / "job.json")], cwd=repo, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)

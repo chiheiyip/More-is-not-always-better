@@ -55,7 +55,7 @@ def create(root, independent_r, independent_library):
     (root/'archive_manifest.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
     print(json.dumps({'archive':str(root),'manifest_sha256':file_sha256(root/'archive_manifest.json')}))
 
-def restore(root, target, expected_manifest_sha):
+def verify_archive(root, expected_manifest_sha):
     if file_sha256(root/'archive_manifest.json')!=expected_manifest_sha:
         raise ValueError('Archive manifest SHA256 mismatch')
     manifest=json.loads((root/'archive_manifest.json').read_text(encoding='utf-8'))
@@ -65,6 +65,10 @@ def restore(root, target, expected_manifest_sha):
             raise ValueError('Archived installation file changed: '+relative)
     for relative,digest in manifest['locks'].items():
         if file_sha256(REPO/relative)!=digest:raise ValueError('Environment lock changed: '+relative)
+    return manifest
+
+def restore(root, target, expected_manifest_sha):
+    verify_archive(root,expected_manifest_sha)
     if target.exists():raise ValueError('Restore requires a new directory; existing environments are protected')
     if sys.version_info[:3]!=(3,12,10):raise ValueError('Restore requires Python 3.12.10')
     target.mkdir(parents=True)
@@ -75,25 +79,37 @@ def restore(root, target, expected_manifest_sha):
         '--find-links',str(root/'wheels'),'-r',str(root/'requirements-offline.txt')],check=True)
     for name in ('r-primary','r-independent','r-independent-library'):
         unpack(root/(name+'.zip'),target/name)
-    rroot=target/'r-primary'
+    verify_restored(root,target,expected_manifest_sha)
+
+def verify_restored(root,target,expected_manifest_sha):
+    verify_archive(root,expected_manifest_sha)
+    python=target/'python/Scripts/python.exe'
     launcher=target/'portable_rscript.cmd'
-    launcher.write_text('@echo off\nset "R_HOME='+str(rroot/'Lib/R')+'"\nset "PATH='+
-        str(rroot/'Lib/R/bin/x64')+';'+str(rroot/'Library/bin')+';%PATH%"\n"'+
-        str(rroot/'Lib/R/bin/Rscript.exe')+'" %*\n',encoding='utf-8')
+    # ASCII relative paths and a UTF-8 startup locale work in Chinese directories.
+    prefix='@echo off\nset "LANG=Chinese (Simplified)_China.utf8"\nset "LC_ALL=Chinese (Simplified)_China.utf8"\n'
+    launcher.write_text(prefix+'set "R_HOME=%~dp0r-primary\\Lib\\R"\nset "PATH=%~dp0r-primary\\Lib\\R\\bin\\x64;%~dp0r-primary\\Library\\bin;%PATH%"\n"%~dp0r-primary\\Lib\\R\\bin\\Rscript.exe" %*\n',encoding='ascii')
+    (target/'independent_rscript.cmd').write_text(prefix+'"%~dp0r-independent\\bin\\x64\\Rscript.exe" %*\n',encoding='ascii')
     env=os.environ.copy();env['PYTHONPATH']=str(REPO/'src')
     expression=('import json;from paper_analysis.teacher.runtime_lock import validate_python;'
                 'print(json.dumps(validate_python()))')
     p=subprocess.run([str(python),'-c',expression],env=env,capture_output=True,text=True,check=True)
     proof={'python':json.loads(p.stdout),'primary':validate_r(str(launcher),profile='primary'),
-        'independent':validate_r(str(target/'r-independent/bin/x64/Rscript.exe'),
+        'independent':validate_r(str(target/'independent_rscript.cmd'),
             profile='independent',library=str(target/'r-independent-library')),
         'archive_manifest_sha256':expected_manifest_sha}
+    for profile,roots in [('primary',[target/'r-primary']),('independent',[target/'r-independent',target/'r-independent-library'])]:
+        paths=proof[profile]['library_paths']
+        if isinstance(paths,str):paths=[paths]
+        for path in paths:
+            if not any(Path(path).resolve().is_relative_to(root.resolve()) for root in roots):
+                raise ValueError('Restored R is reading packages outside its restored directories: '+path)
+    proof['verification_code_sha']=subprocess.check_output(['git','rev-parse','HEAD'],cwd=REPO,text=True).strip()
     (target/'restore_verification.json').write_text(json.dumps(proof,indent=2),encoding='utf-8')
     print('Verified offline restoration: '+str(target))
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--phase',choices=['archive','restore'],required=True)
+    parser.add_argument('--phase',choices=['archive','restore','verify-restored'],required=True)
     parser.add_argument('--archive',type=Path,required=True)
     parser.add_argument('--target',type=Path)
     parser.add_argument('--manifest-sha256')
@@ -105,6 +121,7 @@ def main():
         create(args.archive,args.independent_r,args.independent_library)
     else:
         if not args.target or not args.manifest_sha256:parser.error('Restore requires target and trusted manifest SHA256')
-        restore(args.archive,args.target,args.manifest_sha256)
+        function=restore if args.phase=='restore' else verify_restored
+        function(args.archive,args.target,args.manifest_sha256)
 
 if __name__=='__main__':main()
