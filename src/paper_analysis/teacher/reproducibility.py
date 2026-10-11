@@ -34,7 +34,7 @@ def inference_counts(table):
     return {'valid_inference_rows': int(valid.sum()), 'invalid_inference_rows': int((~valid).sum())}
 
 
-def compare_tables(left, right, keys, *, model=True):
+def compare_tables(left, right, keys, *, model=True, exact_numeric=False):
     if left.empty or right.empty:
         raise StageBlockedError('Empty/failed result tables cannot establish reproducibility')
     if set(left.columns)!=set(right.columns):raise StageBlockedError('Comparison fields differ')
@@ -56,7 +56,10 @@ def compare_tables(left, right, keys, *, model=True):
             pfield=field in {'p','q','p.value','p_value','q_value','within_q','joint_q','p_holm','q_BH','p_CR2','q_CR2'} or field.startswith(('p_','q_','p.value.','q.value.'))
             tol=1e-6 if pfield else 1e-8
             av=a.to_numpy(dtype=float,na_value=np.nan);bv=b.to_numpy(dtype=float,na_value=np.nan)
-            same=np.isclose(av,bv,atol=tol if model else 1e-12,rtol=0 if model else 1e-10,equal_nan=True)
+            if exact_numeric:
+                same=(a.eq(b)|(a.isna()&b.isna())).to_numpy(dtype=bool,na_value=False)
+            else:
+                same=np.isclose(av,bv,atol=tol if model else 1e-12,rtol=0 if model else 1e-10,equal_nan=True)
             valid=np.isfinite(av)&np.isfinite(bv)
             if pfield:sig=int(((av[valid]<.05)!=(bv[valid]<.05)).sum())
             if field in {'estimate','beta','Estimate'}:direction=int((np.sign(av[valid])!=np.sign(bv[valid])).sum())
@@ -75,6 +78,50 @@ def verify_seal(records):
     for record in records:
         if file_sha256(record['path'])!=record['sha256']:
             raise StageBlockedError('Reproducibility evidence/input changed: '+record['path'])
+
+
+def verify_complete_bootstrap_repeat(proof_path):
+    """Require actual repeated fits for all four windows, not a draw replay."""
+    proof_path=Path(proof_path)
+    proof_hash=file_sha256(proof_path)
+    proof=json.loads(proof_path.read_text(encoding='utf-8-sig'))
+    jobs=proof.get('jobs',[])
+    if (proof.get('status')!='passed' or len(jobs)!=4
+            or {j.get('trim_s') for j in jobs}!={0,5,10,15}
+            or proof.get('fits_requested')!=80000):
+        raise StageBlockedError('Complete verification needs four fresh 20000-fit bootstrap repeats')
+    verify_seal(proof.get('scripts',[]))
+    if not proof.get('scripts') or not proof.get('code_sha') or not proof.get('environment'):
+        raise StageBlockedError('Bootstrap repeat lacks code/environment evidence')
+    evidence=[proof_path]
+    for job in jobs:
+        if (job.get('status')!='passed' or job.get('fits_requested')!=20000
+                or not job.get('all_successful_5000')
+                or job.get('max_absolute_difference')!=0):
+            raise StageBlockedError('Bootstrap repeat is incomplete or numerically different')
+        if not job.get('input_seal') or not job.get('outputs'):
+            raise StageBlockedError('Bootstrap repeat lacks input/output hashes')
+        verify_seal(job['input_seal']);verify_seal(job['outputs'])
+        reference=Path(job['reference']).resolve();repeat=Path(job['repeat']).resolve()
+        if reference==repeat:
+            raise StageBlockedError('Bootstrap repeat must use a separate output directory')
+        for name in ['07_eeg_cluster_bootstrap_5000.csv','08_eeg_bootstrap_failures.csv','bootstrap_draw_provenance.json']:
+            left=reference/name;right=repeat/name
+            if file_sha256(left)!=file_sha256(right):
+                raise StageBlockedError('Bootstrap outputs/draws are not byte identical: '+name)
+            evidence.extend([left,right])
+        table=pd.read_csv(repeat/'07_eeg_cluster_bootstrap_5000.csv')
+        if (len(table)!=60 or table[['outcome','term']].duplicated().any()
+                or table.outcome.nunique()!=4 or not table.successful.eq(5000).all()
+                or not table.failed_replicates.eq(0).all()):
+            raise StageBlockedError('Bootstrap repeat lacks all four outcomes and 5000 successful fits')
+        counts=inference_counts(table)
+        if counts['invalid_inference_rows']:
+            raise StageBlockedError('Bootstrap repeat contains invalid inference')
+    if file_sha256(proof_path)!=proof_hash:
+        raise StageBlockedError('Bootstrap repeat proof changed during verification')
+    return {'status':'passed','windows':4,'fresh_repeated_fits':80000,
+            'code_sha':proof['code_sha'],'evidence':seal_files(evidence)}
 
 def reference_inputs(scene_path, eeg_path, config_path):
     paths={Path(p).resolve() for p in (scene_path,eeg_path,config_path)}

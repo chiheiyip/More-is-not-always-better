@@ -143,3 +143,12 @@ can reuse verified Python trial/AOI/boundary tables when only the R runtime
 profile changes. It verifies source, environment and stage hashes, keeps the
 original Python calculation SHA, and refits all R models with a separately
 recorded code SHA. No source waveform or eye CSV needs to be processed again.
+# 完整数值复算验收
+
+`scripts/verify_analysis_reproducibility.py --request-config <request.json> --outdir <new-directory> --exact-numeric --complete`
+要求三类分析分别登记原计算与独立重复计算的对照表，并拒绝任何非零数值差异、缺失位置变化、成员变化或无效模型推断。
+原有容差模式继续用于不同实现之间的核对，不替代这项严格验收。
+
+请求中的 `full_bootstrap_repeat` 指向完整执行证明：0/5/10/15 s 四窗口各重新拟合四个核心结局、每个5000次，合计80000次实际拟合。
+验收重新检查输入、统计代码、输出哈希，要求bootstrap结果、失败记录及抽样来源记录逐字节一致；只回放抽样不能建立完整通过状态。
+完整状态仅适用于请求明确列出的分析范围，未执行的问卷模型、不能有效拟合的模型和历史来源缺口必须另外登记，不能被计为有效推断。

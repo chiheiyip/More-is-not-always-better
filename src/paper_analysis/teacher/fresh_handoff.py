@@ -228,6 +228,13 @@ def build_report(config, run, repo):
         add("## 环境恢复与三部分复算验收")
         add(f"复算核验代码版本 `{proof['verification_sha']}`，总体状态 `{proof['status']}`。环境可运行与数值复算一致分别验证；失败模型和缺失推断不作为通过证据。",
             [proof_path], "verification_sha/status")
+        if proof.get('verification_level')=='complete_declared_scope':
+            bootstrap=proof['full_bootstrap_repeat']
+            add("本次明确登记的眼动、EEG与联合分析范围已通过严格数值复算验收：数值逐项相等，样本、缺失位置及分类完全一致。未执行或无有效推断的分析仍单独列明。",
+                [proof_path], "comparison_mode/verification_level")
+            add(f"EEG 0/5/10/15 s四窗口另在恢复环境实际重复完成 {bootstrap['fresh_repeated_fits']} 次bootstrap拟合；结果表、失败记录和抽样来源记录与基准逐字节一致。此项包含完整重复拟合，不只是抽样回放。",
+                [proof_path], "full_bootstrap_repeat.windows/fresh_repeated_fits", numeric=True)
+            numeric_row("完整重复EEG bootstrap拟合次数", bootstrap['fresh_repeated_fits'],proof_path,"full_bootstrap_repeat.fresh_repeated_fits")
         add("|部分|状态|对照表数量|对照记录数量|")
         add("|---|---|---:|---:|")
         for scope, label in [("eye", "眼动"), ("eeg", "EEG"), ("joint", "眼动＋EEG")]:
@@ -572,6 +579,13 @@ def publish(config, run, outputs, repo):
         v['status']!='passed' for v in reproducibility['scopes'].values()):
         raise StageBlockedError('Eye, EEG and joint reproducibility must each pass')
     verify_seal(reproducibility['inputs']);verify_seal(reproducibility['evidence'])
+    if reproducibility.get('verification_level')=='complete_declared_scope':
+        if reproducibility.get('comparison_mode')!='exact_numeric':
+            raise StageBlockedError('Complete reproducibility must use exact numeric comparisons')
+        bootstrap=reproducibility.get('full_bootstrap_repeat',{})
+        if bootstrap.get('status')!='passed' or bootstrap.get('fresh_repeated_fits')!=80000:
+            raise StageBlockedError('Complete bootstrap repeat missing')
+        verify_seal(bootstrap['evidence'])
     verify_inputs(json.loads((run / "source_hashes_before.json").read_text(encoding="utf-8")))
     stage=run / "handoff_staging"
     expected_entries={"论文数据分析结果报告.md","数据来源交接索引.xlsx","数据来源交接说明.docx","filesource_flat"}
