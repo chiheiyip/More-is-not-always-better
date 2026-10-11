@@ -82,3 +82,18 @@ def test_key_only_model_sample_tables_have_nonempty_positive_evidence():
     assert result.passed.all()
     with pytest.raises(StageBlockedError,match='identities'):
         compare_tables(a,a.iloc[:1],['Participant','trial'])
+
+
+def test_invalid_inference_stays_in_comparison_but_cannot_establish_model_pass():
+    from paper_analysis.teacher.reproducibility import inference_counts
+    table=pd.DataFrame({'estimate':[1.,float('nan'),2.], 'p.value':[.03,float('nan'),.04],
+                        'inference_valid':[True,False,False]})
+    assert inference_counts(table)=={'valid_inference_rows':1,'invalid_inference_rows':2}
+    with pytest.raises(StageBlockedError,match='Failed/missing'):
+        inference_counts(table.iloc[1:])
+    with pytest.raises(StageBlockedError,match='diagnostics/input'):
+        inference_counts(pd.DataFrame({'Participant':['P1'],'trial':[1]}))
+    assert inference_counts(pd.DataFrame({'estimate':[float('nan')],'Fstat':[3.],'p.value':[.02]}))['valid_inference_rows']==1
+    assert inference_counts(pd.DataFrame({'bootstrap_median':[.2],'ci_low':[.1],'ci_high':[.3],'successful':[5000]}))['valid_inference_rows']==1
+    with pytest.raises(StageBlockedError,match='Failed/missing'):
+        inference_counts(pd.DataFrame({'estimate':[1.],'p.value':[1.1]}))
