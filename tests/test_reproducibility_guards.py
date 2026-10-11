@@ -95,5 +95,6 @@ def test_invalid_inference_stays_in_comparison_but_cannot_establish_model_pass()
         inference_counts(pd.DataFrame({'Participant':['P1'],'trial':[1]}))
     assert inference_counts(pd.DataFrame({'estimate':[float('nan')],'Fstat':[3.],'p.value':[.02]}))['valid_inference_rows']==1
     assert inference_counts(pd.DataFrame({'bootstrap_median':[.2],'ci_low':[.1],'ci_high':[.3],'successful':[5000]}))['valid_inference_rows']==1
+    assert inference_counts(pd.DataFrame({'estimate':[.2],'conf.low':[.1],'conf.high':[.3]}))['valid_inference_rows']==1
     with pytest.raises(StageBlockedError,match='Failed/missing'):
         inference_counts(pd.DataFrame({'estimate':[1.],'p.value':[1.1]}))
