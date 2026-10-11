@@ -6,6 +6,34 @@ import numpy as np
 import pandas as pd
 from .state import StageBlockedError, file_sha256
 
+def inference_counts(table):
+    """Count usable inference without deleting failed comparison rows."""
+    probabilities = [c for c in table if c in {'p', 'p.value', 'p_value'}
+                     or c.startswith(('p.value.', 'p_'))]
+    statistics = [c for c in ('estimate', 'beta', 'Estimate', 'Fstat') if c in table]
+    if statistics:
+        values = table[statistics].apply(pd.to_numeric, errors='coerce')
+        p = table[probabilities].apply(pd.to_numeric, errors='coerce')
+        usable = (np.isfinite(p) & p.ge(0) & p.le(1)).any(axis=1)
+        for low,high in [('conf.low','conf.high'),('ci_low','ci_high'),('CI_low','CI_high')]:
+            if low in table and high in table:
+                bounds=table[[low,high]].apply(pd.to_numeric,errors='coerce')
+                usable |= np.isfinite(bounds).all(axis=1) & bounds[low].le(bounds[high])
+        valid = np.isfinite(values).any(axis=1) & usable & ~(np.isfinite(p) & (p.lt(0)|p.gt(1))).any(axis=1)
+    elif all(c in table for c in ('bootstrap_median', 'ci_low', 'ci_high', 'successful')):
+        values = table[['bootstrap_median', 'ci_low', 'ci_high', 'successful']].apply(pd.to_numeric, errors='coerce')
+        valid = np.isfinite(values).all(axis=1) & values.successful.gt(0) & values.ci_low.le(values.ci_high)
+    else:
+        raise StageBlockedError('Model comparison lacks inference fields; declare diagnostics/input tables as model=false')
+    if 'inference_valid' in table:
+        valid &= table.inference_valid.astype(str).str.lower().isin(['true', '1'])
+    if 'status' in table:
+        valid &= table.status.eq('fit')
+    if not valid.any():
+        raise StageBlockedError('Failed/missing model inference cannot establish a reproducibility pass')
+    return {'valid_inference_rows': int(valid.sum()), 'invalid_inference_rows': int((~valid).sum())}
+
+
 def compare_tables(left, right, keys, *, model=True):
     if left.empty or right.empty:
         raise StageBlockedError('Empty/failed result tables cannot establish reproducibility')

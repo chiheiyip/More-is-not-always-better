@@ -6,7 +6,7 @@ import subprocess
 import sys
 REPO=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(REPO/'src'))
-from paper_analysis.teacher.reproducibility import compare_tables,seal_files,verify_seal
+from paper_analysis.teacher.reproducibility import compare_tables,inference_counts,seal_files,verify_seal
 from paper_analysis.teacher.runtime_lock import validate_analysis
 from paper_analysis.teacher.state import StageBlockedError,file_sha256
 import pandas as pd
@@ -21,15 +21,24 @@ def verify(request_path,out):
         raise StageBlockedError('Verification must explicitly cover eye, EEG and joint')
     records=seal_files([request_path,request['config'],*[p for c in request['comparisons'] for p in (c['left'],c['right'])]])
     out.mkdir(parents=True)
-    scopes={k:{'status':'passed','comparisons':0,'rows':0} for k in sorted(required)}
+    scopes={k:{'status':'passed','comparisons':0,'rows':0,'valid_inference_rows':0,'invalid_inference_rows':0} for k in sorted(required)}
     outputs=[]
     for i,c in enumerate(request['comparisons'],1):
-        result=compare_tables(pd.read_csv(c['left']),pd.read_csv(c['right']),c['keys'],model=c.get('model',True))
+        left,right=pd.read_csv(c['left']),pd.read_csv(c['right'])
+        model=c.get('model',True)
+        counts=[inference_counts(t) for t in (left,right)] if model else None
+        result=compare_tables(left,right,c['keys'],model=model)
         path=out/f'{i:03d}_{c["scope"]}_comparison.csv';result.to_csv(path,index=False,encoding='utf-8-sig')
         outputs.append(path)
         scope=scopes[c['scope']];scope['comparisons']+=1
-        scope['rows']+=len(pd.read_csv(c['left']))
+        scope['rows']+=len(left)
+        if counts:
+            if counts[0]!=counts[1]:scope['status']='failed'
+            for field in ('valid_inference_rows','invalid_inference_rows'):
+                scope[field]+=counts[0][field]
         if not result.passed.all():scope['status']='failed'
+    for scope in scopes.values():
+        if not scope['valid_inference_rows']:scope['status']='failed'
     verify_seal(records)
     value={'status':'passed' if all(x['status']=='passed' for x in scopes.values()) else 'failed',
            'scopes':scopes,'environment':environment,'inputs':records,'evidence':seal_files(outputs),

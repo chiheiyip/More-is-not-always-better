@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from paper_analysis.stats.timebin import _eligible_timebins, run_timebin_models
+from paper_analysis.stats.timebin import _eligible_timebins, _fit_outcome, run_timebin_models
 
 
 def test_timebin_gee_runs_four_parallel_windows_on_original_scene_axis(tmp_path) -> None:
@@ -97,3 +97,23 @@ def test_timebin_eligibility_is_scene_level_not_complete_participant() -> None:
         ("P02", 1),
         ("P02", 2),
     }
+
+
+def test_nullable_strings_preserve_gee_design_and_inference():
+    rng=np.random.default_rng(20261010)
+    data=pd.DataFrame([{'participant_id':f'P{s}', 'scene_id':b//6+1,
+        'ExperienceGroup':'High' if s%2 else 'Low', 'class_name':'Table' if b%2 else 'Window',
+        'WWR':.15 if b%3 else .45, 'Complexity':b%2, 'scene_time_norm':b/36,
+        'eeg_F_theta':1+s/10+b/36+rng.normal(0,.1)} for s in range(8) for b in range(36)])
+    records=[]
+    for dtype in [object,'string']:
+        sample=data.copy()
+        for c in ['participant_id','ExperienceGroup','class_name']:sample[c]=sample[c].astype(dtype)
+        # Missing covariates must be omitted by Patsy, not become a 'nan' category.
+        sample.loc[0,'ExperienceGroup']=None
+        rows=[];diagnostics=[]
+        _fit_outcome(sample,'eeg_F_theta','eeg',rows,diagnostics,time_column='scene_time_norm')
+        assert diagnostics[0]['status']=='fit'
+        records.append(pd.DataFrame(rows))
+    pd.testing.assert_frame_equal(*records,check_exact=True)
+    assert not records[0].term.str.contains(r'\[T\.nan\]',regex=True).any()

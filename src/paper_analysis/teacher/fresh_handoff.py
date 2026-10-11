@@ -162,7 +162,9 @@ def build_report(config, run, repo):
             paired_sync=a.merge(b,on=sync_keys,how='outer',suffixes=('_historical','_fresh'),indicator=True,validate='one_to_one')
             for field in ['p_value','p_fdr_bh_family','p_fdr_bh_parallel']:
                 paired_sync['flip_'+field]=(paired_sync[field+'_historical'].lt(.05)!=paired_sync[field+'_fresh'].lt(.05)).mask(paired_sync[field+'_historical'].isna()|paired_sync[field+'_fresh'].isna())
-            paired_sync['direction_changed']=np.sign(paired_sync.estimate_historical)!=np.sign(paired_sync.estimate_fresh)
+            a=pd.to_numeric(paired_sync.estimate_historical,errors='raise').to_numpy(dtype=float,na_value=np.nan)
+            b=pd.to_numeric(paired_sync.estimate_fresh,errors='raise').to_numpy(dtype=float,na_value=np.nan)
+            paired_sync['direction_changed']=pd.Series(np.sign(a)!=np.sign(b),index=paired_sync.index).mask(~np.isfinite(a)|~np.isfinite(b))
             paired_sync.to_csv(comparison_dir/'historical_to_fresh_synchronized.csv',index=False,encoding='utf-8-sig')
             dump(comparison_dir/'synchronized_comparison_sources.json',{'role':'historical read only after fresh models',
                  'files':[{'path':str(p),'sha256':file_sha256(p)} for p in [old_sync,current_sync]]})

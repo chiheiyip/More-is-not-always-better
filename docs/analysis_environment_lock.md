@@ -108,6 +108,11 @@ model boolean), and scope_notes. It seals inputs and comparisons, treats every
 0.05 crossing as failure even within tolerance, and refuses missing test families.
 Publish requires the generated `reproducibility_verification.json` and unchanged
 evidence. The calculation environment and numerical evidence are separate checks.
+Every scope also needs usable model inference. Failed or missing inference rows
+remain in comparisons and are counted separately; matching failures cannot pass
+as model evidence. Declare inputs, membership and diagnostic tables `model: false`.
+The time-bin GEE adapter preserves categorical values and missing positions while
+converting pandas StringDtype to Patsy's supported object representation.
 
 EEG bootstrap writes `bootstrap_draw_provenance.json`: participant ordering,
 sampling unit, per-outcome starting/ending RNG state, requested draws and draw

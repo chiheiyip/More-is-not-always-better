@@ -216,6 +216,11 @@ def _fit_outcome(
     )
     required = [outcome, "participant_id", time_column]
     work = work.dropna(subset=required).copy()
+    # Patsy expects NumPy/object categorical values, not pandas 3 StringDtype.
+    # Preserve values and missing positions; do not stringify missing values.
+    for column in work:
+        if isinstance(work[column].dtype, pd.StringDtype):
+            work[column] = work[column].astype(object).where(work[column].notna(), np.nan)
     n_subjects = int(work["participant_id"].astype(str).nunique())
     n_trials = int(work[KEYS].drop_duplicates().shape[0])
     if len(work) < 24 or n_subjects < 4:
