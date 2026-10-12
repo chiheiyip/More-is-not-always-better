@@ -38,3 +38,9 @@ document and active-pointer targets are backed up; an entrypoint write failure
 restores them and the previous delivery. Targets inside scientific sources,
 the original manuscript, delivery or the archive are rejected. Historical
 calculation metadata and historical ZIP references stay unchanged.
+
+If the authoring engine cannot evaluate constant HYPERLINK formulas,
+`scripts/finalize_handoff_links.py --source <export.xlsx> --output <repaired.xlsx>`
+sets only their cached display labels from their literal second argument.
+It preserves formulas, numerical cells, styles, and unrelated caches. Verify
+the repaired workbook and replace the authoring copy before preparation.
