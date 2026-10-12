@@ -25,6 +25,9 @@ def inventory(root):
 
 
 def check(config):
+    if config.get('mode') == 'manuscript':
+        from .manuscript_handoff import check as manuscript_check
+        return manuscript_check(config)
     delivery, work = Path(config['delivery_root']), Path(config['work_root'])
     if work.resolve() == delivery.resolve() or work.resolve().is_relative_to(delivery.resolve()):
         raise ValueError('Supplement must be built outside delivery')
@@ -64,6 +67,9 @@ def extend_tables(payload, config, records):
 
 
 def prepare(config, repo):
+    if config.get('mode') == 'manuscript':
+        from .manuscript_handoff import prepare as manuscript_prepare
+        return manuscript_prepare(config, repo)
     records = check(config)
     work = Path(config['work_root']); stage = work/'staging'
     stage.mkdir(parents=True, exist_ok=False)
@@ -127,6 +133,9 @@ def update_pointer_tree(value, old_zip, new_zip, digest, supplement):
 
 
 def publish(config, repo):
+    if config.get('mode') == 'manuscript':
+        from .manuscript_handoff import publish as manuscript_publish
+        return manuscript_publish(config, repo)
     work = Path(config['work_root']); stage = work/'staging'
     preparation = json.loads((work/'preparation.json').read_text(encoding='utf-8'))
     if preparation['code_sha'] != git_sha(repo): raise ValueError('Code changed after preparation')

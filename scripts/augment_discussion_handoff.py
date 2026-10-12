@@ -1,4 +1,4 @@
-"""Prepare/check/publish a reviewed Discussion supplement from a local config."""
+"""Prepare/check/publish a reviewed Discussion or complete manuscript package."""
 import argparse
 import json
 from pathlib import Path
