@@ -1,0 +1,30 @@
+{
+  "mode": "manuscript",
+  "delivery_root": "LOCAL/teacher_delivery",
+  "work_root": "LOCAL/manuscript_delivery_run",
+  "archive_path": "LOCAL/teacher_archive/manuscript_delivery_run",
+  "source_run": "LOCAL/validated_scientific_run",
+  "manuscript_file": "LOCAL/original_manuscript.docx",
+  "source_manifest": "LOCAL/validated_scientific_run/source_manifest.json",
+  "analysis_config": "LOCAL/locked_analysis_config.json",
+  "reproducibility_proof": "LOCAL/validated_scientific_run/reproducibility_verification.json",
+  "bootstrap_repeat_proof": "LOCAL/actual_bootstrap_repeat/repeat_execution.json",
+  "statistical_code_hashes": [{"path": "LOCAL/repository/analysis/r/eeg_primary_analysis.R", "sha256": "REQUIRED_ACTUAL_SHA256"}],
+  "inputs": [],
+  "previous_zip_name": "previous_delivery.zip",
+  "previous_zip_sha256": "REQUIRED_ACTUAL_SHA256",
+  "zip_name": "complete_manuscript_delivery.zip",
+  "index_payload": "LOCAL/manuscript_delivery_run/index_tables.json",
+  "artifacts": {
+    "论文数据分析结果报告.md": "LOCAL/authored/report.md",
+    "数据来源交接索引.xlsx": "LOCAL/authored/index.xlsx",
+    "数据来源交接说明.docx": "LOCAL/authored/guide.docx",
+    "第三章3.2与3.3_结果报告及英文正文.docx": "LOCAL/authored/results.docx",
+    "第四章Discussion_核对与更新框架.docx": "LOCAL/authored/discussion.docx",
+    "论文全文正文_最新结果直接修改版.docx": "LOCAL/authored/manuscript.docx"
+  },
+  "additions": [],
+  "formal_index_source": "LOCAL/authored/formal_index.xlsx",
+  "formal_targets": {},
+  "pointer_files": []
+}
