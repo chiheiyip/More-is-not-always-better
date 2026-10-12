@@ -74,3 +74,11 @@ def test_opt_in_edit_keeps_complete_zotero_citation_fields(tmp_path):
     assert 'CSL_CITATION {metadata}' in updated and updated.count('w:fldCharType=') == 3
     payload['paragraph_edits'][0]['replacement'] = 'Claim without its citation'
     with pytest.raises(ValueError, match='preserve every citation'):build(p, payload, q)
+
+
+def test_explicit_revision_palette_is_validated(tmp_path):
+    p = manuscript(tmp_path)
+    payload = {'source_sha256': hashlib.sha256(p.read_bytes()).hexdigest(), 'clear_revision_formatting': True, 'revision_colors': ['EE0000', '074F6A']}
+    build(p, payload, tmp_path/'clean.docx')
+    payload['revision_colors'] = ['any-color']
+    with pytest.raises(ValueError, match='six-digit'):build(p, payload, tmp_path/'invalid.docx')
