@@ -17,11 +17,48 @@ def text(node):
     return ''.join(n.firstChild.nodeValue if n.firstChild else '' for n in node.getElementsByTagNameNS(W, 't'))
 
 
-def set_paragraph(node, value):
+def citation_fields(node):
+    """Collect complete, non-nested Zotero fields without changing their contents."""
+    blocks, current = [], []
+    for child in node.childNodes:
+        if child.nodeType != child.ELEMENT_NODE:
+            continue
+        marks = child.getElementsByTagNameNS(W, 'fldChar')
+        types = [mark.getAttributeNS(W, 'fldCharType') for mark in marks]
+        if 'begin' in types:
+            if current: raise ValueError('Nested Word field cannot be moved safely')
+            current = [child]
+        elif current:
+            current.append(child)
+        elif marks:
+            raise ValueError('Unbalanced Word field')
+        if 'end' in types:
+            if not current: raise ValueError('Unbalanced Word field')
+            instruction = ''.join(text_node.firstChild.nodeValue if text_node.firstChild else ''
+                                  for element in current for text_node in element.getElementsByTagNameNS(W, 'instrText'))
+            display = ''.join(text(element) for element in current)
+            if 'ADDIN ZOTERO_ITEM CSL_CITATION' not in instruction or not display:
+                raise ValueError('Only complete Zotero citation fields can be preserved in a text edit')
+            blocks.append((display, [element.cloneNode(True) for element in current])); current = []
+    if current: raise ValueError('Unbalanced Word field')
+    return blocks
+
+
+def set_paragraph(node, value, preserve_citations=False):
     if node.getElementsByTagNameNS(W, 'drawing') or node.getElementsByTagNameNS(W, 'object'):
         raise ValueError('Paragraph edit would remove embedded media')
-    if node.getElementsByTagNameNS(W, 'fldChar') or node.getElementsByTagNameNS(W, 'fldSimple'):
+    fields = []
+    if node.getElementsByTagNameNS(W, 'fldSimple'):
         raise ValueError('Paragraph edit would remove a Word field')
+    if node.getElementsByTagNameNS(W, 'fldChar'):
+        if not preserve_citations: raise ValueError('Paragraph edit would remove a Word field')
+        fields = citation_fields(node)
+    fragments, offset = [], 0
+    for display, elements in fields:
+        position = value.find(display, offset)
+        if position < 0: raise ValueError('Edited text must preserve every citation in its original order')
+        fragments.append(value[offset:position]); fragments.append(elements); offset = position + len(display)
+    fragments.append(value[offset:])
     runs = children(node, 'r')
     props = children(runs[0], 'rPr') if runs else []
     props = props[0].cloneNode(True) if props else None
@@ -30,10 +67,14 @@ def set_paragraph(node, value):
             continue
         node.removeChild(child)
     doc = node.ownerDocument
-    run = doc.createElementNS(W, 'w:r')
-    if props: run.appendChild(props)
-    content = doc.createElementNS(W, 'w:t'); content.setAttribute('xml:space', 'preserve')
-    content.appendChild(doc.createTextNode(value)); run.appendChild(content); node.appendChild(run)
+    for fragment in fragments:
+        if isinstance(fragment, list):
+            for element in fragment: node.appendChild(element)
+        else:
+            run = doc.createElementNS(W, 'w:r')
+            if props: run.appendChild(props.cloneNode(True))
+            content = doc.createElementNS(W, 'w:t'); content.setAttribute('xml:space', 'preserve')
+            content.appendChild(doc.createTextNode(fragment)); run.appendChild(content); node.appendChild(run)
 
 
 def inspect(source):
@@ -50,7 +91,7 @@ def inspect(source):
 def clear_revision_formatting(document):
     """Remove explicit red text and yellow highlighting from a requested clean copy."""
     removed = 0
-    for name, values in [('color', {'FF0000'}), ('highlight', {'yellow'})]:
+    for name, values in [('color', {'FF0000', 'C00000'}), ('highlight', {'yellow'})]:
         for node in list(document.getElementsByTagNameNS(W, name)):
             value = node.getAttributeNS(W, 'val')
             if (value.upper() if name == 'color' else value) in values:
@@ -76,7 +117,7 @@ def build(source, payload, target):
             seen.add(key); node = paragraphs[key]
             before = text(node)
             if before != item['expected']: raise ValueError('Paragraph precondition differs')
-            set_paragraph(node, item['replacement'])
+            set_paragraph(node, item['replacement'], item.get('preserve_citations', False))
             changes.append({'kind': 'paragraph', 'location': key, 'before': before, 'after': item['replacement'],
                             'reason': item.get('reason', ''), 'sources': item.get('sources', [])})
         for item in payload.get('cell_edits', []):

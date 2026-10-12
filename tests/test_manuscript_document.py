@@ -60,3 +60,17 @@ def test_clean_copy_removes_only_revision_colors_and_preserves_original(tmp_path
     assert '17365D' in clean and 'w:b' in clean
     assert inspect(q)['paragraphs'] == ['Keep text and style']
     assert changes[0]['before'] == 2 and p.read_bytes() == original
+
+
+def test_opt_in_edit_keeps_complete_zotero_citation_fields(tmp_path):
+    p = tmp_path/'citations.docx'
+    xml = '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Old claim </w:t></w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> ADDIN ZOTERO_ITEM CSL_CITATION {metadata}</w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>[34]</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p></w:body></w:document>'
+    with ZipFile(p, 'w') as z: z.writestr('word/document.xml', xml)
+    payload = {'source_sha256': hashlib.sha256(p.read_bytes()).hexdigest(), 'paragraph_edits': [{'index': 0, 'expected': 'Old claim [34]', 'replacement': 'Qualified claim [34], with limits.', 'preserve_citations': True}]}
+    q = tmp_path/'new.docx';build(p, payload, q)
+    assert inspect(q)['paragraphs'] == ['Qualified claim [34], with limits.']
+    with ZipFile(q) as z:
+        updated = z.read('word/document.xml').decode()
+    assert 'CSL_CITATION {metadata}' in updated and updated.count('w:fldCharType=') == 3
+    payload['paragraph_edits'][0]['replacement'] = 'Claim without its citation'
+    with pytest.raises(ValueError, match='preserve every citation'):build(p, payload, q)
