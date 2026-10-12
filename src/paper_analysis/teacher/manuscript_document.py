@@ -88,7 +88,7 @@ def inspect(source):
                 'media_sha256': {n: hashlib.sha256(archive.read(n)).hexdigest() for n in archive.namelist() if n.startswith('word/media/')}}
 
 
-def clear_revision_formatting(document, colors=None):
+def clear_revision_formatting(document, colors=None, clear_run_shading=False):
     """Remove only the declared revision colors and yellow highlighting."""
     declared = {'FF0000', 'C00000'} if colors is None else {value.upper() for value in colors}
     if any(len(value) != 6 or any(char not in '0123456789ABCDEF' for char in value) for value in declared):
@@ -98,6 +98,12 @@ def clear_revision_formatting(document, colors=None):
         for node in list(document.getElementsByTagNameNS(W, name)):
             value = node.getAttributeNS(W, 'val')
             if (value.upper() if name == 'color' else value) in values:
+                node.parentNode.removeChild(node)
+                removed += 1
+    if clear_run_shading:
+        for node in list(document.getElementsByTagNameNS(W, 'shd')):
+            if (node.parentNode.localName == 'rPr' and node.getAttributeNS(W, 'val') == 'pct15'
+                    and node.getAttributeNS(W, 'fill') == 'FFFFFF'):
                 node.parentNode.removeChild(node)
                 removed += 1
     return removed
@@ -154,7 +160,7 @@ def build(source, payload, target):
             if hashlib.sha256(archive.read(name)).hexdigest() != item['expected_sha256']: raise ValueError('Media precondition differs')
             if hashlib.sha256(Path(item['path']).read_bytes()).hexdigest() != item['sha256']: raise ValueError('Replacement media changed')
         if payload.get('clear_revision_formatting', False):
-            removed = clear_revision_formatting(document, payload.get('revision_colors'))
+            removed = clear_revision_formatting(document, payload.get('revision_colors'), payload.get('clear_revision_run_shading', False))
             changes.append({'kind': 'formatting', 'location': 'document', 'before': removed,
                             'after': 0, 'reason': 'Clean copy: remove explicit red text and yellow revision highlighting', 'sources': []})
         target.parent.mkdir(parents=True, exist_ok=True)

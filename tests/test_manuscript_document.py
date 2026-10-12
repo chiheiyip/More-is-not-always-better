@@ -82,3 +82,14 @@ def test_explicit_revision_palette_is_validated(tmp_path):
     build(p, payload, tmp_path/'clean.docx')
     payload['revision_colors'] = ['any-color']
     with pytest.raises(ValueError, match='six-digit'):build(p, payload, tmp_path/'invalid.docx')
+
+
+def test_opt_in_revision_shading_keeps_table_fill(tmp_path):
+    p = tmp_path/'shaded.docx'
+    shade = '<w:shd w:val="pct15" w:fill="FFFFFF"/>'
+    with ZipFile(p, 'w') as z:
+        z.writestr('word/document.xml', '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:rPr>'+shade+'</w:rPr><w:t>Keep citation text</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:tcPr>'+shade+'</w:tcPr><w:p><w:r><w:t>Keep table</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>')
+    q = tmp_path/'clean.docx'
+    build(p, {'source_sha256': hashlib.sha256(p.read_bytes()).hexdigest(), 'clear_revision_formatting': True, 'clear_revision_run_shading': True}, q)
+    with ZipFile(q) as z:assert z.read('word/document.xml').decode().count('w:shd')==1
+    assert inspect(q)['paragraphs']==['Keep citation text'] and inspect(q)['tables']==[[['Keep table']]]
