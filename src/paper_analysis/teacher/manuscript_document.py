@@ -47,6 +47,18 @@ def inspect(source):
                 'media_sha256': {n: hashlib.sha256(archive.read(n)).hexdigest() for n in archive.namelist() if n.startswith('word/media/')}}
 
 
+def clear_revision_formatting(document):
+    """Remove explicit red text and yellow highlighting from a requested clean copy."""
+    removed = 0
+    for name, values in [('color', {'FF0000'}), ('highlight', {'yellow'})]:
+        for node in list(document.getElementsByTagNameNS(W, name)):
+            value = node.getAttributeNS(W, 'val')
+            if (value.upper() if name == 'color' else value) in values:
+                node.parentNode.removeChild(node)
+                removed += 1
+    return removed
+
+
 def build(source, payload, target):
     source, target = Path(source), Path(target)
     if source.resolve() == target.resolve(): raise ValueError('Original manuscript is protected')
@@ -97,6 +109,10 @@ def build(source, payload, target):
             if not name.startswith('word/media/') or name not in archive.namelist(): raise ValueError('Unknown media target')
             if hashlib.sha256(archive.read(name)).hexdigest() != item['expected_sha256']: raise ValueError('Media precondition differs')
             if hashlib.sha256(Path(item['path']).read_bytes()).hexdigest() != item['sha256']: raise ValueError('Replacement media changed')
+        if payload.get('clear_revision_formatting', False):
+            removed = clear_revision_formatting(document)
+            changes.append({'kind': 'formatting', 'location': 'document', 'before': removed,
+                            'after': 0, 'reason': 'Clean copy: remove explicit red text and yellow revision highlighting', 'sources': []})
         target.parent.mkdir(parents=True, exist_ok=True)
         with ZipFile(target, 'w') as output:
             for info in archive.infolist():

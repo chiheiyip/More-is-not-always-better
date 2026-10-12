@@ -44,3 +44,19 @@ def test_wrong_source_and_paragraph_preconditions_stop_build(tmp_path):
         build(p, {'source_sha256': 'wrong'}, tmp_path/'new.docx')
     with pytest.raises(ValueError, match='precondition'):
         build(p, {'source_sha256': hashlib.sha256(p.read_bytes()).hexdigest(), 'paragraph_edits': [{'index': 0, 'expected': 'wrong', 'replacement': 'Updated'}]}, tmp_path/'new.docx')
+
+
+def test_clean_copy_removes_only_revision_colors_and_preserves_original(tmp_path):
+    p = tmp_path/'marked.docx'
+    xml = '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:rPr><w:color w:val="FF0000"/><w:highlight w:val="yellow"/><w:b/></w:rPr><w:t>Keep text</w:t></w:r><w:r><w:rPr><w:color w:val="17365D"/></w:rPr><w:t> and style</w:t></w:r></w:p></w:body></w:document>'
+    with ZipFile(p, 'w') as z:
+        z.writestr('word/document.xml', xml)
+    original = p.read_bytes()
+    q = tmp_path/'clean.docx'
+    changes = build(p, {'source_sha256': hashlib.sha256(original).hexdigest(), 'clear_revision_formatting': True}, q)
+    with ZipFile(q) as z:
+        clean = z.read('word/document.xml').decode()
+    assert 'FF0000' not in clean and 'yellow' not in clean
+    assert '17365D' in clean and 'w:b' in clean
+    assert inspect(q)['paragraphs'] == ['Keep text and style']
+    assert changes[0]['before'] == 2 and p.read_bytes() == original
