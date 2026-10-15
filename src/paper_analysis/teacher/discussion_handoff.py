@@ -25,6 +25,9 @@ def inventory(root):
 
 
 def check(config):
+    if config.get('mode') == 'hf-qc-revision':
+        from .hf_qc_delivery import check as revision_check
+        return revision_check(config)
     if config.get('mode') == 'manuscript':
         from .manuscript_handoff import check as manuscript_check
         return manuscript_check(config)
@@ -67,6 +70,9 @@ def extend_tables(payload, config, records):
 
 
 def prepare(config, repo):
+    if config.get('mode') == 'hf-qc-revision':
+        from .hf_qc_delivery import prepare as revision_prepare
+        return revision_prepare(config, repo)
     if config.get('mode') == 'manuscript':
         from .manuscript_handoff import prepare as manuscript_prepare
         return manuscript_prepare(config, repo)
@@ -133,6 +139,9 @@ def update_pointer_tree(value, old_zip, new_zip, digest, supplement):
 
 
 def publish(config, repo):
+    if config.get('mode') == 'hf-qc-revision':
+        from .hf_qc_delivery import publish as revision_publish
+        return revision_publish(config, repo)
     if config.get('mode') == 'manuscript':
         from .manuscript_handoff import publish as manuscript_publish
         return manuscript_publish(config, repo)

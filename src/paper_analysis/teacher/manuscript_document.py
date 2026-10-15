@@ -154,6 +154,48 @@ def build(source, payload, target):
                 set_paragraph(node, block['text']); body.insertBefore(node, anchor)
                 changes.append({'kind': 'insertion', 'location': item['before_index'], 'before': '',
                                 'after': block['text'], 'reason': block.get('reason', ''), 'sources': block.get('sources', [])})
+        for item in payload.get('table_insertions', []):
+            anchor = paragraphs[item['before_index']]
+            if text(anchor) != item['expected_anchor']:
+                raise ValueError('Table insertion anchor differs')
+            template = tables[item['table_template_index']]
+            node = template.cloneNode(True)
+            old_rows = children(node, 'tr')
+            if len(old_rows) < 2:
+                raise ValueError('Table insertion needs header and body row templates')
+            for old in old_rows:
+                node.removeChild(old)
+            rows = item['rows']
+            if not rows or not rows[0] or any(len(r) != len(rows[0]) for r in rows):
+                raise ValueError('Ragged or empty inserted table')
+            width = int(item.get('width_twips', 9000)) // len(rows[0])
+            grids = children(node, 'tblGrid')
+            if grids:
+                grid = grids[0]
+                for old in list(grid.childNodes): grid.removeChild(old)
+                for _ in rows[0]:
+                    column = document.createElementNS(W, 'w:gridCol')
+                    column.setAttribute('w:w', str(width)); grid.appendChild(column)
+            for i, values in enumerate(rows):
+                row = old_rows[0 if i == 0 else 1].cloneNode(True)
+                cells = children(row, 'tc')
+                for cell in cells: row.removeChild(cell)
+                for j, value in enumerate(values):
+                    cell = cells[min(j, len(cells)-1)].cloneNode(True)
+                    ps = children(cell, 'p')
+                    if not ps: raise ValueError('Missing inserted-cell paragraph template')
+                    for extra in ps[1:]: cell.removeChild(extra)
+                    set_paragraph(ps[0], str(value))
+                    for prop in cell.getElementsByTagNameNS(W, 'tcW'):
+                        prop.setAttribute('w:w', str(width)); prop.setAttribute('w:type', 'dxa')
+                    row.appendChild(cell)
+                node.appendChild(row)
+            for key in ['caption', 'note']:
+                if key == 'note': body.insertBefore(node, anchor)
+                paragraph = paragraphs[item[key+'_style_index']].cloneNode(True)
+                set_paragraph(paragraph, item[key]); body.insertBefore(paragraph, anchor)
+            changes.append({'kind':'table_insertion','location':item['before_index'],'before':'',
+                            'after':rows,'reason':item.get('reason',''),'sources':item.get('sources',[])})
         media = payload.get('media_replacements', {})
         for name, item in media.items():
             if not name.startswith('word/media/') or name not in archive.namelist(): raise ValueError('Unknown media target')
