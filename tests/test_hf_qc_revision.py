@@ -19,6 +19,15 @@ def policy():
             "bad_scene_fraction_threshold": .3}
 
 
+def test_shipped_formal_profile_removes_only_hf_and_retains_historical_profile():
+    import json
+    repo = Path(__file__).resolve().parents[1]
+    original = json.loads((repo / "configs/eeg_qc.json").read_text(encoding="utf-8"))
+    revised = json.loads((repo / "configs/eeg_qc_no_hf.json").read_text(encoding="utf-8"))
+    assert revised == qc_profiles(original)["NoHF"]
+    assert HF in original["robust_metrics"]
+
+
 def features():
     rows = []
     for trim in [0, 5, 10, 15]:

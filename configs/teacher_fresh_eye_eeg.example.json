@@ -30,6 +30,7 @@
     "primary_tracking_threshold": 0.6, "sensitivity_tracking_thresholds": [0.5, 0.7]
   },
   "eeg": {
+    "qc_config": "eeg_qc_no_hf.json",
     "onset_trim_strategy": "parallel", "reference_onset_trim_s": 10, "onset_trim_variants_s": [0, 5, 10, 15],
     "preprocessing_confirmed": true, "preprocessing_parameters": {},
     "core_metrics": ["O_theta", "F_theta", "O_alpha", "O_beta"],

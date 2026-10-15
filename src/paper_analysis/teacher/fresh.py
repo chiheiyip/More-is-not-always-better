@@ -113,7 +113,7 @@ def input_inventory(config, repo):
     for table, columns in [(mapping, ["CSVFile"]), (scenes, ["AOIFile", "BaseImageFile", "ValidSceneFile"])]:
         for col in columns:
             paths.update(Path(str(v)).resolve() for v in table[col].dropna() if str(v).strip())
-    paths.update([Path(config.get("eeg", {}).get("qc_config") or Path(repo) / "configs/eeg_qc.json"), Path(repo) / "configs/eeg_analysis.json"])
+    paths.update([Path(config.get("eeg", {}).get("qc_config") or Path(repo) / "configs/eeg_qc_no_hf.json"), Path(repo) / "configs/eeg_analysis.json"])
     # EASY/INFO are source measurements, not a previously computed clock table.
     acquisition = Path(fresh["acquisition_root"])
     paths.update(acquisition.rglob("*.easy")); paths.update(acquisition.rglob("*.info"))
@@ -263,7 +263,7 @@ def build_qc(config, run, repo, sets):
     inputs = run / "00_teacher_inputs"
     exported = run / "00_eeg_raw_export/summary/all_subjects_scene_level.csv"
     out = run / "00_eeg_trial_qc"
-    qc_path = Path(config.get("eeg", {}).get("qc_config") or repo / "configs/eeg_qc.json")
+    qc_path = Path(config.get("eeg", {}).get("qc_config") or repo / "configs/eeg_qc_no_hf.json")
     result = run_eeg_pipeline(inputs / "participants_standardized.csv", inputs / "scene_manifest_standardized.csv",
                               exported, out, qc_path, repo / "configs/eeg_analysis.json",
                               require_onset_metadata=True)
