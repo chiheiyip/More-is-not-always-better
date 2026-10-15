@@ -129,6 +129,26 @@ def test_formal_gate_uses_methodology_not_p_values(tmp_path, monkeypatch, mean_r
     assert decision["selection_uses_significance"] is False
 
 
+def test_psd_reuse_preserves_historical_key_and_requires_exact_actual_environment():
+    from paper_analysis.teacher.hf_qc_formal import verify_cache_implementation
+    from paper_analysis.teacher.eeg_denominator import cache_identity
+    epochs = pd.DataFrame([{"Participant": "甲", "GlobalTrialOrder": 1, "onset_trim_s": 0,
+                            "view_start_s": 1., "view_end_s": 61.}])
+    methods = {"implementation.m": "exact-code-hash", "native_runtime": "current-lock-document-hash"}
+    historical = {"lock_sha256": "historical-lock-document-hash", "snapshot": {"version": "fixed", "function": "same-sha", "threads": 10}}
+    current = {"lock_sha256": "current-lock-document-hash", "snapshot": copy.deepcopy(historical["snapshot"])}
+    sources = [{"participant": "甲", "set_sha256": "a", "fdt_sha256": "b"}]
+    key = cache_identity(sources, epochs, dict(methods, native_runtime=historical["lock_sha256"]))
+    manifest = {"sources": sources, "cache_key": key}
+    proof = verify_cache_implementation(manifest, epochs, methods, current, historical)
+    assert proof["snapshots_exactly_equal"] and proof["original_cache_identity_verified"]
+    current["snapshot"]["function"] = "changed"
+    with pytest.raises(StageBlockedError, match="runtime snapshots differ"):
+        verify_cache_implementation(manifest, epochs, methods, current, historical)
+    with pytest.raises(StageBlockedError, match="implementation/epoch"):
+        verify_cache_implementation(manifest, epochs, dict(methods, **{"implementation.m": "changed"}), historical, historical)
+
+
 @pytest.mark.skipif(not (Path(__file__).resolve().parents[1] / ".r-env/Lib/R/bin/x64/Rscript.exe").is_file(),
                     reason="Registered primary R environment not installed")
 def test_real_r_revised_exact_eye_common_sample_repeats(tmp_path):

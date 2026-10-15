@@ -153,7 +153,7 @@ def preflight(config, repo):
     source = Path(cfg["source_run"])
     evidence_run = Path(cfg.get("source_evidence_run", source))
     required = [source / "00_eeg_trial_qc/eeg_onset_sensitivity_trial_long.csv",
-                source / "00_eeg_trial_qc/QC_policy.json", source / "resolved_config.json",
+                source / "00_eeg_trial_qc/QC_policy.json", source / "resolved_config.json", source / "run_manifest.json",
                 source / "00_teacher_inputs/participant_information.xlsx",
                 source / "00_teacher_inputs/trial_order_mapping.xlsx",
                 source / "00_teacher_inputs/scene_AOI_mapping.xlsx",
