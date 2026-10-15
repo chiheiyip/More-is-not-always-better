@@ -1,0 +1,16 @@
+{
+  "mode": "hf-qc-revision",
+  "run_root": "LOCAL_COMPLETED_HF_REVISION_RUN",
+  "work_root": "LOCAL_EXTERNAL_PACKAGE_BUILD_DIRECTORY",
+  "delivery_root": "LOCAL_CURRENT_TEACHER_DELIVERY",
+  "archive_path": "LOCAL_EXTERNAL_ARCHIVE_NEW_DIRECTORY",
+  "outputs_root": "LOCAL_FORMAL_ANALYSIS_ROOT",
+  "manuscript_file": "LOCAL_PROTECTED_MANUSCRIPT.docx",
+  "writing_payload": "LOCAL_SOURCE_BACKED_WRITING_PAYLOAD.json",
+  "writing_payload_sha256": "EXACT_PAYLOAD_SHA256",
+  "zip_name": "结果发送_完整交接包_NoHF修订_YYYYMMDD.zip",
+  "node": "BUNDLED_NODE_EXECUTABLE",
+  "node_modules": "BUNDLED_NODE_MODULES_DIRECTORY",
+  "documents_skill": "BUNDLED_DOCUMENTS_SKILL_DIRECTORY",
+  "spreadsheets_skill": "BUNDLED_SPREADSHEETS_SKILL_DIRECTORY"
+}

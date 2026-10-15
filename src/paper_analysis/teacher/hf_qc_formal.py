@@ -209,6 +209,15 @@ def formal_run(config, source, run, repo, fingerprint, resume):
         flow["Stage"] = ["four_window_common_QC" if t == "common" else f"{t}s_individual_QC" for t in flow.onset_trim]
         write_csv(flow.rename(columns={"participants": "Participants", "trials": "Trials"}), qc / "sample_flow.csv")
         dump(out / "reuse_provenance.json", {"source": str(source), "scope": "unchanged trial design and covariates; no historical QC membership reused"})
+        # The existing synchronized entrypoint reads this local trial table.
+        # Copy its immutable eye-only metrics/eligibility; EEG membership is
+        # rebuilt from the explicitly configured revised QC table downstream.
+        eye_source = source / "02_eye_stage2/06_trial_level_eye_tracking_data.xlsx"
+        eye_target = run / "02_eye_stage2" / eye_source.name
+        eye_target.parent.mkdir(exist_ok=True)
+        shutil.copyfile(eye_source, eye_target)
+        dump(eye_target.parent / "verified_reuse.json", {"status": "verified_source_copy", "new_calculation": False,
+            "source": str(eye_source), "source_sha256": file_sha256(eye_source), "copy_sha256": file_sha256(eye_target)})
     stage(run, "00_teacher_inputs", fingerprint, formal_inputs, resume)
     c["eeg"]["preprocessing_audit_file"] = str(run / "00_eeg_trial_qc/preprocessing_parameters.csv")
     dump(run / "resolved_config.json", c)

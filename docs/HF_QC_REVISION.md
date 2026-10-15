@@ -25,3 +25,20 @@ Model comparisons preserve the complete correction families, failure diagnostics
 factor-level CR2/HTZ marginal contrasts, and additive previous-scene specification.
 Existing independent eye main results can be reused; all downstream results tied
 to changed EEG membership must be rebuilt. Original outputs are never overwritten.
+
+After analysis, `scripts/verify_hf_qc_revision.py --config LOCAL.json --run-root RUN`
+independently repeats the 1–40 models, scene-level joint models and synchronized
+models, verifies unchanged eye-main evidence, checks new waveforms, and requires
+the actual complete four-window bootstrap-repeat proof. The scientific calculation
+SHA remains distinct from this verification and document/publication SHAs.
+
+The existing `augment_discussion_handoff.py --action check|prepare|publish` also
+accepts `mode: hf-qc-revision`. See `hf_qc_handoff.example.json`. A local writing
+payload supplies sources with hashes, exact numeric claim filters and values,
+paragraph-source mapping, report text, document blocks and protected manuscript
+edits. Preparation validates claims, builds the nine-sheet offline source index
+and Word documents, and preserves the input manuscript. Publication additionally
+requires current content/visual QA hashes, actual ZIP extraction and offline-link
+checks, and archives the complete existing delivery outside its root. Formal
+summary pointers are updated with explicit No-HF and eye-reuse provenance;
+failed publication restores both the old delivery and formal root entrypoints.
