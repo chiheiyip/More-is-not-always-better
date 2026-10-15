@@ -246,7 +246,8 @@ def build_audit_qc(config, source, run):
         write_csv(reference, dest / "eeg_trial_common_qc.csv")
         dump(dest / "QC_policy.json", qc_profiles(policy)[version])
         from .independent_eeg import reconstruct_qc
-        ind, _ = reconstruct_qc(baseline.rename(columns={"participant_id": "Participant", "scene_id": "GlobalTrialOrder"}), qc_profiles(policy)[version])
+        independent_features = baseline.drop(columns="CommonQCIncluded", errors="ignore")
+        ind, _ = reconstruct_qc(independent_features.rename(columns={"participant_id": "Participant", "scene_id": "GlobalTrialOrder"}), qc_profiles(policy)[version])
         merged = frame.merge(ind.rename(columns={"Participant": "participant_id", "GlobalTrialOrder": "scene_id"})[
             WINDOW_KEYS + ["QCIncluded", "CommonQCIncluded"]], on=WINDOW_KEYS, validate="one_to_one", suffixes=("", "_independent"))
         if not merged.QCIncluded.eq(~merged.bad_eeg_quality).all() or not merged.CommonQCIncluded.eq(merged.CommonQCIncluded_independent).all():

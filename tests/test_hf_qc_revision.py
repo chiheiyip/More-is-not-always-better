@@ -7,7 +7,7 @@ import pytest
 
 from paper_analysis.teacher.hf_qc_revision import (
     HF, PRE_FLAG, PRE_REASONS, common_membership, impact_tables,
-    qc_profiles, reconstruct_pair, methodological_gate,
+    qc_profiles, reconstruct_pair, methodological_gate, build_audit_qc,
 )
 from paper_analysis.teacher.state import StageBlockedError
 
@@ -92,6 +92,24 @@ def test_original_policy_is_not_mutated_or_silently_assumed():
     assert original == before
     with pytest.raises(StageBlockedError):
         qc_profiles({"policy": "legacy_0_4"})
+
+
+def test_full_qc_stage_does_not_inherit_the_old_common_membership_column(tmp_path):
+    from paper_analysis.teacher.fresh import dump
+    source = tmp_path / "source"
+    data = features()
+    data.loc[data.participant_id.eq("甲") & data.scene_id.le(4), HF] = 1
+    original, _ = reconstruct_pair(data, policy())
+    folder = source / "00_eeg_trial_qc"
+    folder.mkdir(parents=True)
+    original["Original"].to_csv(folder / "eeg_onset_sensitivity_trial_long.csv", index=False)
+    dump(folder / "QC_policy.json", policy())
+    run = tmp_path / "run"
+    build_audit_qc({}, source, run)
+    revised = pd.read_csv(run / "qc/NoHF/eeg_onset_sensitivity_trial_long.csv")
+    assert revised.CommonQCIncluded.all()
+    verified = __import__("json").loads((run / "qc/verification.json").read_text())
+    assert verified["independent_QC_match"]
 
 
 @pytest.mark.parametrize("mean_rms,independent_pass,expected", [(1e-7, True, True), (1., True, False), (1e-7, False, False)])
