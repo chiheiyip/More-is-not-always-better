@@ -29,6 +29,7 @@ STAGE_FOLDERS = {
     "eeg-audit": "08_eeg_audit",
     "eeg-denominator-sensitivity": "09_eeg_denominator_sensitivity",
     "incremental-audit": "11_independent_audit",
+    "eeg-hf-qc-revision": "hf_qc_revision",
 }
 
 
@@ -48,6 +49,7 @@ def _resolve_paths(config: dict[str, Any], config_path: Path) -> dict[str, Any]:
         "historical_package", "preprocessed_root", "matlab", "eeglab_root", "psd_cache_dir",
         "candidate_factor_reference", "delivery_root",
         "aoi_pixel_lock", "verification_r_library",
+        "qc_config", "source_run", "source_evidence_run", "hf_formula_proof", "source_psd_cache", "manuscript", "archive_root",
     }
 
     def walk(value: Any, key: str = "") -> Any:
@@ -73,10 +75,13 @@ def _parser() -> argparse.ArgumentParser:
         child.add_argument("--config", required=True, type=Path)
         child.add_argument("--outputs-root", type=Path)
         child.add_argument("--run-id")
-        if command in {"eeg-audit", "eeg-denominator-sensitivity", "incremental-audit"}:
+        if command in {"eeg-audit", "eeg-denominator-sensitivity", "incremental-audit", "eeg-hf-qc-revision"}:
             child.add_argument("--outdir", type=Path, help="New, isolated analysis directory; existing results are protected.")
         if command == "incremental-audit":
             child.add_argument("--phase", choices=["all", "eye-process", "eye-models", "eye-boundary-models", "eye-seal-models", "eye-boundary-escalation", "eye-canonical", "eye-compare", "eeg-source", "eeg-current-models", "eeg-compare", "eeg-evidence", "reuse-eeg", "source-readers", "compare"], default="all")
+        if command == "eeg-hf-qc-revision":
+            child.add_argument("--phase", choices=["qc", "audit", "all"], default="all")
+            child.add_argument("--resume", action="store_true")
         child.add_argument("--dry-run", action="store_true")
         child.add_argument(
             "--skip-r",
@@ -101,6 +106,18 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     config_path = args.config.resolve()
+    if args.command == "eeg-hf-qc-revision":
+        from paper_analysis.teacher.hf_qc_revision import preflight, run
+        config = _resolve_paths(json.loads(config_path.read_text(encoding="utf-8-sig")), config_path)
+        if args.skip_r:
+            raise StageBlockedError("HF revision requires locked R inference")
+        if args.dry_run:
+            print(json.dumps(preflight(config, REPO_ROOT), ensure_ascii=False, indent=2))
+            return 0
+        out = args.outdir or Path(config["outputs_root"]) / "teacher_runs" / (args.run_id or config["run_id"])
+        run(config, config_path, REPO_ROOT, out, resume=args.resume, phase=args.phase)
+        print(json.dumps({"outdir": str(out), "phase": args.phase}, ensure_ascii=False))
+        return 0
     if args.command == "incremental-audit":
         config = incremental_config(config_path)
         plan = incremental_preflight(config, REPO_ROOT)

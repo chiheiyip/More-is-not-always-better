@@ -261,6 +261,10 @@ def apply_eeg_quality_qc(df: pd.DataFrame, config: dict) -> tuple[pd.DataFrame, 
     out["eeg_qc_candidate_reasons"] = [";".join(dict.fromkeys(r)) for r in candidate_reasons]
     out["eeg_qc_reasons"] = [";".join(dict.fromkeys(r)) for r in formal_reasons]
     out["bad_eeg_quality"] = [bool(r) for r in formal_reasons]
+    # Preserve the criterion-level decision before participant exclusion propagates
+    # to every trial. The participant bad-trial fraction uses this decision.
+    out["trial_qc_flag_before_subject_exclusion"] = out["bad_eeg_quality"]
+    out["trial_qc_reasons_before_subject_exclusion"] = out["eeg_qc_reasons"]
     out = _apply_subject_quality_exclusion(out, config, policy)
     return out, _scene_qc_table(out), _subject_qc_table(out, config), thresholds
 
@@ -365,6 +369,7 @@ def _scene_qc_table(df: pd.DataFrame) -> pd.DataFrame:
         "analysis_dur_s", "onset_samples_removed", "trim_status", "eeg_qc_policy",
         "eeg_quality_available", "bad_eeg_quality",
         "eeg_subject_quality_exclusion", "eeg_qc_reasons", "eeg_qc_candidate_reasons",
+        "trial_qc_flag_before_subject_exclusion", "trial_qc_reasons_before_subject_exclusion",
         "eeg_legacy_hf_flag", "hf_ratio_20_40Hz", "rms_mean_uV", "peak_to_peak_uV",
         "nan_fraction", "flat_fraction", "near_boundary", "segment_valid_duration",
     ]

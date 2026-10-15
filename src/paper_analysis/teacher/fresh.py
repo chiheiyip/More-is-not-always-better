@@ -113,7 +113,7 @@ def input_inventory(config, repo):
     for table, columns in [(mapping, ["CSVFile"]), (scenes, ["AOIFile", "BaseImageFile", "ValidSceneFile"])]:
         for col in columns:
             paths.update(Path(str(v)).resolve() for v in table[col].dropna() if str(v).strip())
-    paths.update([Path(repo) / "configs/eeg_qc.json", Path(repo) / "configs/eeg_analysis.json"])
+    paths.update([Path(config.get("eeg", {}).get("qc_config") or Path(repo) / "configs/eeg_qc.json"), Path(repo) / "configs/eeg_analysis.json"])
     # EASY/INFO are source measurements, not a previously computed clock table.
     acquisition = Path(fresh["acquisition_root"])
     paths.update(acquisition.rglob("*.easy")); paths.update(acquisition.rglob("*.info"))
@@ -263,8 +263,9 @@ def build_qc(config, run, repo, sets):
     inputs = run / "00_teacher_inputs"
     exported = run / "00_eeg_raw_export/summary/all_subjects_scene_level.csv"
     out = run / "00_eeg_trial_qc"
+    qc_path = Path(config.get("eeg", {}).get("qc_config") or repo / "configs/eeg_qc.json")
     result = run_eeg_pipeline(inputs / "participants_standardized.csv", inputs / "scene_manifest_standardized.csv",
-                              exported, out, repo / "configs/eeg_qc.json", repo / "configs/eeg_analysis.json",
+                              exported, out, qc_path, repo / "configs/eeg_analysis.json",
                               require_onset_metadata=True)
     data = pd.read_csv(result["eeg_onset_sensitivity_trial_long"], encoding="utf-8-sig")
     unique(data, ["participant_id", "scene_id", "onset_trim_s"])
@@ -272,7 +273,7 @@ def build_qc(config, run, repo, sets):
         raise StageBlockedError("Exporter lost/duplicated source trials")
     from .independent_eeg import reconstruct_qc
     independent, independent_thresholds=reconstruct_qc(data.rename(columns={"participant_id":"Participant","scene_id":"GlobalTrialOrder"}),
-        json.loads((repo/"configs/eeg_qc.json").read_text(encoding="utf-8")))
+        json.loads(qc_path.read_text(encoding="utf-8")))
     independent.to_csv(out/"independent_QC_reconstruction.csv",index=False,encoding="utf-8-sig")
     independent_thresholds.to_csv(out/"independent_QC_thresholds.csv",index=False,encoding="utf-8-sig")
     check=data.merge(independent[[*KEY,"onset_trim_s","QCIncluded","eeg_subject_quality_exclusion"]].rename(
@@ -299,7 +300,7 @@ def build_qc(config, run, repo, sets):
     selected = data.loc[data.onset_trim_s.eq(0) & data.CommonQCIncluded]
     flow.append({"Stage": "four_window_common_QC", "Participants": selected.participant_id.nunique(), "Trials": len(selected)})
     pd.DataFrame(flow).to_csv(out / "sample_flow.csv", index=False, encoding="utf-8-sig")
-    dump(out / "QC_policy.json", json.loads((repo / "configs/eeg_qc.json").read_text(encoding="utf-8")))
+    dump(out / "QC_policy.json", json.loads(qc_path.read_text(encoding="utf-8")))
 
 
 def denominator_models(config, run, repo):

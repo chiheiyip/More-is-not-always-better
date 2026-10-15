@@ -1,0 +1,24 @@
+{
+  "outputs_root": "LOCAL_RESULTS_ROOT",
+  "run_id": "hf_ratio_qc_revision_YYYYMMDD",
+  "rscript": "../scripts/portable_rscript.cmd",
+  "fresh": {
+    "preprocessed_root": "LOCAL_CORRECTED_SET_FDT_ROOT",
+    "matlab": "LOCAL_MATLAB_EXECUTABLE",
+    "eeglab_root": "LOCAL_EEGLAB_ROOT"
+  },
+  "hf_qc_revision": {
+    "source_run": "LOCAL_VALIDATED_UNFILTERED_SOURCE_RUN",
+    "source_evidence_run": "LOCAL_ORIGINAL_CALCULATION_RUN_WITH_STAGE_SEALS",
+    "hf_formula_proof": "LOCAL_HF_FORMULA_PROOF_RUN",
+    "source_psd_cache": "LOCAL_VERIFIED_COMPLETE_PSD_CACHE",
+    "manuscript": "LOCAL_LATEST_MANUSCRIPT_COPY.docx",
+    "delivery_root": "LOCAL_TEACHER_DELIVERY_ROOT",
+    "archive_root": "LOCAL_EXTERNAL_DELIVERY_ARCHIVE",
+    "cancellation_evidence": {
+      "formula_verified_field": "numeric_target_matched",
+      "mean_waveform_rms_field": "mean_waveform_rms_uV",
+      "mean_channel_rms_field": "mean_channel_rms_uV"
+    }
+  }
+}
