@@ -205,6 +205,26 @@ def build(source, payload, target):
             removed = clear_revision_formatting(document, payload.get('revision_colors'), payload.get('clear_revision_run_shading', False))
             changes.append({'kind': 'formatting', 'location': 'document', 'before': removed,
                             'after': 0, 'reason': 'Clean copy: remove explicit red text and yellow revision highlighting', 'sources': []})
+        if payload.get('compact_trailing_field_paragraph', False):
+            trailing = children(body, 'p')[-1]
+            fields = trailing.getElementsByTagNameNS(W, 'fldChar')
+            if text(trailing) or len(fields) != 1 or fields[0].getAttributeNS(W, 'fldCharType') != 'end':
+                raise ValueError('Only an empty final field-closing paragraph may be compacted')
+            props = children(trailing, 'pPr')[0]
+            for old in children(props, 'spacing'): props.removeChild(old)
+            spacing = document.createElementNS(W, 'w:spacing')
+            for key, value in [('before', '0'), ('after', '0'), ('line', '20'), ('lineRule', 'exact')]:
+                spacing.setAttribute('w:'+key, value)
+            props.appendChild(spacing)
+            for run in children(trailing, 'r'):
+                runs = children(run, 'rPr')
+                rprops = runs[0] if runs else document.createElementNS(W, 'w:rPr')
+                if not runs: run.insertBefore(rprops, run.firstChild)
+                for tag in ['sz', 'szCs']:
+                    for old in children(rprops, tag): rprops.removeChild(old)
+                    size = document.createElementNS(W, 'w:'+tag); size.setAttribute('w:val', '2'); rprops.appendChild(size)
+            changes.append({'kind':'formatting','location':'trailing_field','before':'inherited paragraph spacing',
+                'after':'one-point line; field end preserved','reason':'Avoid an empty final page without deleting bibliography fields','sources':[]})
         target.parent.mkdir(parents=True, exist_ok=True)
         with ZipFile(target, 'w') as output:
             for info in archive.infolist():
