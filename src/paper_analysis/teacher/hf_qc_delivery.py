@@ -217,6 +217,14 @@ def inventory(root):
     return {p.relative_to(root).as_posix(): file_sha256(p) for p in sorted(root.rglob("*")) if p.is_file()}
 
 
+def formal_document_sources(delivery):
+    documents = {p.name: p for p in delivery.glob("*.docx")}
+    revised = documents.get("manuscript_REVISED_NO_HF_QC.docx")
+    if revised:
+        documents["论文全文正文_最新结果直接修改版.docx"] = revised
+    return documents
+
+
 def publish(config, repo):
     if subprocess.check_output(["git", "status", "--porcelain"], cwd=repo, text=True).strip():
         raise StageBlockedError("Publish from clean committed code")
@@ -297,13 +305,20 @@ def publish(config, repo):
     pointer_names = ["hf_qc_revision_latest.json", "eye_eeg_fresh_latest.json", "eeg_denominator_sensitivity_latest.json",
                      "eeg_request_handoff_latest.json", "eye_eeg_incremental_latest.json", "manuscript_delivery_latest.json", "results_revision_note_latest.json"]
     targets = [outputs / name for name in ["realdata_run_summary.json", "realdata_run_summary.csv", "论文数据分析结果报告.md",
-                                          "README_当前有效结果.md", "结果文件总索引.xlsx", "code_publication.json", "analysis_latest_eye_eeg.local.json", *pointer_names]]
+                                          "README_当前有效结果.md", "README_老师本次EEG交付.md", "结果文件总索引.xlsx", "code_publication.json", "analysis_latest_eye_eeg.local.json", *pointer_names]]
+    documents = formal_document_sources(destination)
+    targets.extend(outputs / name for name in documents)
     backups = {path: path.read_bytes() if path.exists() else None for path in targets}
     try:
+        preserved = work / "previous_formal_documents"
+        preserved.mkdir()
+        for name in documents:
+            if (outputs / name).is_file(): shutil.copyfile(outputs / name, preserved / name)
         summary = {"status": "complete", "run_root": str(run), "analysis_git_sha": pointer["analysis_git_sha"],
             "publication_git_sha": pointer["publication_git_sha"], "scope_note": pointer["scope"],
             "samples": payload["scientific_samples"], "eye": payload["scientific_samples"]["eye"],
             "eeg": payload["scientific_samples"]["eeg"], "joint": payload["scientific_samples"]["joint"],
+            "synchronized": payload["scientific_samples"]["joint"]["synchronized"],
             "questionnaire": {"status": "not_rerun", "original_53_person_chapter_source": "not_fully_verified"},
             "reproducibility": {"status": "passed", "proof": str(run / "complete_verification/verification.json")},
             "teacher_delivery": pointer, "current_teacher_request": pointer, "latest_hf_qc_revision": pointer,
@@ -318,11 +333,13 @@ def publish(config, repo):
             if p.is_file() and p.suffix.lower() in {".docx", ".md", ".xlsx"}: shutil.copyfile(p, run / p.name)
         shutil.copyfile(run / "论文数据分析结果报告.md", outputs / "论文数据分析结果报告.md")
         shutil.copyfile(work / "结果文件总索引.xlsx", outputs / "结果文件总索引.xlsx")
+        for name, source in documents.items(): shutil.copyfile(source, outputs / name)
         dump(outputs / "code_publication.json", pointer)
         active_config = read_json(run / "resolved_config.json")
         active_config["run_id"] = "eye_eeg_no_hf_next_run"
         dump(outputs / "analysis_latest_eye_eeg.local.json", active_config)
         (outputs / "README_当前有效结果.md").write_text("# 当前有效结果\n\n正式 EEG QC 已修订为 No-HF，相关 EEG 和联合结果以本轮为准。眼动独立主分析经核验复用，问卷独立结果未重跑。\n\n" + str(run) + "\n\n" + pointer["zip"] + "\n", encoding="utf-8")
+        shutil.copyfile(outputs / "README_当前有效结果.md", outputs / "README_老师本次EEG交付.md")
     except BaseException:
         for path, data in backups.items():
             if data is None:
@@ -334,4 +351,5 @@ def publish(config, repo):
         archive_publish(archive, destination, work / "failed_publication", validate_restored)
         raise
     dump(work / "publication.json", pointer)
+    dump(run / "publication.json", pointer)
     return pointer
