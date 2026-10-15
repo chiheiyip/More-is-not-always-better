@@ -46,6 +46,8 @@ def verify(config, run):
         if not result.passed.all():
             raise StageBlockedError("Revised repetition differs: " + name)
     # Retain the existing main-model repeated-process evidence.
+    from paper_analysis.teacher.hf_qc_formal import verify_repeated_model_tables
+    verify_repeated_model_tables(run, REPO)
     prior = read_json(run / "numerical_verification/summary.json")
     if not prior["passed"]:
         raise StageBlockedError("Main EEG repeated-process checks failed")

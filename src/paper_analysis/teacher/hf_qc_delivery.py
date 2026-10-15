@@ -128,7 +128,7 @@ def build_docx(spec, target, sources):
                     for paragraph in cell.paragraphs:
                         for r in paragraph.runs: r.font.size = Pt(9)
         if block.get("sources"):
-            doc.add_paragraph("来源：" + "；".join(sources[k]["Source ID"] + " " + sources[k]["flat_name"] for k in block["sources"]))
+            doc.add_paragraph("来源：" + "；".join(sources[k]["Source ID"] for k in block["sources"]) + "（文件与筛选条件见交接索引）")
     section.footer.paragraphs[0].alignment = 2
     field = OxmlElement("w:fldSimple"); field.set(qn("w:instr"), "PAGE")
     section.footer.paragraphs[0]._p.append(field)
@@ -287,7 +287,9 @@ def publish(config, repo):
     pointer = {"status": "complete", "scope": "formal_no_hf_eeg_and_affected_joint; eye_main_verified_reuse; questionnaire_not_rerun",
         "run_root": str(run), "work_root": str(work), "analysis_git_sha": prepared["calculation_sha"],
         "publication_git_sha": git_sha(repo), "delivery_root": str(destination), "archive_root": str(archive),
-        "zip": str(destination / archive_file.name), "zip_sha256": files[archive_file.name], "source_count": len(records)}
+        "zip": str(destination / archive_file.name), "zip_sha256": files[archive_file.name], "source_count": len(records),
+        "analysis_config": str(Path(config["outputs_root"]) / "analysis_latest_eye_eeg.local.json"),
+        "archived_input_resolution": str(work / "archive_path_mapping.json")}
     outputs = Path(config["outputs_root"])
     previous = read_json(outputs / "realdata_run_summary.json")
     dump(work / "previous_realdata_run_summary.json", previous)
@@ -295,7 +297,7 @@ def publish(config, repo):
     pointer_names = ["hf_qc_revision_latest.json", "eye_eeg_fresh_latest.json", "eeg_denominator_sensitivity_latest.json",
                      "eeg_request_handoff_latest.json", "eye_eeg_incremental_latest.json", "manuscript_delivery_latest.json", "results_revision_note_latest.json"]
     targets = [outputs / name for name in ["realdata_run_summary.json", "realdata_run_summary.csv", "论文数据分析结果报告.md",
-                                          "README_当前有效结果.md", "结果文件总索引.xlsx", "code_publication.json", *pointer_names]]
+                                          "README_当前有效结果.md", "结果文件总索引.xlsx", "code_publication.json", "analysis_latest_eye_eeg.local.json", *pointer_names]]
     backups = {path: path.read_bytes() if path.exists() else None for path in targets}
     try:
         summary = {"status": "complete", "run_root": str(run), "analysis_git_sha": pointer["analysis_git_sha"],
@@ -317,6 +319,9 @@ def publish(config, repo):
         shutil.copyfile(run / "论文数据分析结果报告.md", outputs / "论文数据分析结果报告.md")
         shutil.copyfile(work / "结果文件总索引.xlsx", outputs / "结果文件总索引.xlsx")
         dump(outputs / "code_publication.json", pointer)
+        active_config = read_json(run / "resolved_config.json")
+        active_config["run_id"] = "eye_eeg_no_hf_next_run"
+        dump(outputs / "analysis_latest_eye_eeg.local.json", active_config)
         (outputs / "README_当前有效结果.md").write_text("# 当前有效结果\n\n正式 EEG QC 已修订为 No-HF，相关 EEG 和联合结果以本轮为准。眼动独立主分析经核验复用，问卷独立结果未重跑。\n\n" + str(run) + "\n\n" + pointer["zip"] + "\n", encoding="utf-8")
     except BaseException:
         for path, data in backups.items():
