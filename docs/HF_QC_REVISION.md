@@ -16,9 +16,11 @@ The participant exclusion rule is strictly greater than 30%, computed before
 participant exclusion propagates to every trial. Both decisions are saved.
 The recorded `near_boundary` field is not an active exclusion criterion.
 
-The original QC default remains available for historical reproduction. Revised
-formal analyses use their explicitly recorded No-HF QC configuration. Fresh-source
-execution accepts `eeg.qc_config`; if absent it retains the repository default.
+The original `configs/eeg_qc.json` remains available for explicit historical
+reproduction. Revised formal analyses use their recorded No-HF configuration.
+New fresh-source execution accepts `eeg.qc_config`; if absent it uses the formal
+`configs/eeg_qc_no_hf.json` profile. To reproduce Original QC, explicitly select
+`eeg_qc.json`. Generic historical QC APIs retain their original defaults.
 No new HF surrogate is introduced. The formal decision never uses significance.
 
 Model comparisons preserve the complete correction families, failure diagnostics,
