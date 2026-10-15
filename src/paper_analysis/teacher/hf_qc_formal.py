@@ -172,24 +172,42 @@ def formal_tables(run):
     write_csv(table, out / "REVISED_Table_B3_EEG_QC_thresholds.csv")
 
 
-def repeat_models(config, source, run, repo):
-    from .eeg_denominator import run_models
+def verify_repeated_model_tables(run, repo):
     from .reproducibility import compare_tables
-    c = bound_config(config, source, run, "NoHF")
-    frames, _ = prepare_inputs(c)
-    result = run_models(frames, c, repo, run / "model_repeat", run / "audit_models/analysis_contract.json")
+    output = run / "numerical_verification"
+    previous = output / "summary.json"
+    if previous.exists() and not read_json(previous)["passed"]:
+        saved = run / "superseded_verification_reader"
+        if not saved.exists(): shutil.copytree(output, saved)
     checks = []
     for name in ["coefficients", "factor_tests", "family_coefficients", "family_factors"]:
-        left = pd.read_csv(run / f"audit_models/NoHF_1_45/{name}.csv")
+        left_path = run / f"audit_models/NoHF_1_45/{name}.csv"
+        right_path = run / f"model_repeat/{name}.csv"
+        # Compare two authoritative persisted tables using identical lossless
+        # readers. Comparing a default CSV parse against in-memory BH arithmetic
+        # can manufacture a one-ULP difference despite byte-identical CSVs.
+        left = pd.read_csv(left_path, float_precision="round_trip")
+        right = pd.read_csv(right_path, float_precision="round_trip")
         keys = ["onset_trim_s", "outcome", "model", "term"]
         if "family_id" in left:
             keys.append("family_id")
-        comp = compare_tables(left, result[name], keys, model=True, exact_numeric=True)
+        comp = compare_tables(left, right, keys, model=True, exact_numeric=True)
         write_csv(comp, run / f"numerical_verification/{name}.csv")
-        checks.append({"table": name, "passed": bool(comp.passed.all()), "rows": len(left)})
-    dump(run / "numerical_verification/summary.json", {"checks": checks, "passed": all(r["passed"] for r in checks)})
+        same_bytes = file_sha256(left_path) == file_sha256(right_path)
+        checks.append({"table": name, "passed": bool(comp.passed.all()) and same_bytes, "rows": len(left),
+                       "byte_identical": same_bytes, "left_sha256": file_sha256(left_path), "right_sha256": file_sha256(right_path)})
+    dump(run / "numerical_verification/summary.json", {"checks": checks, "passed": all(r["passed"] for r in checks),
+        "comparison": "exact_numeric_persisted_csv_round_trip", "verification_sha": git_sha(repo)})
     if not all(r["passed"] for r in checks):
         raise StageBlockedError("Revised independent-process model repeat failed")
+
+
+def repeat_models(config, source, run, repo):
+    from .eeg_denominator import run_models
+    c = bound_config(config, source, run, "NoHF")
+    frames, _ = prepare_inputs(c)
+    run_models(frames, c, repo, run / "model_repeat", run / "audit_models/analysis_contract.json")
+    verify_repeated_model_tables(run, repo)
 
 
 def formal_run(config, source, run, repo, fingerprint, resume):

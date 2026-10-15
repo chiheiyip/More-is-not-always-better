@@ -158,6 +158,27 @@ def test_psd_reuse_preserves_historical_key_and_requires_exact_actual_environmen
         verify_cache_implementation(manifest, epochs, dict(methods, **{"implementation.m": "changed"}), historical, historical)
 
 
+def test_repeat_verification_compares_persisted_q_without_manufacturing_parse_differences(tmp_path, monkeypatch):
+    import json
+    from paper_analysis.teacher.hf_qc_formal import verify_repeated_model_tables
+    monkeypatch.setattr("paper_analysis.teacher.hf_qc_formal.git_sha", lambda _: "verified-code")
+    for name in ["coefficients", "factor_tests", "family_coefficients", "family_factors"]:
+        table = pd.DataFrame([{"onset_trim_s": 0, "outcome": "O_theta_relative", "model": "Model1", "term": "Block",
+                               "estimate": .00477314872839401, "joint_q": .55876098123456789}])
+        if name.startswith("family_"): table["family_id"] = "synthetic_complete_family"
+        for folder in ["audit_models/NoHF_1_45", "model_repeat"]:
+            destination = tmp_path / folder
+            destination.mkdir(parents=True, exist_ok=True)
+            table.to_csv(destination / f"{name}.csv", index=False)
+    verify_repeated_model_tables(tmp_path, tmp_path)
+    result = json.loads((tmp_path / "numerical_verification/summary.json").read_text())
+    assert result["passed"] and all(r["byte_identical"] for r in result["checks"])
+    path = tmp_path / "model_repeat/family_factors.csv"
+    path.write_text(path.read_text().replace("558760981", "558760881"))
+    with pytest.raises(StageBlockedError, match="repeat failed"):
+        verify_repeated_model_tables(tmp_path, tmp_path)
+
+
 @pytest.mark.skipif(not (Path(__file__).resolve().parents[1] / ".r-env/Lib/R/bin/x64/Rscript.exe").is_file(),
                     reason="Registered primary R environment not installed")
 def test_real_r_revised_exact_eye_common_sample_repeats(tmp_path):
