@@ -17,6 +17,23 @@ from .hf_qc_revision import read_json, write_csv, bound_config, model_comparison
 from .state import StageBlockedError, file_sha256
 
 
+def verify_cache_implementation(manifest, epochs, method_hashes, current_runtime, source_runtime):
+    """Check the historical key and the actual numerical environment separately.
+
+    A lock JSON's byte hash is provenance, not the environment itself. Retain
+    its registered historical hash when verifying the old identity, and require
+    exact equality of the complete versions/paths/function hashes/runtime settings.
+    """
+    from .eeg_denominator import cache_identity
+    if current_runtime["snapshot"] != source_runtime["snapshot"]:
+        raise StageBlockedError("Prior and current MATLAB runtime snapshots differ")
+    historical_methods = dict(method_hashes, native_runtime=source_runtime["lock_sha256"])
+    if cache_identity(manifest["sources"], epochs, historical_methods) != manifest["cache_key"]:
+        raise StageBlockedError("Prior PSD implementation/epoch identity no longer matches")
+    return {"snapshots_exactly_equal": True, "original_lock_sha256": source_runtime["lock_sha256"],
+            "current_lock_sha256": current_runtime["lock_sha256"], "original_cache_identity_verified": True}
+
+
 def verify_integrals(cache, required_keys):
     """Independently integrate every reused/new spectrum that enters this run."""
     powers = pd.read_csv(cache / "paired_powers.csv")
@@ -81,8 +98,8 @@ def revised_denominator(config, source, run, repo):
     code = {p: file_sha256(repo/p) for p in METHOD_FILES if p.endswith(".m")}
     native = validate_matlab(c["fresh"]["matlab"], c["fresh"]["eeglab_root"], repo)
     code["native_runtime"] = native["lock_sha256"]
-    if cache_identity(old["sources"], epochs, code) != old["cache_key"]:
-        raise StageBlockedError("Prior PSD code/environment/epoch identity no longer matches")
+    historical_runtime = read_json(source / "run_manifest.json")["runtime_lock"]["matlab"]
+    runtime_reuse = verify_cache_implementation(old, epochs, code, native, historical_runtime)
     for person in intersection.Participant.unique():
         record = old_source[person]
         for kind in ["set", "fdt"]:
@@ -134,6 +151,7 @@ def revised_denominator(config, source, run, repo):
     dump(folder / "PSD_provenance.json", {"status": "verified", "component_caches": component_caches,
         "required_trial_windows": len(all_keys), "reused_trial_windows": len(covered), "new_trial_windows": len(missing),
         "parameters": PSD_PARAMETERS, "code_sha": git_sha(repo), "original_cache_unchanged": True})
+    dump(folder / "PSD_runtime_reuse_verification.json", runtime_reuse)
 
 
 def formal_tables(run):

@@ -7,7 +7,7 @@ import pytest
 
 from paper_analysis.teacher.hf_qc_revision import (
     HF, PRE_FLAG, PRE_REASONS, common_membership, impact_tables,
-    qc_profiles, reconstruct_pair, methodological_gate,
+    qc_profiles, reconstruct_pair, methodological_gate, build_audit_qc,
 )
 from paper_analysis.teacher.state import StageBlockedError
 
@@ -94,6 +94,24 @@ def test_original_policy_is_not_mutated_or_silently_assumed():
         qc_profiles({"policy": "legacy_0_4"})
 
 
+def test_full_qc_stage_does_not_inherit_the_old_common_membership_column(tmp_path):
+    from paper_analysis.teacher.fresh import dump
+    source = tmp_path / "source"
+    data = features()
+    data.loc[data.participant_id.eq("甲") & data.scene_id.le(4), HF] = 1
+    original, _ = reconstruct_pair(data, policy())
+    folder = source / "00_eeg_trial_qc"
+    folder.mkdir(parents=True)
+    original["Original"].to_csv(folder / "eeg_onset_sensitivity_trial_long.csv", index=False)
+    dump(folder / "QC_policy.json", policy())
+    run = tmp_path / "run"
+    build_audit_qc({}, source, run)
+    revised = pd.read_csv(run / "qc/NoHF/eeg_onset_sensitivity_trial_long.csv")
+    assert revised.CommonQCIncluded.all()
+    verified = __import__("json").loads((run / "qc/verification.json").read_text())
+    assert verified["independent_QC_match"]
+
+
 @pytest.mark.parametrize("mean_rms,independent_pass,expected", [(1e-7, True, True), (1., True, False), (1e-7, False, False)])
 def test_formal_gate_uses_methodology_not_p_values(tmp_path, monkeypatch, mean_rms, independent_pass, expected):
     from paper_analysis.teacher.fresh import dump
@@ -109,6 +127,26 @@ def test_formal_gate_uses_methodology_not_p_values(tmp_path, monkeypatch, mean_r
     decision = methodological_gate(config, tmp_path, tmp_path)
     assert decision["adopt_NoHF"] is expected
     assert decision["selection_uses_significance"] is False
+
+
+def test_psd_reuse_preserves_historical_key_and_requires_exact_actual_environment():
+    from paper_analysis.teacher.hf_qc_formal import verify_cache_implementation
+    from paper_analysis.teacher.eeg_denominator import cache_identity
+    epochs = pd.DataFrame([{"Participant": "甲", "GlobalTrialOrder": 1, "onset_trim_s": 0,
+                            "view_start_s": 1., "view_end_s": 61.}])
+    methods = {"implementation.m": "exact-code-hash", "native_runtime": "current-lock-document-hash"}
+    historical = {"lock_sha256": "historical-lock-document-hash", "snapshot": {"version": "fixed", "function": "same-sha", "threads": 10}}
+    current = {"lock_sha256": "current-lock-document-hash", "snapshot": copy.deepcopy(historical["snapshot"])}
+    sources = [{"participant": "甲", "set_sha256": "a", "fdt_sha256": "b"}]
+    key = cache_identity(sources, epochs, dict(methods, native_runtime=historical["lock_sha256"]))
+    manifest = {"sources": sources, "cache_key": key}
+    proof = verify_cache_implementation(manifest, epochs, methods, current, historical)
+    assert proof["snapshots_exactly_equal"] and proof["original_cache_identity_verified"]
+    current["snapshot"]["function"] = "changed"
+    with pytest.raises(StageBlockedError, match="runtime snapshots differ"):
+        verify_cache_implementation(manifest, epochs, methods, current, historical)
+    with pytest.raises(StageBlockedError, match="implementation/epoch"):
+        verify_cache_implementation(manifest, epochs, dict(methods, **{"implementation.m": "changed"}), historical, historical)
 
 
 @pytest.mark.skipif(not (Path(__file__).resolve().parents[1] / ".r-env/Lib/R/bin/x64/Rscript.exe").is_file(),
