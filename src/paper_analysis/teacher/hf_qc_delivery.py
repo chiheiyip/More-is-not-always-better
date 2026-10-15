@@ -118,15 +118,36 @@ def build_docx(spec, target, sources):
             rows = block["table"]
             table = doc.add_table(rows=1, cols=len(rows[0]))
             table.style = "Table Grid"
+            table.autofit = False
+            weights = [max(8, min(28, max(len(str(row[i])) for row in rows))) for i in range(len(rows[0]))]
+            borders = OxmlElement("w:tblBorders")
+            for edge in ["top", "left", "bottom", "right", "insideH", "insideV"]:
+                border = OxmlElement("w:"+edge)
+                for key, value in [("val", "single"), ("sz", "4"), ("color", "D9D9D9")]: border.set(qn("w:"+key), value)
+                borders.append(border)
+            table._tbl.tblPr.append(borders)
             for c, value in zip(table.rows[0].cells, rows[0]): c.text = str(value)
             header = OxmlElement("w:tblHeader")
             table.rows[0]._tr.get_or_add_trPr().append(header)
             for values in rows[1:]:
                 for c, value in zip(table.add_row().cells, values): c.text = str(value)
-            for row in table.rows:
-                for cell in row.cells:
+            for ri, row in enumerate(table.rows):
+                row._tr.get_or_add_trPr().append(OxmlElement("w:cantSplit"))
+                for ci, cell in enumerate(row.cells):
+                    cell.width = Inches(6.9 * weights[ci] / sum(weights))
+                    props = cell._tc.get_or_add_tcPr()
+                    margins = OxmlElement("w:tcMar")
+                    for edge in ["top", "left", "bottom", "right"]:
+                        margin = OxmlElement("w:"+edge); margin.set(qn("w:w"), "90"); margin.set(qn("w:type"), "dxa")
+                        margins.append(margin)
+                    props.append(margins)
+                    if ri == 0:
+                        fill = OxmlElement("w:shd"); fill.set(qn("w:fill"), "E7E6E6"); props.append(fill)
                     for paragraph in cell.paragraphs:
-                        for r in paragraph.runs: r.font.size = Pt(9)
+                        paragraph.paragraph_format.space_before = paragraph.paragraph_format.space_after = Pt(3)
+                        for r in paragraph.runs:
+                            r.font.size = Pt(9)
+                            r.font.bold = ri == 0
         if block.get("sources"):
             doc.add_paragraph("来源：" + "；".join(sources[k]["Source ID"] for k in block["sources"]) + "（文件与筛选条件见交接索引）")
     section.footer.paragraphs[0].alignment = 2
