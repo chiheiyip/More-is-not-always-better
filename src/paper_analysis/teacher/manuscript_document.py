@@ -210,7 +210,9 @@ def build(source, payload, target):
             fields = trailing.getElementsByTagNameNS(W, 'fldChar')
             if text(trailing) or len(fields) != 1 or fields[0].getAttributeNS(W, 'fldCharType') != 'end':
                 raise ValueError('Only an empty final field-closing paragraph may be compacted')
-            props = children(trailing, 'pPr')[0]
+            pprops = children(trailing, 'pPr')
+            props = pprops[0] if pprops else document.createElementNS(W, 'w:pPr')
+            if not pprops: trailing.insertBefore(props, trailing.firstChild)
             for old in children(props, 'spacing'): props.removeChild(old)
             spacing = document.createElementNS(W, 'w:spacing')
             for key, value in [('before', '0'), ('after', '0'), ('line', '20'), ('lineRule', 'exact')]:
