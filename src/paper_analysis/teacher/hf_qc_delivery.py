@@ -98,6 +98,8 @@ def build_docx(spec, target, sources):
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     doc = Document()
+    for border in list(doc.styles.element.xpath('.//w:pBdr')):
+        border.getparent().remove(border)
     section = doc.sections[0]
     section.top_margin = section.bottom_margin = Inches(.75)
     section.left_margin = section.right_margin = Inches(.8)
@@ -149,7 +151,10 @@ def build_docx(spec, target, sources):
                             r.font.size = Pt(9)
                             r.font.bold = ri == 0
         if block.get("sources"):
-            doc.add_paragraph("来源：" + "；".join(sources[k]["Source ID"] for k in block["sources"]) + "（文件与筛选条件见交接索引）")
+            note = doc.add_paragraph("来源：" + "；".join(sources[k]["Source ID"] for k in block["sources"]) + "（文件与筛选条件见交接索引）")
+            note.paragraph_format.space_before = Pt(0)
+            note.paragraph_format.space_after = Pt(3)
+            for run in note.runs: run.font.size = Pt(9)
     section.footer.paragraphs[0].alignment = 2
     field = OxmlElement("w:fldSimple"); field.set(qn("w:instr"), "PAGE")
     section.footer.paragraphs[0]._p.append(field)

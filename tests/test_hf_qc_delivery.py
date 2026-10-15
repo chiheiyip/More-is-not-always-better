@@ -57,6 +57,27 @@ def test_empty_numerical_evidence_cannot_prepare_a_scientific_package():
         validate_numeric_claims({"numeric_claims": []}, {})
 
 
+def test_compact_final_bibliography_field_preserves_field_and_text(tmp_path):
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from zipfile import ZipFile
+    doc = Document()
+    doc.add_paragraph('Final reference remains unchanged')
+    paragraph = doc.add_paragraph()
+    ending = OxmlElement('w:fldChar'); ending.set(qn('w:fldCharType'), 'end')
+    paragraph.add_run()._r.append(ending)
+    original, target = tmp_path/'source.docx', tmp_path/'revised.docx'
+    doc.save(original)
+    payload = {'source_sha256': hashlib.sha256(original.read_bytes()).hexdigest(),
+               'compact_trailing_field_paragraph': True}
+    build(original, payload, target)
+    assert inspect(original)['paragraphs'] == inspect(target)['paragraphs']
+    with ZipFile(target) as archive:
+        xml = archive.read('word/document.xml')
+        assert b'w:fldCharType="end"' in xml and b'w:line="20"' in xml
+
+
 @pytest.mark.parametrize("changed", ["artifact", "existing_delivery"])
 def test_publication_rejects_stale_artifacts_and_preserves_user_edits(tmp_path, monkeypatch, changed):
     from paper_analysis.teacher import hf_qc_delivery as module
