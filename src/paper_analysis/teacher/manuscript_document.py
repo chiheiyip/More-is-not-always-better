@@ -213,6 +213,8 @@ def build(source, payload, target):
             pprops = children(trailing, 'pPr')
             props = pprops[0] if pprops else document.createElementNS(W, 'w:pPr')
             if not pprops: trailing.insertBefore(props, trailing.firstChild)
+            if not children(props, 'suppressLineNumbers'):
+                props.appendChild(document.createElementNS(W, 'w:suppressLineNumbers'))
             for old in children(props, 'spacing'): props.removeChild(old)
             spacing = document.createElementNS(W, 'w:spacing')
             for key, value in [('before', '0'), ('after', '0'), ('line', '20'), ('lineRule', 'exact')]:
