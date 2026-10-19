@@ -47,7 +47,9 @@ def apply_document_fonts(path, *, latin='Times New Roman', east_asia='宋体'):
                 value = source.read(info.filename)
                 if info.filename.startswith('word/') and info.filename.endswith('.xml'):
                     document = minidom.parseString(value)
-                    fonts = [n for n in document.getElementsByTagNameNS(W, 'rFonts') if not _native_math(n)]
+                    symbols = {'Symbol','Wingdings','Wingdings 2','Wingdings 3','Webdings'}
+                    fonts = [n for n in document.getElementsByTagNameNS(W, 'rFonts')
+                             if not _native_math(n) and not any(n.getAttributeNS(W, key) in symbols for key in ['ascii','hAnsi'])]
                     if info.filename == 'word/styles.xml':
                         defaults = _child(document.documentElement, 'docDefaults')
                         fonts.append(_child(_child(_child(defaults, 'rPrDefault'), 'rPr'), 'rFonts'))
