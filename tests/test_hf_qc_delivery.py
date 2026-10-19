@@ -67,6 +67,16 @@ def test_writing_run_is_separate_and_legacy_config_is_compatible(tmp_path):
             scientific_run({'run_root': str(a), 'scientific_run_root': str(b)})
 
 
+def test_analysis_pointer_resolves_scientific_tables_while_preserving_delivery():
+    from paper_analysis.teacher.hf_qc_delivery import scientific_pointer
+    pointer={'run_root':'writing','scientific_run_root':'science','analysis_git_sha':'original'}
+    analysis=scientific_pointer(pointer)
+    assert analysis['run_root']=='science'
+    assert analysis['delivery_run_root']=='writing'
+    assert analysis['analysis_git_sha']=='original'
+    assert pointer['run_root']=='writing'
+
+
 def test_later_delivery_reads_proofs_from_scientific_source(tmp_path, monkeypatch):
     from paper_analysis.teacher import hf_qc_delivery as module
     source, writing = tmp_path/'science', tmp_path/'writing'
