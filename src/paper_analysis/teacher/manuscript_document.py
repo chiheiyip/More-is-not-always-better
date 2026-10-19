@@ -120,10 +120,40 @@ def build(source, payload, target):
         paragraphs = children(body, 'p'); tables = children(body, 'tbl')
         changes = []
         seen = set()
+        for item in payload.get('table_reorders', []):
+            def caption_node(value):
+                matches = [p for p in paragraphs if text(p) == value]
+                if len(matches) != 1:
+                    raise ValueError('Table caption must match exactly once: ' + value)
+                return matches[0]
+            caption = caption_node(item['caption'])
+            anchor = caption_node(item['before_caption'])
+            elements = [n for n in body.childNodes if n.nodeType == n.ELEMENT_NODE]
+            index = elements.index(caption)
+            block = elements[index:index+3]
+            if (caption is anchor or len(block) != 3 or block[1].localName != 'tbl'
+                    or block[2].localName != 'p' or text(block[2]) != item['expected_note']):
+                raise ValueError('Table caption, table and note do not form the expected block')
+            header = [text(c) for c in children(children(block[1], 'tr')[0], 'tc')]
+            if header != item['expected_header']:
+                raise ValueError('Table header differs from the requested caption')
+            for node in block:
+                body.insertBefore(node, anchor)
+            changes.append({'kind': 'table_reorder', 'location': item['caption'],
+                            'before': item['caption'], 'after': item['before_caption'],
+                            'reason': item.get('reason', ''), 'sources': item.get('sources', [])})
         for item in payload.get('paragraph_edits', []):
-            key = item['index']
+            if item.get('match_text'):
+                matches = [p for p in paragraphs if text(p) == item['expected']]
+                if len(matches) != 1:
+                    raise ValueError('Paragraph text must match exactly once')
+                node = matches[0]
+                key = ('text', item['expected'])
+            else:
+                key = item['index']
+                node = paragraphs[key]
             if key in seen: raise ValueError('Duplicate paragraph edit')
-            seen.add(key); node = paragraphs[key]
+            seen.add(key)
             before = text(node)
             if before != item['expected']: raise ValueError('Paragraph precondition differs')
             set_paragraph(node, item['replacement'], item.get('preserve_citations', False))
