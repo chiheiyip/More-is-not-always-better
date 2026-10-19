@@ -59,6 +59,8 @@ def apply_document_fonts(path, *, latin='Times New Roman', east_asia='宋体'):
                         if not _native_math(run) and any(run.getElementsByTagNameNS(W, tag) for tag in ['t','instrText','fldChar']):
                             fonts.append(_child(_child(run, 'rPr'), 'rFonts'))
                     for font in fonts:
+                        if any(font.getAttributeNS(W, key) in symbols for key in ['ascii','hAnsi']):
+                            continue
                         for key in ['asciiTheme','hAnsiTheme','eastAsiaTheme','cstheme','csTheme','hint']:
                             font.removeAttributeNS(W, key) if font.hasAttributeNS(W, key) else None
                         for key, face in [('ascii',latin),('hAnsi',latin),('cs',latin),('eastAsia',east_asia)]:
