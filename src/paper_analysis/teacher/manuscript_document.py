@@ -264,6 +264,12 @@ def build(source, payload, target):
             for info in archive.infolist():
                 value = document.toxml(encoding='UTF-8') if info.filename == 'word/document.xml' else Path(media[info.filename]['path']).read_bytes() if info.filename in media else archive.read(info.filename)
                 output.writestr(info, value)
+    if payload.get('document_fonts'):
+        from .document_fonts import apply_document_fonts
+        policy = payload['document_fonts']
+        parts = apply_document_fonts(target, latin=policy['latin'], east_asia=policy['east_asia'])
+        changes.append({'kind':'fonts','location':parts,'before':'source font mappings',
+                        'after':policy,'reason':'Requested Chinese and Latin fonts','sources':[]})
     after = inspect(target); before = inspect(source)
     for name, digest in before['media_sha256'].items():
         if name not in media and after['media_sha256'][name] != digest: raise ValueError('Unedited media changed')

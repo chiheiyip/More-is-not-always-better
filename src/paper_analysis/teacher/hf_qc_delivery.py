@@ -123,7 +123,7 @@ def build_docx(spec, target, sources):
     section.left_margin = section.right_margin = Inches(.8)
     for name in ["Normal", "Title", "Heading 1", "Heading 2", "Heading 3"]:
         style = doc.styles[name]
-        style.font.name = "Calibri"
+        style.font.name = "Times New Roman"
         style.font.color.rgb = RGBColor(0, 0, 0)
         style._element.get_or_add_rPr().rFonts.set(qn("w:eastAsia"), "宋体")
     doc.styles["Normal"].font.size = Pt(10.5)
@@ -178,6 +178,8 @@ def build_docx(spec, target, sources):
     section.footer.paragraphs[0]._p.append(field)
     target.parent.mkdir(parents=True, exist_ok=True)
     doc.save(target)
+    from .document_fonts import apply_document_fonts
+    apply_document_fonts(target)
 
 
 def prepare(config, repo):
