@@ -35,6 +35,12 @@ def scientific_run(config):
     return source
 
 
+def scientific_pointer(pointer):
+    """Analysis consumers must keep resolving real tables, not a writing folder."""
+    return dict(pointer, run_root=pointer["scientific_run_root"],
+                delivery_run_root=pointer["run_root"])
+
+
 def validate_numeric_claims(payload, source_by_key):
     rows = []
     for item in payload.get("numeric_claims", []):
@@ -361,7 +367,8 @@ def publish(config, repo):
         preserved.mkdir()
         for name in [*documents, *retired]:
             if (outputs / name).is_file(): shutil.copyfile(outputs / name, preserved / name)
-        summary = {"status": "complete", "run_root": str(run), "analysis_git_sha": pointer["analysis_git_sha"],
+        summary = {"status": "complete", "run_root": str(scientific_run(config)),
+            "delivery_run_root": str(run), "analysis_git_sha": pointer["analysis_git_sha"],
             "publication_git_sha": pointer["publication_git_sha"], "scope_note": pointer["scope"],
             "samples": payload["scientific_samples"], "eye": payload["scientific_samples"]["eye"],
             "eeg": payload["scientific_samples"]["eeg"], "joint": payload["scientific_samples"]["joint"],
@@ -376,7 +383,10 @@ def publish(config, repo):
             "eye_participants": summary["eye"]["participants"], "eye_trials": summary["eye"]["trials"],
             "eeg_participants": summary["eeg"]["participants"], "eeg_trials": summary["eeg"]["trials"],
             "QC": "NoHF", "questionnaire": "not_rerun"}]).to_csv(outputs / "realdata_run_summary.csv", index=False, encoding="utf-8-sig")
-        for name in pointer_names: dump(outputs / name, pointer)
+        analysis_pointers = {"hf_qc_revision_latest.json", "eye_eeg_fresh_latest.json",
+                             "eeg_denominator_sensitivity_latest.json", "eye_eeg_incremental_latest.json"}
+        for name in pointer_names:
+            dump(outputs / name, scientific_pointer(pointer) if name in analysis_pointers else pointer)
         for p in destination.iterdir():
             if p.is_file() and p.suffix.lower() in {".docx", ".md", ".xlsx"}: shutil.copyfile(p, run / p.name)
         shutil.copyfile(run / "论文数据分析结果报告.md", outputs / "论文数据分析结果报告.md")
