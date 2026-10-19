@@ -127,6 +127,8 @@ def build_docx(spec, target, sources):
         style.font.color.rgb = RGBColor(0, 0, 0)
         style._element.get_or_add_rPr().rFonts.set(qn("w:eastAsia"), "宋体")
     doc.styles["Normal"].font.size = Pt(10.5)
+    if "title_size_pt" in spec:
+        doc.styles["Title"].font.size = Pt(spec["title_size_pt"])
     doc.styles["Normal"].paragraph_format.space_after = Pt(6)
     doc.add_paragraph(spec["title"], "Title")
     for block in spec["blocks"]:
