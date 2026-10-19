@@ -23,6 +23,18 @@ from .fresh_handoff import SHEETS, typed
 from .request_handoff import archive_publish
 
 
+def scientific_run(config):
+    """Keep immutable scientific evidence separate from a later writing run."""
+    source = Path(config.get("scientific_run_root", config["run_root"]))
+    output = Path(config["run_root"])
+    if source.resolve() != output.resolve() and (
+        source.resolve().is_relative_to(output.resolve())
+        or output.resolve().is_relative_to(source.resolve())
+    ):
+        raise StageBlockedError("Scientific and writing runs must be disjoint")
+    return source
+
+
 def validate_numeric_claims(payload, source_by_key):
     rows = []
     for item in payload.get("numeric_claims", []):
@@ -51,7 +63,7 @@ def validate_numeric_claims(payload, source_by_key):
 
 
 def check(config):
-    run = Path(config["run_root"])
+    run = scientific_run(config)
     work = Path(config["work_root"]).resolve()
     delivery = Path(config["delivery_root"]).resolve()
     archive = Path(config["archive_path"]).resolve()
@@ -167,6 +179,7 @@ def prepare(config, repo):
         raise StageBlockedError("Prepare from clean committed code")
     records = check(config)
     run, work = Path(config["run_root"]), Path(config["work_root"])
+    run.mkdir(parents=True, exist_ok=True)
     stage = work / "staging"
     stage.mkdir(parents=True, exist_ok=False)
     flat = stage / "filesource_flat"
@@ -233,7 +246,8 @@ def prepare(config, repo):
     shutil.copyfile(work / "formal_index_finalized.xlsx", work / "结果文件总索引.xlsx")
     artifact_paths = [p for p in stage.iterdir() if p.is_file()]
     dump(work / "preparation.json", {"code_sha": git_sha(repo), "config_sha256": hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest(),
-        "calculation_sha": read_json(run / "run_manifest.json")["code_sha"], "old_inventory": inventory(Path(config["delivery_root"])),
+        "scientific_run_root": str(scientific_run(config)),
+        "calculation_sha": read_json(scientific_run(config) / "run_manifest.json")["code_sha"], "old_inventory": inventory(Path(config["delivery_root"])),
         "formal_index_sha256": file_sha256(work / "结果文件总索引.xlsx"),
         "artifacts": {p.name: file_sha256(p) for p in artifact_paths}})
     return stage
@@ -258,6 +272,11 @@ def publish(config, repo):
     run, work = Path(config["run_root"]), Path(config["work_root"])
     stage = work / "staging"
     prepared = read_json(work / "preparation.json")
+    retired = config.get("retired_formal_documents", [])
+    for name in retired:
+        if (Path(name).name != name or Path(name).suffix.lower() not in {".docx", ".csv"}
+                or name in prepared["artifacts"]):
+            raise StageBlockedError("Invalid retired formal document name")
     if prepared["code_sha"] != git_sha(repo):
         raise StageBlockedError("Publication code changed after preparation")
     if prepared["config_sha256"] != hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest():
@@ -320,6 +339,7 @@ def publish(config, repo):
     dump(work / "archive_path_mapping.json", moved)
     pointer = {"status": "complete", "scope": "formal_no_hf_eeg_and_affected_joint; eye_main_verified_reuse; questionnaire_not_rerun",
         "run_root": str(run), "work_root": str(work), "analysis_git_sha": prepared["calculation_sha"],
+        "scientific_run_root": str(scientific_run(config)),
         "publication_git_sha": git_sha(repo), "delivery_root": str(destination), "archive_root": str(archive),
         "zip": str(destination / archive_file.name), "zip_sha256": files[archive_file.name], "source_count": len(records),
         "analysis_config": str(Path(config["outputs_root"]) / "analysis_latest_eye_eeg.local.json"),
@@ -334,11 +354,12 @@ def publish(config, repo):
                                           "README_当前有效结果.md", "README_老师本次EEG交付.md", "结果文件总索引.xlsx", "code_publication.json", "analysis_latest_eye_eeg.local.json", *pointer_names]]
     documents = formal_document_sources(destination)
     targets.extend(outputs / name for name in documents)
+    targets.extend(outputs / name for name in retired)
     backups = {path: path.read_bytes() if path.exists() else None for path in targets}
     try:
         preserved = work / "previous_formal_documents"
         preserved.mkdir()
-        for name in documents:
+        for name in [*documents, *retired]:
             if (outputs / name).is_file(): shutil.copyfile(outputs / name, preserved / name)
         summary = {"status": "complete", "run_root": str(run), "analysis_git_sha": pointer["analysis_git_sha"],
             "publication_git_sha": pointer["publication_git_sha"], "scope_note": pointer["scope"],
@@ -346,7 +367,8 @@ def publish(config, repo):
             "eeg": payload["scientific_samples"]["eeg"], "joint": payload["scientific_samples"]["joint"],
             "synchronized": payload["scientific_samples"]["joint"]["synchronized"],
             "questionnaire": {"status": "not_rerun", "original_53_person_chapter_source": "not_fully_verified"},
-            "reproducibility": {"status": "passed", "proof": str(run / "complete_verification/verification.json")},
+            "reproducibility": {"status": "passed", "proof": str(scientific_run(config) / "complete_verification/verification.json")},
+            "scientific_run_root": str(scientific_run(config)),
             "teacher_delivery": pointer, "current_teacher_request": pointer, "latest_hf_qc_revision": pointer,
             "latest_manuscript_delivery": pointer, "previous_summary": str(work / "previous_realdata_run_summary.json")}
         dump(outputs / "realdata_run_summary.json", summary)
@@ -360,8 +382,10 @@ def publish(config, repo):
         shutil.copyfile(run / "论文数据分析结果报告.md", outputs / "论文数据分析结果报告.md")
         shutil.copyfile(work / "结果文件总索引.xlsx", outputs / "结果文件总索引.xlsx")
         for name, source in documents.items(): shutil.copyfile(source, outputs / name)
+        for name in retired:
+            if (outputs / name).is_file(): (outputs / name).unlink()
         dump(outputs / "code_publication.json", pointer)
-        active_config = read_json(run / "resolved_config.json")
+        active_config = read_json(scientific_run(config) / "resolved_config.json")
         active_config["run_id"] = "eye_eeg_no_hf_next_run"
         dump(outputs / "analysis_latest_eye_eeg.local.json", active_config)
         (outputs / "README_当前有效结果.md").write_text("# 当前有效结果\n\n正式 EEG QC 已修订为 No-HF，相关 EEG 和联合结果以本轮为准。眼动独立主分析经核验复用，问卷独立结果未重跑。\n\n" + str(run) + "\n\n" + pointer["zip"] + "\n", encoding="utf-8")

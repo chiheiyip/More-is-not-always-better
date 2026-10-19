@@ -44,3 +44,17 @@ requires current content/visual QA hashes, actual ZIP extraction and offline-lin
 checks, and archives the complete existing delivery outside its root. Formal
 summary pointers are updated with explicit No-HF and eye-reuse provenance;
 failed publication restores both the old delivery and formal root entrypoints.
+
+A later writing-only delivery may set `run_root` to a new output directory and
+`scientific_run_root` to the completed scientific run. Without the latter, the
+original single-run behavior is preserved. Scientific proofs, calculation SHA and
+resolved analysis configuration always come from the scientific run; reports,
+manuscript edits and publication receipts go to the writing run. The two paths
+must be equal or disjoint. Optional `retired_formal_documents` names obsolete
+root-level DOCX/CSV files to preserve in the publication backup before retiring.
+
+Manuscript payloads support exact-text paragraph selection and `table_reorders`.
+A reorder requires unique exact caption texts, the expected table header and
+the complete following note. It moves the existing caption/table/note block
+without rebuilding scientific values, figures or citation fields. Missing,
+ambiguous or structurally unexpected matches stop the edit.

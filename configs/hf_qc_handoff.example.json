@@ -1,6 +1,7 @@
 {
   "mode": "hf-qc-revision",
   "run_root": "LOCAL_COMPLETED_HF_REVISION_RUN",
+  "scientific_run_root": "LOCAL_COMPLETED_HF_REVISION_RUN",
   "work_root": "LOCAL_EXTERNAL_PACKAGE_BUILD_DIRECTORY",
   "delivery_root": "LOCAL_CURRENT_TEACHER_DELIVERY",
   "archive_path": "LOCAL_EXTERNAL_ARCHIVE_NEW_DIRECTORY",
